@@ -584,3 +584,13 @@ Conducted comprehensive audit of all 282 unit tests across 13 test files against
 - **Task**: Analyze CODEREVIEW.md and create prioritized task files
 - **Outcome**: Created TASKS-CRITICAL.md (6 tasks), TASKS-HIGH.md (8 tasks), TASKS-MEDIUM.md (12 tasks), and TASKS-LOW.md (14 tasks) — 40 total actionable tasks derived from the code review
 - **Details**: Each task file contains detailed descriptions with unique IDs, affected files, problem descriptions, risk assessments, fix steps, and acceptance criteria
+
+## 2026-06-13T18:43:44Z — Resolve 3 CRITICAL security vulnerabilities (CRIT-001, CRIT-002, CRIT-003)
+
+- **Task**: Resolve three CRITICAL security vulnerabilities in the Joplin MCP server codebase
+- **Outcome**: All three vulnerabilities fixed, all 289 tests passing across 12 test files
+- **Details**:
+  - CRIT-001: Added `validateId()` method to `JoplinDataClient` in `src/data-client.ts` — validates all user-supplied IDs against `^[a-zA-Z0-9_-]+$` regex before interpolation into URL paths. Covers: getNote, updateNote, deleteNote, getFolder, updateFolder, deleteFolder, getTag, deleteTag, getNoteTags, tagNote, untagNote, getResource. Throws ValidationError for invalid IDs.
+  - CRIT-002: Added CLI argument validation to `CliExecutor` in `src/cli-executor.ts` — whitelist of 22 allowed subcommands (`ALLOWED_SUBCOMMANDS` Set), metacharacter blocking via `SHELL_METACHARACTERS = /[;|&$`(){}<>\n]/`regex, and`validateArgs()` private method that validates args[0] against the whitelist and all args against the metacharacter pattern. Throws CliError for invalid input.
+  - CRIT-003: Created `GuardedString` class in `src/guarded-string.ts` — wraps sensitive string values with private `#value` field, overrides `toString()`, `toJSON()`, and `[Symbol.toPrimitive]()` to return `'[REDACTED]'`/`NaN`. Updated `src/config.ts` to use `GuardedString` for `joplinPassword` via Zod `.transform()`. Updated test fixtures in `tests/logger.test.ts`, `tests/sync-manager.test.ts`, and `tests/server.test.ts` to use `new GuardedString(...)`.
+  - Tests: Fixed `tests/cli-executor.test.ts` — changed two test cases from `['bad-command']` to `['help']` (whitelisted subcommand) to allow validation to pass and reach the execFile mock.

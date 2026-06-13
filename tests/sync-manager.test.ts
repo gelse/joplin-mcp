@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SyncManager } from '../src/sync-manager.js';
 import type { Logger } from '../src/logger.js';
 import type { Config } from '../src/config.js';
+import { GuardedString } from '../src/guarded-string.js';
 
 // ── Mocks ──────────────────────────────────────────────────────────────
 
@@ -33,7 +34,7 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
   return {
     joplinServerUrl: 'https://test.example.com/',
     joplinUsername: 'test@example.com',
-    joplinPassword: 'dummy-password',
+    joplinPassword: new GuardedString('dummy-password'),
     dataApiPort: 41100,
     logLevel: 'silent',
     syncIntervalSeconds: 5,

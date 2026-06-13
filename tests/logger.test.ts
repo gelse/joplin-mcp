@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Writable } from 'stream';
 import { pino } from 'pino';
 import type { Config } from '../src/config.js';
+import { GuardedString } from '../src/guarded-string.js';
 
 // Mock pino-pretty so it doesn't spawn worker threads in test environment
 vi.mock('pino-pretty', () => ({
@@ -52,7 +53,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
   return {
     joplinServerUrl: 'https://example.com',
     joplinUsername: 'user',
-    joplinPassword: 'dummy-password',
+    joplinPassword: new GuardedString('dummy-password'),
     dataApiPort: 41100,
     logLevel: 'info',
     syncIntervalSeconds: 300,

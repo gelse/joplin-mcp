@@ -1,11 +1,11 @@
-import type { Logger } from "./logger.js";
+import type { Logger } from './logger.js';
 import {
   AuthError,
   ConflictError,
   DataApiError,
   NotFoundError,
   ValidationError,
-} from "./errors.js";
+} from './errors.js';
 import type {
   Note,
   Folder,
@@ -22,8 +22,8 @@ import type {
   FolderCreatePayload,
   FolderUpdatePayload,
   TagCreatePayload,
-} from "./api-types.js";
-import { clampLimit, buildPageParam, fetchAllPages } from "./pagination.js";
+} from './api-types.js';
+import { clampLimit, buildPageParam, fetchAllPages } from './pagination.js';
 
 export class JoplinDataClient {
   private readonly baseUrl: string;
@@ -31,28 +31,41 @@ export class JoplinDataClient {
 
   constructor(
     port: number,
-    private readonly logger: Logger
+    private readonly logger: Logger,
   ) {
     this.baseUrl = `http://127.0.0.1:${port}`;
+  }
+
+  /**
+   * Validate that a user-supplied ID contains only safe characters
+   * (alphanumeric, hyphens, underscores) to prevent path traversal
+   * and injection attacks.
+   */
+  private validateId(id: string, label: string = 'id'): void {
+    if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
+      throw new ValidationError(
+        `Invalid ${label}: "${id}" — must contain only alphanumeric characters, hyphens, and underscores`,
+      );
+    }
   }
 
   private async getToken(): Promise<string> {
     if (this.token) return this.token;
 
     const response = await fetch(`${this.baseUrl}/auth`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
     });
 
     if (!response.ok) {
       throw new AuthError(
-        `Failed to obtain Joplin API token: ${response.status} ${response.statusText}`
+        `Failed to obtain Joplin API token: ${response.status} ${response.statusText}`,
       );
     }
 
     const data = (await response.json()) as { auth_token?: string };
     if (!data.auth_token) {
-      throw new AuthError("No auth_token in response");
+      throw new AuthError('No auth_token in response');
     }
 
     this.token = data.auth_token;
@@ -63,18 +76,18 @@ export class JoplinDataClient {
     method: string,
     path: string,
     body?: unknown,
-    retryAuth = true
+    retryAuth = true,
   ): Promise<T> {
     const makeRequest = async (): Promise<Response> => {
       const headers: Record<string, string> = {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       };
 
       if (this.token) {
-        headers["Authorization"] = `Bearer ${this.token}`;
+        headers['Authorization'] = `Bearer ${this.token}`;
       }
 
-      this.logger.debug({ method, path }, "Data API request");
+      this.logger.debug({ method, path }, 'Data API request');
 
       return fetch(`${this.baseUrl}${path}`, {
         method,
@@ -87,29 +100,25 @@ export class JoplinDataClient {
 
     // If unauthorized, try getting a new token and retry once
     if (response.status === 401 && retryAuth) {
-      this.logger.debug("Token expired, refreshing");
+      this.logger.debug('Token expired, refreshing');
       this.token = null;
       await this.getToken();
       response = await makeRequest();
     }
 
     if (response.status === 401) throw new AuthError();
-    if (response.status === 404)
-      throw new NotFoundError("resource", path);
-    if (response.status === 409)
-      throw new ConflictError("resource", path);
+    if (response.status === 404) throw new NotFoundError('resource', path);
+    if (response.status === 409) throw new ConflictError('resource', path);
     if (response.status === 400) {
-      const body = await response.text().catch(() => "");
-      throw new ValidationError(
-        `Bad request: ${path} — ${body}`
-      );
+      const body = await response.text().catch(() => '');
+      throw new ValidationError(`Bad request: ${path} — ${body}`);
     }
     if (!response.ok) {
-      const body = await response.text().catch(() => "");
+      const body = await response.text().catch(() => '');
       throw new DataApiError(
         `Joplin Data API error: ${response.status} ${response.statusText}`,
         response.status,
-        body
+        body,
       );
     }
 
@@ -118,16 +127,13 @@ export class JoplinDataClient {
 
   // === Ping ===
   async ping(): Promise<PingResponse> {
-    return this.request<PingResponse>("GET", "/ping");
+    return this.request<PingResponse>('GET', '/ping');
   }
 
   // === Notes ===
-  async listNotes(
-    limit?: number,
-    page?: number
-  ): Promise<PaginatedResponse<Note>> {
+  async listNotes(limit?: number, page?: number): Promise<PaginatedResponse<Note>> {
     const params = `?limit=${clampLimit(limit)}${buildPageParam(page)}`;
-    return this.request<PaginatedResponse<Note>>("GET", `/notes${params}`);
+    return this.request<PaginatedResponse<Note>>('GET', `/notes${params}`);
   }
 
   async getAllNotes(): Promise<Note[]> {
@@ -135,28 +141,28 @@ export class JoplinDataClient {
   }
 
   async getNote(id: string): Promise<Note> {
-    return this.request<Note>("GET", `/notes/${id}`);
+    this.validateId(id, 'note_id');
+    return this.request<Note>('GET', `/notes/${id}`);
   }
 
   async createNote(payload: NoteCreatePayload): Promise<Note> {
-    return this.request<Note>("POST", "/notes", payload);
+    return this.request<Note>('POST', '/notes', payload);
   }
 
   async updateNote(id: string, payload: NoteUpdatePayload): Promise<Note> {
-    return this.request<Note>("PUT", `/notes/${id}`, payload);
+    this.validateId(id, 'note_id');
+    return this.request<Note>('PUT', `/notes/${id}`, payload);
   }
 
   async deleteNote(id: string): Promise<void> {
-    await this.request<never>("DELETE", `/notes/${id}`);
+    this.validateId(id, 'note_id');
+    await this.request<never>('DELETE', `/notes/${id}`);
   }
 
   // === Folders (Notebooks) ===
-  async listFolders(
-    limit?: number,
-    page?: number
-  ): Promise<PaginatedResponse<Folder>> {
+  async listFolders(limit?: number, page?: number): Promise<PaginatedResponse<Folder>> {
     const params = `?limit=${clampLimit(limit)}${buildPageParam(page)}`;
-    return this.request<PaginatedResponse<Folder>>("GET", `/folders${params}`);
+    return this.request<PaginatedResponse<Folder>>('GET', `/folders${params}`);
   }
 
   async getAllFolders(): Promise<Folder[]> {
@@ -164,28 +170,28 @@ export class JoplinDataClient {
   }
 
   async getFolder(id: string): Promise<Folder> {
-    return this.request<Folder>("GET", `/folders/${id}`);
+    this.validateId(id, 'folder_id');
+    return this.request<Folder>('GET', `/folders/${id}`);
   }
 
   async createFolder(payload: FolderCreatePayload): Promise<Folder> {
-    return this.request<Folder>("POST", "/folders", payload);
+    return this.request<Folder>('POST', '/folders', payload);
   }
 
   async updateFolder(id: string, payload: FolderUpdatePayload): Promise<Folder> {
-    return this.request<Folder>("PUT", `/folders/${id}`, payload);
+    this.validateId(id, 'folder_id');
+    return this.request<Folder>('PUT', `/folders/${id}`, payload);
   }
 
   async deleteFolder(id: string): Promise<void> {
-    await this.request<never>("DELETE", `/folders/${id}`);
+    this.validateId(id, 'folder_id');
+    await this.request<never>('DELETE', `/folders/${id}`);
   }
 
   // === Tags ===
-  async listTags(
-    limit?: number,
-    page?: number
-  ): Promise<PaginatedResponse<Tag>> {
+  async listTags(limit?: number, page?: number): Promise<PaginatedResponse<Tag>> {
     const params = `?limit=${clampLimit(limit)}${buildPageParam(page)}`;
-    return this.request<PaginatedResponse<Tag>>("GET", `/tags${params}`);
+    return this.request<PaginatedResponse<Tag>>('GET', `/tags${params}`);
   }
 
   async getAllTags(): Promise<Tag[]> {
@@ -193,45 +199,43 @@ export class JoplinDataClient {
   }
 
   async getTag(id: string): Promise<Tag> {
-    return this.request<Tag>("GET", `/tags/${id}`);
+    this.validateId(id, 'tag_id');
+    return this.request<Tag>('GET', `/tags/${id}`);
   }
 
   async createTag(payload: TagCreatePayload): Promise<Tag> {
-    return this.request<Tag>("POST", "/tags", payload);
+    return this.request<Tag>('POST', '/tags', payload);
   }
 
   async deleteTag(id: string): Promise<void> {
-    await this.request<never>("DELETE", `/tags/${id}`);
+    this.validateId(id, 'tag_id');
+    await this.request<never>('DELETE', `/tags/${id}`);
   }
 
   // === Note-Tag relationships ===
   async getNoteTags(noteId: string): Promise<Tag[]> {
-    return this.request<Tag[]>("GET", `/notes/${noteId}/tags`);
+    this.validateId(noteId, 'note_id');
+    return this.request<Tag[]>('GET', `/notes/${noteId}/tags`);
   }
 
   async tagNote(noteId: string, tagId: string): Promise<NoteTag> {
-    return this.request<NoteTag>("POST", `/notes/${noteId}/tags`, {
+    this.validateId(noteId, 'note_id');
+    this.validateId(tagId, 'tag_id');
+    return this.request<NoteTag>('POST', `/notes/${noteId}/tags`, {
       id: tagId,
     });
   }
 
   async untagNote(noteId: string, tagId: string): Promise<void> {
-    await this.request<never>(
-      "DELETE",
-      `/notes/${noteId}/tags/${tagId}`
-    );
+    this.validateId(noteId, 'note_id');
+    this.validateId(tagId, 'tag_id');
+    await this.request<never>('DELETE', `/notes/${noteId}/tags/${tagId}`);
   }
 
   // === Resources ===
-  async listResources(
-    limit?: number,
-    page?: number
-  ): Promise<PaginatedResponse<Resource>> {
+  async listResources(limit?: number, page?: number): Promise<PaginatedResponse<Resource>> {
     const params = `?limit=${clampLimit(limit)}${buildPageParam(page)}`;
-    return this.request<PaginatedResponse<Resource>>(
-      "GET",
-      `/resources${params}`
-    );
+    return this.request<PaginatedResponse<Resource>>('GET', `/resources${params}`);
   }
 
   async getAllResources(): Promise<Resource[]> {
@@ -239,27 +243,22 @@ export class JoplinDataClient {
   }
 
   async getResource(id: string): Promise<Resource> {
-    return this.request<Resource>("GET", `/resources/${id}`);
+    this.validateId(id, 'resource_id');
+    return this.request<Resource>('GET', `/resources/${id}`);
   }
 
   // === Events ===
-  async listEvents(
-    limit?: number,
-    page?: number
-  ): Promise<PaginatedResponse<Event>> {
+  async listEvents(limit?: number, page?: number): Promise<PaginatedResponse<Event>> {
     const params = `?limit=${clampLimit(limit)}${buildPageParam(page)}`;
-    return this.request<PaginatedResponse<Event>>("GET", `/events${params}`);
+    return this.request<PaginatedResponse<Event>>('GET', `/events${params}`);
   }
 
   // === Search ===
   async search(query: SearchQuery): Promise<SearchResult[]> {
     const params = new URLSearchParams();
-    params.set("query", query.query);
-    if (query.type) params.set("type", query.type);
+    params.set('query', query.query);
+    if (query.type) params.set('type', query.type);
 
-    return this.request<SearchResult[]>(
-      "GET",
-      `/search?${params.toString()}`
-    );
+    return this.request<SearchResult[]>('GET', `/search?${params.toString()}`);
   }
 }

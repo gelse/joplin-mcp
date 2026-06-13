@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { GuardedString } from '../src/guarded-string.js';
 
 // ---------------------------------------------------------------------------
 // Mock all server dependencies BEFORE importing the module
@@ -106,7 +107,7 @@ describe('Server entrypoint', () => {
     const mockConfig = {
       joplinServerUrl: 'https://example.com',
       joplinUsername: 'user',
-      joplinPassword: 'dummy-password',
+      joplinPassword: new GuardedString('dummy-password'),
       dataApiPort: 41100,
       logLevel: 'info',
       syncIntervalSeconds: 300,
@@ -135,7 +136,7 @@ describe('Server entrypoint', () => {
     const mockConfig = {
       joplinServerUrl: 'https://example.com',
       joplinUsername: 'user',
-      joplinPassword: 'dummy-password',
+      joplinPassword: new GuardedString('dummy-password'),
       dataApiPort: 41100,
       logLevel: 'info',
       syncIntervalSeconds: 300,
@@ -159,7 +160,7 @@ describe('Server entrypoint', () => {
     const mockConfig = {
       joplinServerUrl: 'https://example.com',
       joplinUsername: 'user',
-      joplinPassword: 'dummy-password',
+      joplinPassword: new GuardedString('dummy-password'),
       dataApiPort: 41100,
       logLevel: 'info',
       syncIntervalSeconds: 300,
@@ -213,7 +214,7 @@ describe('Server entrypoint', () => {
     const mockConfig = {
       joplinServerUrl: 'https://example.com',
       joplinUsername: 'user',
-      joplinPassword: 'dummy-password',
+      joplinPassword: new GuardedString('dummy-password'),
       dataApiPort: 41100,
       logLevel: 'info',
       syncIntervalSeconds: 300,
@@ -316,7 +317,7 @@ describe('Server entrypoint', () => {
     const mockConfig = {
       joplinServerUrl: 'https://example.com',
       joplinUsername: 'user',
-      joplinPassword: 'dummy-password',
+      joplinPassword: new GuardedString('dummy-password'),
       dataApiPort: 41100,
       logLevel: 'info',
       syncIntervalSeconds: 300,
@@ -352,7 +353,7 @@ describe('Server entrypoint', () => {
     const mockConfig = {
       joplinServerUrl: 'https://example.com',
       joplinUsername: 'user',
-      joplinPassword: 'dummy-password',
+      joplinPassword: new GuardedString('dummy-password'),
       dataApiPort: 41100,
       logLevel: 'info',
       syncIntervalSeconds: 300,
@@ -387,7 +388,7 @@ describe('Server entrypoint', () => {
     const mockConfig = {
       joplinServerUrl: 'https://example.com',
       joplinUsername: 'user',
-      joplinPassword: 'dummy-password',
+      joplinPassword: new GuardedString('dummy-password'),
       dataApiPort: 41100,
       logLevel: 'info',
       syncIntervalSeconds: 300,
@@ -422,7 +423,7 @@ describe('Server entrypoint', () => {
     const mockConfig = {
       joplinServerUrl: 'https://example.com',
       joplinUsername: 'user',
-      joplinPassword: 'dummy-password',
+      joplinPassword: new GuardedString('dummy-password'),
       dataApiPort: 41100,
       logLevel: 'info',
       syncIntervalSeconds: 300,
@@ -478,7 +479,7 @@ describe('Server entrypoint', () => {
     const mockConfig = {
       joplinServerUrl: 'https://example.com',
       joplinUsername: 'user',
-      joplinPassword: 'dummy-password',
+      joplinPassword: new GuardedString('dummy-password'),
       dataApiPort: 41100,
       logLevel: 'info',
       syncIntervalSeconds: 300,
@@ -523,7 +524,7 @@ describe('Server entrypoint', () => {
     const mockConfig = {
       joplinServerUrl: 'https://example.com',
       joplinUsername: 'user',
-      joplinPassword: 'dummy-password',
+      joplinPassword: new GuardedString('dummy-password'),
       dataApiPort: 41100,
       logLevel: 'info',
       syncIntervalSeconds: 300,
@@ -567,7 +568,7 @@ describe('Server entrypoint', () => {
     const mockConfig = {
       joplinServerUrl: 'https://example.com',
       joplinUsername: 'user',
-      joplinPassword: 'dummy-password',
+      joplinPassword: new GuardedString('dummy-password'),
       dataApiPort: 41100,
       logLevel: 'info',
       syncIntervalSeconds: 300,

@@ -332,7 +332,7 @@ describe('CliExecutor', () => {
       });
 
       try {
-        await executor.exec(['bad-command']);
+        await executor.exec(['help']);
         expect.unreachable('Should have thrown');
       } catch (e) {
         const cliErr = e as CliError;
@@ -349,7 +349,7 @@ describe('CliExecutor', () => {
       mockFailure({ stdout: '', stderr: '' });
 
       try {
-        await executor.exec(['bad-command']);
+        await executor.exec(['help']);
         expect.unreachable('Should have thrown');
       } catch (e) {
         const cliErr = e as CliError;
