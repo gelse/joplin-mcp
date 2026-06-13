@@ -1,0 +1,23 @@
+services:
+  joplin-mcp:
+    build: .
+    container_name: joplin-mcp-server
+    ports:
+      - '${JOPLIN_DATA_API_PORT:-41100}:${JOPLIN_DATA_API_PORT:-41100}'
+    env_file:
+      - .env
+    environment:
+      - SYNC_INTERVAL_SECONDS=${SYNC_INTERVAL_SECONDS:-300}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - joplin_data:/home/joplin/.config/joplin
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:${JOPLIN_DATA_API_PORT:-41100}/ping']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  joplin_data:
