@@ -1,11 +1,11 @@
-import { spawn, type ChildProcess } from "node:child_process";
-import { parseConfig } from "./config.js";
-import { createLogger } from "./logger.js";
-import { SyncManager } from "./sync-manager.js";
-import { JoplinDataClient } from "./data-client.js";
-import { ToolRegistry } from "./mcp/tool-registry.js";
-import { startMCPServer } from "./mcp/server.js";
-import type { ToolContext } from "./mcp/tools.js";
+import { spawn, type ChildProcess } from 'node:child_process';
+import { parseConfig } from './config.js';
+import { createLogger } from './logger.js';
+import { SyncManager } from './sync-manager.js';
+import { JoplinDataClient } from './data-client.js';
+import { ToolRegistry } from './mcp/tool-registry.js';
+import { startMCPServer } from './mcp/server.js';
+import type { ToolContext } from './mcp/tools.js';
 
 /**
  * Start the Joplin Data API server as a child process.
@@ -15,18 +15,22 @@ function startDataApiServer(port: number): {
   process: ChildProcess;
   ready: Promise<void>;
 } {
-  const child = spawn("joplin", ["server", "start", "--host", "0.0.0.0", "--port", String(port), "--no-open"], {
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const child = spawn(
+    'joplin',
+    ['server', 'start', '--host', '127.0.0.1', '--port', String(port), '--no-open'],
+    {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  );
 
   // Collect stderr for diagnostics
-  let stderr = "";
-  child.stderr?.on("data", (data: Buffer) => {
+  let stderr = '';
+  child.stderr?.on('data', (data: Buffer) => {
     stderr += data.toString();
   });
 
-  child.on("exit", (code, signal) => {
-    if (code !== 0 && signal !== "SIGTERM" && signal !== "SIGINT") {
+  child.on('exit', (code, signal) => {
+    if (code !== 0 && signal !== 'SIGTERM' && signal !== 'SIGINT') {
       console.error(`Joplin Data API exited unexpectedly (code=${code}, signal=${signal})`);
       console.error(`stderr: ${stderr}`);
       process.exit(1);
@@ -73,15 +77,15 @@ async function main(): Promise<void> {
   // Initialize structured logger
   const logger = createLogger(config);
 
-  logger.info("Joplin API MCP Server starting");
-  logger.debug({ config }, "Configuration loaded");
+  logger.info('Joplin API MCP Server starting');
+  logger.debug({ config }, 'Configuration loaded');
 
   // Start the Joplin Data API server
-  logger.info({ port: config.dataApiPort }, "Starting Joplin Data API server");
+  logger.info({ port: config.dataApiPort }, 'Starting Joplin Data API server');
   const dataApi = startDataApiServer(config.dataApiPort);
 
   await dataApi.ready;
-  logger.info("Joplin Data API server is ready");
+  logger.info('Joplin Data API server is ready');
 
   // Initialize data client (connects to the Data API)
   const client = new JoplinDataClient(config.dataApiPort, logger);
@@ -89,9 +93,9 @@ async function main(): Promise<void> {
   // Verify connectivity
   try {
     const ping = await client.ping();
-    logger.info({ status: ping.status, version: ping.version }, "Data API ping successful");
+    logger.info({ status: ping.status, version: ping.version }, 'Data API ping successful');
   } catch (error) {
-    logger.error({ err: error }, "Failed to ping Joplin Data API");
+    logger.error({ err: error }, 'Failed to ping Joplin Data API');
     dataApi.process.kill();
     process.exit(1);
   }
@@ -102,7 +106,7 @@ async function main(): Promise<void> {
   try {
     await syncManager.initialSync();
   } catch (error) {
-    logger.error({ err: error }, "Initial sync failed, exiting");
+    logger.error({ err: error }, 'Initial sync failed, exiting');
     dataApi.process.kill();
     process.exit(1);
   }
@@ -119,46 +123,46 @@ async function main(): Promise<void> {
 
   // Initialize tool registry
   const registry = new ToolRegistry();
-  logger.info({ tools: registry.getToolNames() }, "Tool registry initialized");
+  logger.info({ tools: registry.getToolNames() }, 'Tool registry initialized');
 
   // Handle graceful shutdown
   const shutdown = async (signal: string) => {
-    logger.info({ signal }, "Received shutdown signal");
+    logger.info({ signal }, 'Received shutdown signal');
     syncManager.stopPeriodicSync();
 
     // Kill the Data API child process
     if (dataApi.process.exitCode === null) {
-      logger.info("Stopping Joplin Data API server");
-      dataApi.process.kill("SIGTERM");
+      logger.info('Stopping Joplin Data API server');
+      dataApi.process.kill('SIGTERM');
 
       // Give it a moment to shut down gracefully
       await new Promise((resolve) => setTimeout(resolve, 2000));
 
       if (dataApi.process.exitCode === null) {
-        dataApi.process.kill("SIGKILL");
+        dataApi.process.kill('SIGKILL');
       }
     }
 
-    logger.info("Shutdown complete");
+    logger.info('Shutdown complete');
     process.exit(0);
   };
 
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 
-  logger.info("Joplin API MCP Server ready, starting MCP on stdio");
+  logger.info('Joplin API MCP Server ready, starting MCP on stdio');
 
   // Start MCP server (blocks on stdio transport)
   try {
     await startMCPServer(registry, toolContext, logger);
   } catch (error) {
-    logger.error({ err: error }, "MCP server error");
+    logger.error({ err: error }, 'MCP server error');
     dataApi.process.kill();
     process.exit(1);
   }
 }
 
 main().catch((error) => {
-  console.error("Fatal error:", error);
+  console.error('Fatal error:', error);
   process.exit(1);
 });

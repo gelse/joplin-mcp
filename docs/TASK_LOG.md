@@ -617,3 +617,17 @@ Conducted comprehensive audit of all 282 unit tests across 13 test files against
   - HIGH-002: Pinned `pnpm` to `pnpm@9` in both Dockerfile stages (builder: line 7, production: line 35)
   - HIGH-002: Pinned `joplin` to `3.6.2` (latest stable via `npm view joplin version`) using `ARG JOPLIN_CLI_VERSION=3.6.2` on line 32
 - **Tests**: 293/294 pass (1 known pre-existing flaky test in server.test.ts, unrelated). Build succeeds.
+
+## 2026-06-14T19:30:00Z — Fix HIGH-003 (Bind Joplin Data API to Localhost) and HIGH-004 (Restrict Docker Port Binding)
+
+- **Task**: Address two high-priority network security issues
+- **Outcome**: All changes implemented, tested, and verified
+- **Details**:
+  - HIGH-003: Changed `--host 0.0.0.0` → `--host 127.0.0.1` in `src/server.ts:20` spawn args — Joplin Data API now binds to localhost only
+  - HIGH-003: Verified `src/data-client.ts:36` already uses `127.0.0.1` for the base URL — no change needed
+  - HIGH-003: Verified `src/server.ts:44` ping check already uses `127.0.0.1` — no change needed
+  - HIGH-003: Searched `tests/server.test.ts` for `0.0.0.0` — zero references found, spawn is fully mocked — no test changes needed
+  - HIGH-004: Changed port mapping in `docker-compose.yml:6` from `'${PORT}:${PORT}'` → `'127.0.0.1:${PORT}:${PORT}'` — restricts host-side binding to localhost
+  - HIGH-004: Added `expose` directive at `docker-compose.yml:7-8` for container-to-container communication
+  - HIGH-004: Verified `Dockerfile:62` HEALTHCHECK uses `localhost` inside container — unaffected by host binding, no change needed
+- **Tests**: 293/294 pass (1 known pre-existing flaky test in `server.test.ts`: `resolves ready on first ping attempt and main() proceeds` — timing interference with `useFakeTimers`/`useRealTimers` cycle; confirmed in isolation). Build succeeds.
