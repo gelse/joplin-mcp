@@ -605,3 +605,15 @@ Conducted comprehensive audit of all 282 unit tests across 13 test files against
   - CRIT-006: Removed dead `SyncError` class from `src/errors.ts` — eliminated unused public export, dead code, and unnecessary maintenance surface area. No consumers existed in the codebase. `grep -r "SyncError" src/` confirmed zero references.
 - **Tests**: All 294 tests run across 12 test files. 293 pass, 1 known flaky test in server.test.ts (unrelated to these changes).
 - **Coverage**: All src/ files now included in coverage with enforced thresholds. `npm run test:coverage` passes thresholds.
+
+## 2026-06-14T18:12:00Z — Fix HIGH-001 (Plaintext Credential Logging) and HIGH-002 (Pin Joplin CLI Version)
+
+- **Task**: Address two high-priority security issues
+- **Outcome**: All changes implemented, tested, and verified
+- **Details**:
+  - HIGH-001: Removed `JOPLIN_USERNAME` log from `entrypoint.sh:37` — replaced with `# REMOVED:` comment
+  - HIGH-001: Expanded `SECRETS` array in `src/logger.ts:4` — added `joplinUsername`, `joplinServerUrl`, `config.joplinUsername`, `config.joplinServerUrl`
+  - HIGH-001: Verified `src/server.ts:77` debug log is now fully covered by expanded redact paths (nested paths under `config` key)
+  - HIGH-002: Pinned `pnpm` to `pnpm@9` in both Dockerfile stages (builder: line 7, production: line 35)
+  - HIGH-002: Pinned `joplin` to `3.6.2` (latest stable via `npm view joplin version`) using `ARG JOPLIN_CLI_VERSION=3.6.2` on line 32
+- **Tests**: 293/294 pass (1 known pre-existing flaky test in server.test.ts, unrelated). Build succeeds.

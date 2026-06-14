@@ -4,7 +4,7 @@ FROM node:22-bookworm-slim AS builder
 WORKDIR /build
 
 # Install pnpm
-RUN npm install -g pnpm
+RUN npm install -g "pnpm@9"
 
 # Copy dependency manifests first (layer caching)
 COPY package.json pnpm-lock.yaml ./
@@ -29,8 +29,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+ARG JOPLIN_CLI_VERSION=3.6.2
+
 # Install pnpm and Joplin CLI globally
-RUN npm install -g pnpm joplin
+RUN npm install -g "pnpm@9" "joplin@${JOPLIN_CLI_VERSION}"
 
 # Create non-root user for security
 RUN useradd --create-home --shell /bin/bash joplin

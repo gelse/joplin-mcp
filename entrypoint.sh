@@ -34,7 +34,7 @@ LOG_LEVEL="${LOG_LEVEL:-info}"
 
 log "INFO" "Starting Joplin API MCP Server"
 log "INFO" "Joplin Server URL: ${JOPLIN_SERVER_URL}"
-log "INFO" "Joplin Username: ${JOPLIN_USERNAME}"
+# REMOVED: log "INFO" "Joplin Username: ${JOPLIN_USERNAME}"
 log "INFO" "Data API Port: ${JOPLIN_DATA_API_PORT}"
 log "INFO" "Log Level: ${LOG_LEVEL}"
 
