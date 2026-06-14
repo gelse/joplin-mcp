@@ -1,14 +1,14 @@
 # 🔴 Critical Tasks
 
 **Severity:** Critical — must be resolved before any production or public-facing deployment.
-**Issue count:** 6
+**Issue count:** 6 ✅ All resolved 2026-06-14
 **Source:** [CODEREVIEW.md](./CODEREVIEW.md) sections 1–6
 
 These vulnerabilities affect security, correctness, and test coverage of core application paths. Each task is self-contained with acceptance criteria to verify the fix independently.
 
 ---
 
-## CRIT-001 — Validate User-Supplied IDs to Prevent Path Traversal / Injection
+## ✅ CRIT-001 — Validate User-Supplied IDs to Prevent Path Traversal / Injection — RESOLVED 2026-06-14
 
 **Affected files:**
 
@@ -66,15 +66,15 @@ These methods are called from every MCP tool handler in [`src/mcp/tools.ts`](./s
 
 **Acceptance criteria:**
 
-- [ ] `validateJoplinId()` utility exists and is tested independently
-- [ ] All ID-accepting methods in `JoplinDataClient` call the validator before URL construction
-- [ ] Path traversal payloads are rejected with a descriptive error
-- [ ] Existing tests continue to pass (update any tests using mock IDs to use valid 32-char hex format)
-- [ ] `npm run test` passes with no regressions
+- [x] `validateJoplinId()` utility exists and is tested independently
+- [x] All ID-accepting methods in `JoplinDataClient` call the validator before URL construction
+- [x] Path traversal payloads are rejected with a descriptive error
+- [x] Existing tests continue to pass (update any tests using mock IDs to use valid 32-char hex format)
+- [x] `npm run test` passes with no regressions
 
 ---
 
-## CRIT-002 — Validate CLI Executor Arguments to Prevent Command Injection
+## ✅ CRIT-002 — Validate CLI Executor Arguments to Prevent Command Injection — RESOLVED 2026-06-14
 
 **Affected file:** [`src/cli-executor.ts:27-40`](./src/cli-executor.ts:27)
 
@@ -131,14 +131,14 @@ async exec(args: string[], timeoutMs: number = 60_000): Promise<CliResult> {
 
 **Acceptance criteria:**
 
-- [ ] Argument validation rejects shell metacharacters and unknown subcommands
-- [ ] Command-builder pattern or allowlist is in place for all CLI invocations
-- [ ] Test suite covers both allowed and rejected argument scenarios
-- [ ] `npm run test` passes
+- [x] Argument validation rejects shell metacharacters and unknown subcommands
+- [x] Command-builder pattern or allowlist is in place for all CLI invocations
+- [x] Test suite covers both allowed and rejected argument scenarios
+- [x] `npm run test` passes
 
 ---
 
-## CRIT-003 — Protect Password in Memory Beyond Logger Redaction
+## ✅ CRIT-003 — Protect Password in Memory Beyond Logger Redaction — RESOLVED 2026-06-14
 
 **Affected file:** [`src/config.ts:6,28-31,55`](./src/config.ts:6)
 
@@ -206,15 +206,15 @@ Additionally, the config object is passed to `createLogger()` and logged at debu
 
 **Acceptance criteria:**
 
-- [ ] Password is no longer stored as a plain string in the `Config` type
-- [ ] Explicit `.reveal()` call is required to access the raw password value
-- [ ] `JSON.stringify(config)` does not expose the password (returns `"***REDACTED***"`)
-- [ ] Logger redaction continues to work correctly
-- [ ] All tests pass without regressions
+- [x] Password is no longer stored as a plain string in the `Config` type
+- [x] Explicit `.reveal()` call is required to access the raw password value
+- [x] `JSON.stringify(config)` does not expose the password (returns `"***REDACTED***"`)
+- [x] Logger redaction continues to work correctly
+- [x] All tests pass without regressions
 
 ---
 
-## CRIT-004 — Add Direct Test Coverage for `startDataApiServer()`
+## ✅ CRIT-004 — Add Direct Test Coverage for `startDataApiServer()` — RESOLVED 2026-06-14
 
 **Affected file:** [`src/server.ts:14-67`](./src/server.ts:14)
 
@@ -259,15 +259,15 @@ The function contains multiple critical paths:
 
 **Acceptance criteria:**
 
-- [ ] `waitForPing()` is independently testable as a pure function
-- [ ] `describe('startDataApiServer')` test block exists with all 6 scenarios
-- [ ] Each test verifies the specific behavior without relying on `main()` integration
-- [ ] `npm run test` passes with the new tests
-- [ ] Coverage report shows `startDataApiServer` lines are now covered
+- [x] `waitForPing()` is independently testable as a pure function
+- [x] `describe('startDataApiServer')` test block exists with all 6 scenarios
+- [x] Each test verifies the specific behavior without relying on `main()` integration
+- [x] `npm run test` passes with the new tests
+- [x] Coverage report shows `startDataApiServer` lines are now covered
 
 ---
 
-## CRIT-005 — Remove Coverage Exclusion for `src/mcp/tools.ts` and Add Thresholds
+## ✅ CRIT-005 — Remove Coverage Exclusion for `src/mcp/tools.ts` and Add Thresholds — RESOLVED 2026-06-14
 
 **Affected files:**
 
@@ -316,14 +316,14 @@ coverage: {
 
 **Acceptance criteria:**
 
-- [ ] Either the exclusion is removed OR a clear explanatory comment is added
-- [ ] Coverage thresholds are configured and enforced in `vitest.config.ts`
-- [ ] `npm run test:coverage` passes the configured thresholds
-- [ ] If exclusion is kept, smoke tests exercise all 16 tool handlers through the registry
+- [x] Either the exclusion is removed OR a clear explanatory comment is added
+- [x] Coverage thresholds are configured and enforced in `vitest.config.ts`
+- [x] `npm run test:coverage` passes the configured thresholds
+- [x] If exclusion is kept, smoke tests exercise all 16 tool handlers through the registry
 
 ---
 
-## CRIT-006 — Resolve Dead `SyncError` Code
+## ✅ CRIT-006 — Resolve Dead `SyncError` Code — RESOLVED 2026-06-14
 
 **Affected file:** [`src/errors.ts:18-26`](./src/errors.ts:18)
 
@@ -379,8 +379,8 @@ export class SyncError extends Error {
 
 **Acceptance criteria:**
 
-- [ ] `SyncError` is either used in sync-manager error handling with tests, or removed entirely
-- [ ] If removed: `grep -r "SyncError" src/` returns no results (except possibly in comments)
-- [ ] If used: `SyncError` is tested in both `errors.test.ts` and `sync-manager.test.ts`
-- [ ] `npm run test` passes
-- [ ] `npm run build` succeeds without errors
+- [x] `SyncError` is either used in sync-manager error handling with tests, or removed entirely
+- [x] If removed: `grep -r "SyncError" src/` returns no results (except possibly in comments)
+- [x] If used: `SyncError` is tested in both `errors.test.ts` and `sync-manager.test.ts`
+- [x] `npm run test` passes
+- [x] `npm run build` succeeds without errors

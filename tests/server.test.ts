@@ -608,3 +608,210 @@ describe('Server entrypoint', () => {
     expect(process.exit).not.toHaveBeenCalled();
   }, 10000);
 });
+
+// =========================================================================
+// Direct tests for startDataApiServer() — retry loop, stderr, exit behavior
+// =========================================================================
+
+describe('startDataApiServer()', () => {
+  const mockConfig = {
+    joplinServerUrl: 'https://example.com',
+    joplinUsername: 'user',
+    joplinPassword: new GuardedString('dummy-password'),
+    dataApiPort: 41100,
+    logLevel: 'info',
+    syncIntervalSeconds: 300,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(process, 'exit').mockImplementation((() => undefined as never) as any);
+    vi.spyOn(process, 'on').mockImplementation((() => process) as any);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  // ── Scenario 1: Successful ping on first attempt ──────────────────────
+
+  it('resolves ready on first ping attempt and main() proceeds', async () => {
+    mockParseConfig.mockReturnValue(mockConfig);
+    mockPing.mockResolvedValue({ status: 'ok', version: '3.0' });
+    mockInitialSync.mockResolvedValue(undefined);
+    mockStartMCPServer.mockResolvedValue(undefined);
+
+    const mockFetch = vi.fn(() => Promise.resolve({ ok: true }));
+    vi.stubGlobal('fetch', mockFetch);
+
+    vi.resetModules();
+    vi.mock('../src/config.js', () => ({ parseConfig: mockParseConfig }));
+    vi.mock('../src/logger.js', () => ({ createLogger: mockCreateLogger }));
+    vi.mock('../src/data-client.js', () => ({ JoplinDataClient: MockJoplinDataClient }));
+    vi.mock('../src/sync-manager.js', () => ({ SyncManager: MockSyncManager }));
+    vi.mock('../src/mcp/tool-registry.js', () => ({ ToolRegistry: MockToolRegistry }));
+    vi.mock('../src/mcp/server.js', () => ({ startMCPServer: mockStartMCPServer }));
+    vi.mock('node:child_process', () => ({ spawn: mockSpawn }));
+
+    await import('../src/server.js');
+    // Wait for the initial setTimeout(check, 1000) to fire and ready to resolve
+    await new Promise((r) => setTimeout(r, 1500));
+
+    // fetch called exactly once — first ping succeeded
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    // main() continued past await dataApi.ready → client.ping() called
+    expect(mockPing).toHaveBeenCalled();
+  }, 10000);
+
+  // ── Scenario 2: Ping retry (fail N times then succeed) ────────────────
+
+  it('retries ping on failure and eventually succeeds after 3 attempts', async () => {
+    mockParseConfig.mockReturnValue(mockConfig);
+    mockPing.mockResolvedValue({ status: 'ok', version: '3.0' });
+    mockInitialSync.mockResolvedValue(undefined);
+    mockStartMCPServer.mockResolvedValue(undefined);
+
+    let callCount = 0;
+    const mockFetch = vi.fn(() => {
+      callCount++;
+      if (callCount <= 3) return Promise.reject(new Error('not ready'));
+      return Promise.resolve({ ok: true });
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    vi.useFakeTimers();
+
+    vi.resetModules();
+    vi.mock('../src/config.js', () => ({ parseConfig: mockParseConfig }));
+    vi.mock('../src/logger.js', () => ({ createLogger: mockCreateLogger }));
+    vi.mock('../src/data-client.js', () => ({ JoplinDataClient: MockJoplinDataClient }));
+    vi.mock('../src/sync-manager.js', () => ({ SyncManager: MockSyncManager }));
+    vi.mock('../src/mcp/tool-registry.js', () => ({ ToolRegistry: MockToolRegistry }));
+    vi.mock('../src/mcp/server.js', () => ({ startMCPServer: mockStartMCPServer }));
+    vi.mock('node:child_process', () => ({ spawn: mockSpawn }));
+
+    await import('../src/server.js');
+
+    // Advance past initial setTimeout(check, 1000) + 3 retry intervals + success path
+    await vi.advanceTimersByTimeAsync(5000);
+
+    // 3 failures + 1 success = 4 total fetch calls
+    expect(callCount).toBe(4);
+    // ready resolved → main() continued → client.ping() was called
+    expect(mockPing).toHaveBeenCalled();
+
+    vi.useRealTimers();
+  }, 10000);
+
+  // ── Scenario 3: Ping exhaustion after maxAttempts ─────────────────────
+
+  it('exhausts all 30 ping retries, kills child process, and exits with code 1', async () => {
+    mockParseConfig.mockReturnValue(mockConfig);
+
+    const mockFetch = vi.fn(() => Promise.reject(new Error('connection refused')));
+    vi.stubGlobal('fetch', mockFetch);
+
+    vi.useFakeTimers();
+
+    vi.resetModules();
+    vi.mock('../src/config.js', () => ({ parseConfig: mockParseConfig }));
+    vi.mock('../src/logger.js', () => ({ createLogger: mockCreateLogger }));
+    vi.mock('../src/data-client.js', () => ({ JoplinDataClient: MockJoplinDataClient }));
+    vi.mock('../src/sync-manager.js', () => ({ SyncManager: MockSyncManager }));
+    vi.mock('../src/mcp/tool-registry.js', () => ({ ToolRegistry: MockToolRegistry }));
+    vi.mock('../src/mcp/server.js', () => ({ startMCPServer: mockStartMCPServer }));
+    vi.mock('node:child_process', () => ({ spawn: mockSpawn }));
+
+    await import('../src/server.js');
+
+    // Advance enough time for all 30 retries (30 × 1s + initial 1s)
+    await vi.advanceTimersByTimeAsync(35000);
+
+    // After 30 failed attempts, child.kill() must have been called
+    const childProcess = mockSpawn.mock.results[0]?.value;
+    expect(childProcess?.kill).toHaveBeenCalled();
+    // main() rejected at await dataApi.ready → main().catch() → process.exit(1)
+    expect(process.exit).toHaveBeenCalledWith(1);
+
+    vi.useRealTimers();
+  }, 40000);
+
+  // ── Scenario 4: Unexpected child process exit during startup ──────────
+
+  it('exits with code 1 when child process exits unexpectedly during startup', async () => {
+    mockParseConfig.mockReturnValue(mockConfig);
+
+    vi.resetModules();
+    vi.mock('../src/config.js', () => ({ parseConfig: mockParseConfig }));
+    vi.mock('../src/logger.js', () => ({ createLogger: mockCreateLogger }));
+    vi.mock('../src/data-client.js', () => ({ JoplinDataClient: MockJoplinDataClient }));
+    vi.mock('../src/sync-manager.js', () => ({ SyncManager: MockSyncManager }));
+    vi.mock('../src/mcp/tool-registry.js', () => ({ ToolRegistry: MockToolRegistry }));
+    vi.mock('../src/mcp/server.js', () => ({ startMCPServer: mockStartMCPServer }));
+    vi.mock('node:child_process', () => ({ spawn: mockSpawn }));
+
+    await import('../src/server.js');
+    await new Promise((r) => setTimeout(r, 100));
+
+    const childProcess = mockSpawn.mock.results[0]?.value;
+    expect(childProcess).toBeDefined();
+
+    // Find the 'exit' handler that startDataApiServer registered
+    const exitHandlerCall = childProcess.on.mock.calls.find(
+      (call: unknown[]) => call[0] === 'exit',
+    );
+    expect(exitHandlerCall).toBeDefined();
+    const exitHandler = exitHandlerCall![1];
+
+    // Simulate unexpected child exit with non-zero code
+    exitHandler(1, null);
+
+    // The exit handler calls process.exit(1) for non-zero / non-signal exits
+    expect(process.exit).toHaveBeenCalledWith(1);
+  }, 10000);
+
+  // ── Scenario 5: Stderr accumulation ───────────────────────────────────
+
+  it('accumulates stderr data and triggers exit on unexpected child process exit', async () => {
+    mockParseConfig.mockReturnValue(mockConfig);
+
+    vi.resetModules();
+    vi.mock('../src/config.js', () => ({ parseConfig: mockParseConfig }));
+    vi.mock('../src/logger.js', () => ({ createLogger: mockCreateLogger }));
+    vi.mock('../src/data-client.js', () => ({ JoplinDataClient: MockJoplinDataClient }));
+    vi.mock('../src/sync-manager.js', () => ({ SyncManager: MockSyncManager }));
+    vi.mock('../src/mcp/tool-registry.js', () => ({ ToolRegistry: MockToolRegistry }));
+    vi.mock('../src/mcp/server.js', () => ({ startMCPServer: mockStartMCPServer }));
+    vi.mock('node:child_process', () => ({ spawn: mockSpawn }));
+
+    await import('../src/server.js');
+    await new Promise((r) => setTimeout(r, 100));
+
+    const childProcess = mockSpawn.mock.results[0]?.value;
+    expect(childProcess).toBeDefined();
+
+    // Capture the stderr 'data' callback registered by startDataApiServer
+    const stderrDataCall = childProcess.stderr.on.mock.calls.find(
+      (call: unknown[]) => call[0] === 'data',
+    );
+    expect(stderrDataCall).toBeDefined();
+    const dataHandler = stderrDataCall![1];
+
+    // Emit stderr data — this exercises the accumulation path (line 25)
+    dataHandler(Buffer.from('Fatal: unable to bind to port 41100\n'));
+
+    // Capture the 'exit' callback
+    const exitHandlerCall = childProcess.on.mock.calls.find(
+      (call: unknown[]) => call[0] === 'exit',
+    );
+    expect(exitHandlerCall).toBeDefined();
+    const exitHandler = exitHandlerCall![1];
+
+    // Trigger unexpected exit — exercises lines 28-34 (exit handler with stderr)
+    exitHandler(1, null);
+
+    // The exit handler calls process.exit(1)
+    expect(process.exit).toHaveBeenCalledWith(1);
+  }, 10000);
+});

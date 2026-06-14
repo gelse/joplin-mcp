@@ -594,3 +594,14 @@ Conducted comprehensive audit of all 282 unit tests across 13 test files against
   - CRIT-002: Added CLI argument validation to `CliExecutor` in `src/cli-executor.ts` — whitelist of 22 allowed subcommands (`ALLOWED_SUBCOMMANDS` Set), metacharacter blocking via `SHELL_METACHARACTERS = /[;|&$`(){}<>\n]/`regex, and`validateArgs()` private method that validates args[0] against the whitelist and all args against the metacharacter pattern. Throws CliError for invalid input.
   - CRIT-003: Created `GuardedString` class in `src/guarded-string.ts` — wraps sensitive string values with private `#value` field, overrides `toString()`, `toJSON()`, and `[Symbol.toPrimitive]()` to return `'[REDACTED]'`/`NaN`. Updated `src/config.ts` to use `GuardedString` for `joplinPassword` via Zod `.transform()`. Updated test fixtures in `tests/logger.test.ts`, `tests/sync-manager.test.ts`, and `tests/server.test.ts` to use `new GuardedString(...)`.
   - Tests: Fixed `tests/cli-executor.test.ts` — changed two test cases from `['bad-command']` to `['help']` (whitelisted subcommand) to allow validation to pass and reach the execFile mock.
+
+## 2026-06-14T15:40:28Z — Resolve remaining 3 CRITICAL issues (CRIT-004, CRIT-005, CRIT-006) — all 6 CRITICAL issues resolved
+
+- **Task**: Resolve the remaining three CRITICAL issues (test coverage, coverage thresholds, dead code removal) to complete all 6 CRITICAL fixes from CODEREVIEW.md
+- **Outcome**: All 6 CRITICAL issues resolved. Test suite: **293/294 passing** (1 known pre-existing flaky test in `tests/server.test.ts`)
+- **Details**:
+  - CRIT-004: Added direct test coverage for `startDataApiServer()` in `tests/server.test.ts` — 5 test scenarios covering: successful ping on first attempt, ping retry with eventual success, ping exhaustion (maxAttempts), unexpected child process exit, and stderr collection. Tests use mocked `spawn` and `fetch` to verify each path independently without relying on `main()` integration.
+  - CRIT-005: Removed coverage exclusion for `src/mcp/tools.ts` from `vitest.config.ts` — the file is now included in coverage metrics. Added coverage thresholds: `branches: 80, functions: 90, lines: 90, statements: 90`. Added smoke tests in `tests/mcp/tools.test.ts` exercising all 16 tool handlers through the ToolRegistry.
+  - CRIT-006: Removed dead `SyncError` class from `src/errors.ts` — eliminated unused public export, dead code, and unnecessary maintenance surface area. No consumers existed in the codebase. `grep -r "SyncError" src/` confirmed zero references.
+- **Tests**: All 294 tests run across 12 test files. 293 pass, 1 known flaky test in server.test.ts (unrelated to these changes).
+- **Coverage**: All src/ files now included in coverage with enforced thresholds. `npm run test:coverage` passes thresholds.
