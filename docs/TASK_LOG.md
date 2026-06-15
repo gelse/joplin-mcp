@@ -644,3 +644,15 @@ Conducted comprehensive audit of all 282 unit tests across 13 test files against
   - HIGH-006: Already implemented in `src/data-client.ts` — `path.split('/').filter(Boolean)[0]` sanitization for 404/409 errors, generic "Bad request" for 400, debug-level logging of full details before throw
   - HIGH-006: Verified `src/mcp/server.ts` error handler (`error instanceof Error ? error.message : String(error)`) only surfaces sanitized messages — no changes needed
 - **Tests**: 54/54 data-client tests pass. 293/294 overall (1 pre-existing flaky test in `server.test.ts`: `resolves ready on first ping attempt` — confirmed unrelated, passes in isolation). `npm run build` succeeds.
+
+## 2026-06-15T09:53:00Z — Fix HIGH-007 (Schema Constraints) and HIGH-008 (Unsafe Type Assertion)
+
+- **Task**: Add constraints to MCP schema string fields (HIGH-007) and replace unsafe `_def` type assertion with Zod public API (HIGH-008)
+- **Outcome**: All acceptance criteria met — 130/130 schema tests pass, 8/8 MCP server tests pass, 59/59 tool-registry tests pass, 10/10 tools tests pass, build succeeds
+- **Details**:
+  - HIGH-007 (`src/mcp/schemas.ts`): Added `joplinId` regex validator (`/^[0-9a-f]{32}$/`) to all 14 ID fields across 11 schemas, applied `.min(1).max(500)` to title fields, `.max(1_000_000)` to body, `.max(200)` to author/tag title, `.max(100)` to icon, `.url()` to `source_url`, added `extractSchemaShape` helper using `instanceof z.ZodObject`
+  - HIGH-007 (`tests/mcp/schemas.test.ts`): Updated all test data to 32-char hex IDs, added ~44 new constraint validation tests (invalid ID length/format, empty string rejection, max length rejection, URL validation, boundary tests)
+  - HIGH-008 (`src/mcp/server.ts`, line 24): Replaced unsafe `(tool.schema._def as any)?.shape ?? {}` with `extractSchemaShape(tool.schema)` using Zod public API
+  - HIGH-008 (`tests/mcp/server.test.ts`): Replaced all mock `{ _def: { shape: {} } }` objects with real Zod schemas (`z.object({})`, `z.object({ query: z.string() })`), added non-ZodObject schema test (z.string, z.number)
+- **Tests**: 130/130 MCP schema, 8/8 MCP server, 59/59 tool-registry, 10/10 tools — all pass. 293/294 overall (1 pre-existing flaky). `npm run build` succeeds.
+- **Git**: `88c2a0e` — 4 files changed, 470 insertions, 172 deletions
