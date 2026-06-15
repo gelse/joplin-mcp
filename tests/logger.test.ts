@@ -9,6 +9,19 @@ vi.mock('pino-pretty', () => ({
   default: {},
 }));
 
+/** Captures pino call arguments so tests can assert transport config. */
+const capturedPinoArgs: any[][] = [];
+
+vi.mock('pino', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    pino: (...args: any[]) => {
+      capturedPinoArgs.push(args);
+      return actual.pino(...args);
+    },
+  };
+});
+
 /** Log entry shape we expect from pino JSON output. */
 interface LogEntry {
   level: number;
@@ -84,6 +97,20 @@ describe('createLogger', () => {
     const { createLogger } = await import('../src/logger.js');
     const logger = createLogger(makeConfig({ logLevel: 'debug' }));
     expect(logger.level).toBe('debug');
+  });
+
+  it('configures pino-pretty transport when log level is debug', async () => {
+    capturedPinoArgs.length = 0; // Clear tracked calls
+    const { createLogger } = await import('../src/logger.js');
+    createLogger(makeConfig({ logLevel: 'debug' }));
+
+    expect(capturedPinoArgs).toHaveLength(1);
+    const [pinoOptions] = capturedPinoArgs[0];
+    expect(pinoOptions).toHaveProperty('transport');
+    expect(pinoOptions.transport).toEqual({
+      target: 'pino-pretty',
+      options: { colorize: true },
+    });
   });
 
   it('filters out messages below the configured level', async () => {
