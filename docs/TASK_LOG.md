@@ -671,4 +671,15 @@ Conducted comprehensive audit of all 282 unit tests across 13 test files against
     - Lines 63, 67: `setTimeout(check, 1000)` → `void setTimeout(() => { void check(); }, 1000)` — wrapped async `check()` in non-returning arrow functions with explicit `void`
     - Lines 150, 151: `process.on(..., () => shutdown(...))` → `process.on(..., () => { void shutdown(...); })` — wrapped shutdown calls with `void` to suppress floating promises
   - Pre-existing warnings (4): `no-unused-vars` (2), `no-explicit-any` (2) — unchanged, unrelated to this task
-  - **Git**: committed as `<pending>`
+  - **Git**: `a384a96` — 3 files changed, 38 insertions, 4 deletions
+
+  ## 2026-06-15T10:19:31Z — Implemented MED-003: Consume Server Stdout Stream
+  - **Task**: Add stdout drain handler to the spawned Joplin Data API child process in `src/server.ts`
+  - **Outcome**: stdout stream is now consumed at `trace` log level, preventing buffer backpressure
+  - **Details**:
+    - Added `logger` parameter to `startDataApiServer()` function signature
+    - Attached `child.stdout?.on('data', ...)` handler that logs trimmed stdout lines at `trace` level
+    - Updated the call site in `main()` to pass the logger instance
+    - Linter passes: 0 errors, 0 new warnings (4 pre-existing warnings unchanged)
+    - 345/347 tests pass (2 pre-existing flaky tests in `server.test.ts`, unrelated)
+    - **Git**: pending commit

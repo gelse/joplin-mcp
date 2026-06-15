@@ -11,7 +11,10 @@ import type { ToolContext } from './mcp/tools.js';
  * Start the Joplin Data API server as a child process.
  * Returns the child process and a promise that resolves when the server is ready.
  */
-function startDataApiServer(port: number): {
+function startDataApiServer(
+  port: number,
+  logger: import('./logger.js').Logger,
+): {
   process: ChildProcess;
   ready: Promise<void>;
 } {
@@ -22,6 +25,11 @@ function startDataApiServer(port: number): {
       stdio: ['ignore', 'pipe', 'pipe'],
     },
   );
+
+  // Drain stdout at debug level to prevent buffer backpressure
+  child.stdout?.on('data', (data: Buffer) => {
+    logger.trace({ stdout: data.toString().trimEnd() }, 'Joplin Data API stdout');
+  });
 
   // Collect stderr for diagnostics
   let stderr = '';
@@ -86,7 +94,7 @@ async function main(): Promise<void> {
 
   // Start the Joplin Data API server
   logger.info({ port: config.dataApiPort }, 'Starting Joplin Data API server');
-  const dataApi = startDataApiServer(config.dataApiPort);
+  const dataApi = startDataApiServer(config.dataApiPort, logger);
 
   await dataApi.ready;
   logger.info('Joplin Data API server is ready');
