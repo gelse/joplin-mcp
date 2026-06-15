@@ -28,6 +28,8 @@ import { clampLimit, buildPageParam, fetchAllPages } from './pagination.js';
 export class JoplinDataClient {
   private readonly baseUrl: string;
   private token: string | null = null;
+  private tokenExpiresAt: number | null = null;
+  private tokenPromise: Promise<string> | null = null;
 
   constructor(
     port: number,
@@ -49,9 +51,32 @@ export class JoplinDataClient {
     }
   }
 
+  /**
+   * Get an auth token, proactively refreshing it if it's near expiry.
+   * Concurrent calls are deduplicated via tokenPromise.
+   */
   private async getToken(): Promise<string> {
-    if (this.token) return this.token;
+    if (this.token && this.tokenExpiresAt && Date.now() < this.tokenExpiresAt - 60_000) {
+      return this.token;
+    }
 
+    // Deduplicate concurrent in-flight token requests
+    if (this.tokenPromise) {
+      return this.tokenPromise;
+    }
+
+    this.tokenPromise = this.fetchToken();
+    try {
+      return await this.tokenPromise;
+    } finally {
+      this.tokenPromise = null;
+    }
+  }
+
+  /**
+   * Fetch a fresh token from the /auth endpoint.
+   */
+  private async fetchToken(): Promise<string> {
     const response = await fetch(`${this.baseUrl}/auth`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -63,13 +88,22 @@ export class JoplinDataClient {
       );
     }
 
-    const data = (await response.json()) as { auth_token?: string };
+    const data = (await response.json()) as { auth_token?: string; expires_in?: number };
     if (!data.auth_token) {
       throw new AuthError('No auth_token in response');
     }
 
     this.token = data.auth_token;
+    this.tokenExpiresAt = Date.now() + (data.expires_in ?? 3300) * 1000;
     return this.token;
+  }
+
+  /**
+   * Clear the cached token (e.g. after a 401 response).
+   */
+  private clearToken(): void {
+    this.token = null;
+    this.tokenExpiresAt = null;
   }
 
   private async request<T>(
@@ -78,13 +112,13 @@ export class JoplinDataClient {
     body?: unknown,
     retryAuth = true,
   ): Promise<T> {
-    const makeRequest = async (): Promise<Response> => {
+    const makeRequest = async (token?: string): Promise<Response> => {
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
       };
 
-      if (this.token) {
-        headers['Authorization'] = `Bearer ${this.token}`;
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
       }
 
       this.logger.debug({ method, path }, 'Data API request');
@@ -96,22 +130,37 @@ export class JoplinDataClient {
       });
     };
 
-    let response = await makeRequest();
+    // If we already have a cached token, ensure it's still fresh (proactive refresh)
+    let token: string | undefined;
+    if (this.token) {
+      token = await this.getToken();
+    }
+
+    let response = await makeRequest(token);
 
     // If unauthorized, try getting a new token and retry once
     if (response.status === 401 && retryAuth) {
       this.logger.debug('Token expired, refreshing');
-      this.token = null;
-      await this.getToken();
-      response = await makeRequest();
+      this.clearToken();
+      token = await this.getToken();
+      response = await makeRequest(token);
     }
 
     if (response.status === 401) throw new AuthError();
-    if (response.status === 404) throw new NotFoundError('resource', path);
-    if (response.status === 409) throw new ConflictError('resource', path);
+    if (response.status === 404) {
+      const resourceType = path.split('/').filter(Boolean)[0] || 'resource';
+      this.logger.debug({ status: 404, path }, 'Request failed');
+      throw new NotFoundError(resourceType, resourceType);
+    }
+    if (response.status === 409) {
+      const resourceType = path.split('/').filter(Boolean)[0] || 'resource';
+      this.logger.debug({ status: 409, path }, 'Request failed');
+      throw new ConflictError(resourceType, resourceType);
+    }
     if (response.status === 400) {
       const body = await response.text().catch(() => '');
-      throw new ValidationError(`Bad request: ${path} — ${body}`);
+      this.logger.debug({ status: 400, path, body }, 'Request failed');
+      throw new ValidationError('Bad request');
     }
     if (!response.ok) {
       const body = await response.text().catch(() => '');

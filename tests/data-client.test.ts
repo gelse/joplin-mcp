@@ -229,6 +229,129 @@ describe('JoplinDataClient', () => {
       expect(urls[1]).toContain('/auth');
       expect(urls[2]).toContain('/notes/n1');
     });
+
+    it('proactively refreshes token when near expiry', async () => {
+      vi.useFakeTimers();
+      try {
+        // First request: 401 → /auth → success (token cached with expiry)
+        mockFetch
+          .mockResolvedValueOnce(errorResponse(401, 'Unauthorized'))
+          .mockResolvedValueOnce(okResponse({ auth_token: MOCK_AUTH_TOKEN }))
+          .mockResolvedValueOnce(okResponse(sampleNote))
+          // Second request: token near expiry → getToken calls /auth proactively
+          .mockResolvedValueOnce(okResponse({ auth_token: 'fresh-token-xyz' }))
+          .mockResolvedValueOnce(okResponse(sampleNote));
+
+        await client.getNote('n1');
+
+        // Advance time past the 1-min buffer (55min - 1min = 54min = 3240s)
+        // At 3250s past original, the token is expired relative to the buffer
+        vi.advanceTimersByTime(3250 * 1000);
+
+        await client.getNote('n2');
+
+        // /auth should have been called twice: initial + proactive refresh
+        const authCalls = mockFetch.mock.calls.filter((call: unknown[]) =>
+          (call[0] as string).includes('/auth'),
+        );
+        expect(authCalls).toHaveLength(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does NOT refresh token when still valid', async () => {
+      vi.useFakeTimers();
+      try {
+        mockFetch
+          .mockResolvedValueOnce(errorResponse(401, 'Unauthorized'))
+          .mockResolvedValueOnce(okResponse({ auth_token: MOCK_AUTH_TOKEN }))
+          .mockResolvedValueOnce(okResponse(sampleNote))
+          .mockResolvedValueOnce(okResponse(sampleNote));
+
+        await client.getNote('n1');
+
+        // Advance only 100 seconds (well within the 54-min buffer)
+        vi.advanceTimersByTime(100 * 1000);
+
+        await client.getNote('n2');
+
+        // /auth should have been called only once (the initial fetch)
+        const authCalls = mockFetch.mock.calls.filter((call: unknown[]) =>
+          (call[0] as string).includes('/auth'),
+        );
+        expect(authCalls).toHaveLength(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('clears token when refresh fails', async () => {
+      mockFetch
+        .mockResolvedValueOnce(errorResponse(401, 'Unauthorized')) // 1st getNote → 401
+        .mockResolvedValueOnce(okResponse({ auth_token: MOCK_AUTH_TOKEN })) // /auth → token
+        .mockResolvedValueOnce(okResponse(sampleNote)) // retry → success
+        .mockResolvedValueOnce(errorResponse(401, 'Unauthorized')) // 2nd getNote → 401
+        .mockResolvedValueOnce(errorResponse(500, 'Server Error')); // /auth → 500 (fails)
+
+      await client.getNote('n1');
+
+      await expect(client.getNote('n2')).rejects.toThrow(AuthError);
+
+      // After clearToken(), subsequent calls should trigger a fresh auth cycle
+      // (endpoint 401 → /auth → retry)
+      mockFetch
+        .mockResolvedValueOnce(errorResponse(401, 'Unauthorized')) // 3rd getNote → 401
+        .mockResolvedValueOnce(okResponse({ auth_token: MOCK_AUTH_TOKEN })) // /auth → token
+        .mockResolvedValueOnce(okResponse(sampleNote)); // retry → success
+
+      await client.getNote('n3');
+
+      // /auth called 3 times: initial, failed refresh, fresh start
+      const authCalls = mockFetch.mock.calls.filter((call: unknown[]) =>
+        (call[0] as string).includes('/auth'),
+      );
+      expect(authCalls).toHaveLength(3);
+    });
+
+    it('deduplicates concurrent in-flight token requests', async () => {
+      vi.useFakeTimers();
+      try {
+        // First request: 401 → /auth → success (token cached with 3300s expiry)
+        mockFetch
+          .mockResolvedValueOnce(errorResponse(401, 'Unauthorized'))
+          .mockResolvedValueOnce(okResponse({ auth_token: MOCK_AUTH_TOKEN }))
+          .mockResolvedValueOnce(okResponse(sampleNote));
+
+        await client.getNote('n1');
+
+        // Advance time past the 1-min buffer (55min - 1min = 54min = 3240s)
+        // At 3250s the token is within the 60s buffer zone, triggering a refresh
+        vi.advanceTimersByTime(3250 * 1000);
+
+        // Two concurrent requests should now share a single /auth refresh call
+        const authResponse = okResponse({ auth_token: 'fresh-token-xyz' });
+        const noteResponse = okResponse(sampleNote);
+
+        mockFetch
+          .mockResolvedValueOnce(authResponse) // shared /auth (only consumed once)
+          .mockResolvedValueOnce(noteResponse) // 1st getNote
+          .mockResolvedValueOnce(noteResponse); // 2nd getNote
+
+        const [note1, note2] = await Promise.all([client.getNote('n1'), client.getNote('n2')]);
+
+        expect(note1).toMatchObject({ id: 'note-1' });
+        expect(note2).toMatchObject({ id: 'note-1' });
+
+        // /auth should have been called twice: initial + shared refresh
+        const authCalls = mockFetch.mock.calls.filter((call: unknown[]) =>
+          (call[0] as string).includes('/auth'),
+        );
+        expect(authCalls).toHaveLength(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   // =====================================================================
@@ -553,6 +676,82 @@ describe('JoplinDataClient', () => {
       expect(err).toBeInstanceOf(DataApiError);
       expect((err as DataApiError).statusCode).toBe(500);
       expect((err as DataApiError).responseBody).toBe('oh no');
+    });
+
+    // =====================================================================
+    // Error Message Sanitization (HIGH-006)
+    // =====================================================================
+    describe('error message sanitization', () => {
+      it('404 error message does NOT contain the full URL path', async () => {
+        mockFetch.mockResolvedValueOnce(errorResponse(404, 'Not Found'));
+
+        try {
+          await client.getNote('secret-note-123');
+          expect.unreachable('should have thrown');
+        } catch (e: unknown) {
+          const err = e as NotFoundError;
+          expect(err).toBeInstanceOf(NotFoundError);
+          // Message should contain the resource type, not the full path
+          expect(err.message).toContain('notes');
+          expect(err.message).not.toContain('/notes/secret-note-123');
+          expect(err.message).not.toContain('secret-note-123');
+        }
+      });
+
+      it('409 error message does NOT contain the full URL path', async () => {
+        mockFetch.mockResolvedValueOnce(errorResponse(409, 'Conflict'));
+
+        try {
+          await client.updateNote('conflicted-id-456', { title: 'X' });
+          expect.unreachable('should have thrown');
+        } catch (e: unknown) {
+          const err = e as ConflictError;
+          expect(err).toBeInstanceOf(ConflictError);
+          // Message should contain the resource type, not the full path
+          expect(err.message).toContain('notes');
+          expect(err.message).not.toContain('/notes/conflicted-id-456');
+          expect(err.message).not.toContain('conflicted-id-456');
+        }
+      });
+
+      it('400 error message does NOT contain path or response body', async () => {
+        mockFetch.mockResolvedValueOnce(
+          errorResponse(400, 'Bad Request', 'internal: invalid field "password"'),
+        );
+
+        try {
+          await client.listNotes();
+          expect.unreachable('should have thrown');
+        } catch (e: unknown) {
+          const err = e as ValidationError;
+          expect(err).toBeInstanceOf(ValidationError);
+          expect(err.message).toBe('Bad request');
+          // Should not leak internal details
+          expect(err.message).not.toContain('/notes');
+          expect(err.message).not.toContain('invalid field');
+          expect(err.message).not.toContain('password');
+          // The raw body is NOT exposed as responseBody for sanitized 400 errors
+          expect(err.responseBody).toBeUndefined();
+        }
+      });
+
+      it('logs full request details at DEBUG level for diagnostics', async () => {
+        mockFetch.mockResolvedValueOnce(
+          errorResponse(400, 'Bad Request', 'sensitive internal error'),
+        );
+
+        await client.listNotes().catch(() => {});
+
+        // Should log the diagnostic details at DEBUG level
+        expect(mockLogger.debug).toHaveBeenCalledWith(
+          expect.objectContaining({
+            status: 400,
+            path: expect.any(String),
+            body: 'sensitive internal error',
+          }),
+          'Request failed',
+        );
+      });
     });
 
     it('network failure (fetch rejects) propagates the raw error', async () => {

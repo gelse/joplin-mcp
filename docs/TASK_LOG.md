@@ -631,3 +631,16 @@ Conducted comprehensive audit of all 282 unit tests across 13 test files against
   - HIGH-004: Added `expose` directive at `docker-compose.yml:7-8` for container-to-container communication
   - HIGH-004: Verified `Dockerfile:62` HEALTHCHECK uses `localhost` inside container — unaffected by host binding, no change needed
 - **Tests**: 293/294 pass (1 known pre-existing flaky test in `server.test.ts`: `resolves ready on first ping attempt and main() proceeds` — timing interference with `useFakeTimers`/`useRealTimers` cycle; confirmed in isolation). Build succeeds.
+
+## 2026-06-15T09:48:00Z — Fix HIGH-005 (Token Expiration Tracking) and HIGH-006 (Sanitize Error Messages)
+
+- **Task**: Address two high-priority issues: token expiration tracking/proactive refresh and error message sanitization
+- **Outcome**: All acceptance criteria met — 54/54 data-client tests pass, 293/294 overall (1 pre-existing flaky), build succeeds
+- **Details**:
+  - HIGH-005: Already implemented in `src/data-client.ts` — `tokenExpiresAt`, `tokenPromise`, `getToken()` with proactive refresh (1-min buffer) and concurrent dedup, `clearToken()` on auth failure
+  - HIGH-005: Fixed 2 failing tests in `tests/data-client.test.ts` whose mock setups didn't match the actual code flow:
+    - `clears token when refresh fails` — Added `errorResponse(401, 'Unauthorized')` mock to trigger 401 → `clearToken()` → fresh `/auth` → retry cycle for 3rd request
+    - `deduplicates concurrent in-flight token requests` — Rewrote with `vi.useFakeTimers()`, first establishing a cached token, then advancing time past the buffer zone so concurrent requests share a single `/auth` refresh via `tokenPromise` dedup
+  - HIGH-006: Already implemented in `src/data-client.ts` — `path.split('/').filter(Boolean)[0]` sanitization for 404/409 errors, generic "Bad request" for 400, debug-level logging of full details before throw
+  - HIGH-006: Verified `src/mcp/server.ts` error handler (`error instanceof Error ? error.message : String(error)`) only surfaces sanitized messages — no changes needed
+- **Tests**: 54/54 data-client tests pass. 293/294 overall (1 pre-existing flaky test in `server.test.ts`: `resolves ready on first ping attempt` — confirmed unrelated, passes in isolation). `npm run build` succeeds.
