@@ -1,18 +1,19 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import type { Logger } from "../logger.js";
-import { ToolRegistry } from "./tool-registry.js";
-import type { ToolContext } from "./tools.js";
-import { ZodError } from "zod";
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import type { Logger } from '../logger.js';
+import { ToolRegistry } from './tool-registry.js';
+import type { ToolContext } from './tools.js';
+import { ZodError } from 'zod';
+import { extractSchemaShape } from './schemas.js';
 
 export async function createMCPServer(
   registry: ToolRegistry,
   ctx: ToolContext,
-  logger: Logger
+  logger: Logger,
 ): Promise<McpServer> {
   const server = new McpServer({
-    name: "joplin-api-mcp",
-    version: "0.1.0",
+    name: 'joplin-api-mcp',
+    version: '0.1.0',
   });
 
   // Register all tools from the registry
@@ -21,16 +22,16 @@ export async function createMCPServer(
       tool.name,
       tool.description,
       // Convert Zod schema to a plain object shape for MCP SDK
-      (tool.schema._def as any)?.shape ?? {},
+      extractSchemaShape(tool.schema),
       async (input: unknown) => {
-        logger.debug({ tool: tool.name, input }, "MCP tool called");
+        logger.debug({ tool: tool.name, input }, 'MCP tool called');
         try {
           const result = await registry.executeTool(tool.name, input, ctx);
           // Convert result to MCP content format
           return {
             content: [
               {
-                type: "text" as const,
+                type: 'text' as const,
                 text: JSON.stringify(result, null, 2),
               },
             ],
@@ -41,24 +42,21 @@ export async function createMCPServer(
             return {
               content: [
                 {
-                  type: "text" as const,
+                  type: 'text' as const,
                   text: `Validation error: ${error.errors
-                    .map((e) => `${e.path.join(".")}: ${e.message}`)
-                    .join("; ")}`,
+                    .map((e) => `${e.path.join('.')}: ${e.message}`)
+                    .join('; ')}`,
                 },
               ],
               isError: true,
             };
           }
 
-          logger.error(
-            { tool: tool.name, err: error },
-            "MCP tool execution failed"
-          );
+          logger.error({ tool: tool.name, err: error }, 'MCP tool execution failed');
           return {
             content: [
               {
-                type: "text" as const,
+                type: 'text' as const,
                 text: `Error executing ${tool.name}: ${
                   error instanceof Error ? error.message : String(error)
                 }`,
@@ -67,15 +65,15 @@ export async function createMCPServer(
             isError: true,
           };
         }
-      }
+      },
     );
 
-    logger.debug({ tool: tool.name }, "Registered MCP tool");
+    logger.debug({ tool: tool.name }, 'Registered MCP tool');
   }
 
   logger.info(
     { toolCount: registry.getToolNames().length },
-    "MCP server created with all tools registered"
+    'MCP server created with all tools registered',
   );
 
   return server;
@@ -84,12 +82,12 @@ export async function createMCPServer(
 export async function startMCPServer(
   registry: ToolRegistry,
   ctx: ToolContext,
-  logger: Logger
+  logger: Logger,
 ): Promise<void> {
   const server = await createMCPServer(registry, ctx, logger);
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  logger.info("MCP server started on stdio transport");
+  logger.info('MCP server started on stdio transport');
 }

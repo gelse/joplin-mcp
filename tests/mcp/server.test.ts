@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { z } from 'zod';
 import type { Logger } from '../../src/logger.js';
 
 // ---------------------------------------------------------------------------
@@ -88,17 +89,17 @@ describe('MCP Server', () => {
         {
           name: 'list_notebooks',
           description: 'List notebooks',
-          schema: { _def: { shape: {} } },
+          schema: z.object({}),
         },
         {
           name: 'search_notes',
           description: 'Search notes',
-          schema: { _def: { shape: { query: 'string' } } },
+          schema: z.object({ query: z.string() }),
         },
         {
           name: 'sync',
           description: 'Trigger sync',
-          schema: { _def: { shape: {} } },
+          schema: z.object({}),
         },
       ];
       mockGetAllTools.mockReturnValue(mockTools);
@@ -107,16 +108,28 @@ describe('MCP Server', () => {
       await createMCPServer(mockRegistry as any, mockCtx as any, mockLogger);
 
       expect(mockToolFn).toHaveBeenCalledTimes(3);
-      expect(mockToolFn).toHaveBeenCalledWith(
+
+      // First tool: list_notebooks with empty shape
+      expect(mockToolFn).toHaveBeenNthCalledWith(
+        1,
         'list_notebooks',
         'List notebooks',
         {},
         expect.any(Function),
       );
-      expect(mockToolFn).toHaveBeenCalledWith(
-        'search_notes',
-        'Search notes',
-        { query: 'string' },
+
+      // Second tool: search_notes with shape containing query
+      const searchShape = mockToolFn.mock.calls[1][2];
+      expect(searchShape).toHaveProperty('query');
+      expect(mockToolFn.mock.calls[1][0]).toBe('search_notes');
+      expect(mockToolFn.mock.calls[1][1]).toBe('Search notes');
+
+      // Third tool: sync with empty shape
+      expect(mockToolFn).toHaveBeenNthCalledWith(
+        3,
+        'sync',
+        'Trigger sync',
+        {},
         expect.any(Function),
       );
     });
@@ -126,7 +139,7 @@ describe('MCP Server', () => {
         {
           name: 'list_notebooks',
           description: 'List notebooks',
-          schema: { _def: { shape: {} } },
+          schema: z.object({}),
         },
       ]);
 
@@ -145,7 +158,7 @@ describe('MCP Server', () => {
         {
           name: 'test_tool',
           description: 'Test',
-          schema: { _def: { shape: {} } },
+          schema: z.object({}),
         },
       ]);
       mockExecuteTool.mockResolvedValue({ result: 'ok' });
@@ -167,7 +180,7 @@ describe('MCP Server', () => {
         {
           name: 'failing_tool',
           description: 'Fails',
-          schema: { _def: { shape: {} } },
+          schema: z.object({}),
         },
       ]);
 
@@ -189,6 +202,41 @@ describe('MCP Server', () => {
         ],
         isError: true,
       });
+    });
+
+    it('extracts empty shape for tool without a ZodObject schema', async () => {
+      const mockTools = [
+        {
+          name: 'string_tool',
+          description: 'Uses string schema',
+          schema: z.string(),
+        },
+        {
+          name: 'number_tool',
+          description: 'Uses number schema',
+          schema: z.number(),
+        },
+      ];
+      mockGetAllTools.mockReturnValue(mockTools);
+
+      const { createMCPServer } = await import('../../src/mcp/server.js');
+      await createMCPServer(mockRegistry as any, mockCtx as any, mockLogger);
+
+      // Both tools should register with empty shape since their schemas are not ZodObject
+      expect(mockToolFn).toHaveBeenNthCalledWith(
+        1,
+        'string_tool',
+        'Uses string schema',
+        {},
+        expect.any(Function),
+      );
+      expect(mockToolFn).toHaveBeenNthCalledWith(
+        2,
+        'number_tool',
+        'Uses number schema',
+        {},
+        expect.any(Function),
+      );
     });
   });
 
