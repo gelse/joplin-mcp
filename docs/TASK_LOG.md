@@ -656,3 +656,19 @@ Conducted comprehensive audit of all 282 unit tests across 13 test files against
   - HIGH-008 (`tests/mcp/server.test.ts`): Replaced all mock `{ _def: { shape: {} } }` objects with real Zod schemas (`z.object({})`, `z.object({ query: z.string() })`), added non-ZodObject schema test (z.string, z.number)
 - **Tests**: 130/130 MCP schema, 8/8 MCP server, 59/59 tool-registry, 10/10 tools — all pass. 293/294 overall (1 pre-existing flaky). `npm run build` succeeds.
 - **Git**: `88c2a0e` — 4 files changed, 470 insertions, 172 deletions
+
+## 2026-06-15T10:16:00Z — Implemented MED-002: Strengthen ESLint Rules
+
+- **Task**: Add missing ESLint rules (`no-floating-promises`, `await-thenable`, `no-misused-promises`, `no-console`) and fix all violations
+- **Outcome**: All 4 new rules added, 4 violations fixed, linter passes with 0 errors (4 pre-existing warnings)
+- **Details**:
+  - Added `@typescript-eslint/no-floating-promises: 'error'` to prevent unhandled promise rejections
+  - Added `@typescript-eslint/await-thenable: 'error'` to ensure `await` is only used on thenables
+  - Added `@typescript-eslint/no-misused-promises: 'error'` to prevent common promise misuse patterns
+  - Added `no-console: ['warn', { allow: ['warn', 'error'] }]` to warn on console.log usage (allowing warn/error)
+  - Added `languageOptions.parserOptions.project: './tsconfig.json'` for type-aware linting support
+  - Fixed 4 `no-misused-promises` violations in `src/server.ts`:
+    - Lines 63, 67: `setTimeout(check, 1000)` → `void setTimeout(() => { void check(); }, 1000)` — wrapped async `check()` in non-returning arrow functions with explicit `void`
+    - Lines 150, 151: `process.on(..., () => shutdown(...))` → `process.on(..., () => { void shutdown(...); })` — wrapped shutdown calls with `void` to suppress floating promises
+  - Pre-existing warnings (4): `no-unused-vars` (2), `no-explicit-any` (2) — unchanged, unrelated to this task
+  - **Git**: committed as `<pending>`

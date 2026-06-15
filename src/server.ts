@@ -60,11 +60,15 @@ function startDataApiServer(port: number): {
         return;
       }
 
-      setTimeout(check, 1000);
+      void setTimeout(() => {
+        void check();
+      }, 1000);
     };
 
     // Give the child process a moment to start before first ping
-    setTimeout(check, 1000);
+    void setTimeout(() => {
+      void check();
+    }, 1000);
   });
 
   return { process: child, ready };
@@ -147,8 +151,12 @@ async function main(): Promise<void> {
     process.exit(0);
   };
 
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => {
+    void shutdown('SIGTERM');
+  });
+  process.on('SIGINT', () => {
+    void shutdown('SIGINT');
+  });
 
   logger.info('Joplin API MCP Server ready, starting MCP on stdio');
 
