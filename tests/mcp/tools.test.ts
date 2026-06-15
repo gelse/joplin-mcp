@@ -21,6 +21,7 @@ import {
   deleteFolder,
   sync,
   type ToolContext,
+  type ReadMultinoteResult,
 } from '../../src/mcp/tools.js';
 
 // =============================================================================
@@ -284,21 +285,21 @@ describe('readMultinote', () => {
     const noteB = { ...sampleNote, id: 'b', title: 'B' };
     context.client.getNote.mockResolvedValueOnce(noteA).mockResolvedValueOnce(noteB);
 
-    const result = await readMultinote({ note_ids: ['a', 'b'] }, context);
+    const result: ReadMultinoteResult = await readMultinote({ note_ids: ['a', 'b'] }, context);
 
     expect(context.client.getNote).toHaveBeenCalledTimes(2);
     expect(context.client.getNote).toHaveBeenCalledWith('a');
     expect(context.client.getNote).toHaveBeenCalledWith('b');
-    expect(result).toEqual([noteA, noteB]);
+    expect(result).toEqual({ notes: [noteA, noteB], errors: [] });
   });
 
   it('handles empty array gracefully', async () => {
     const context = createContext();
 
-    const result = await readMultinote({ note_ids: [] }, context);
+    const result: ReadMultinoteResult = await readMultinote({ note_ids: [] }, context);
 
     expect(context.client.getNote).not.toHaveBeenCalled();
-    expect(result).toEqual([]);
+    expect(result).toEqual({ notes: [], errors: [] });
   });
 
   it('does NOT trigger sync', async () => {
@@ -310,11 +311,55 @@ describe('readMultinote', () => {
     expect(context.syncManager.triggerSync).not.toHaveBeenCalled();
   });
 
-  it('propagates client errors for individual fetches', async () => {
+  it('returns all results when all notes succeed', async () => {
     const context = createContext();
-    context.client.getNote.mockRejectedValue(new Error('Fetch failed'));
+    const noteA = { ...sampleNote, id: 'a', title: 'A' };
+    const noteB = { ...sampleNote, id: 'b', title: 'B' };
+    context.client.getNote.mockResolvedValueOnce(noteA).mockResolvedValueOnce(noteB);
 
-    await expect(readMultinote({ note_ids: ['bad'] }, context)).rejects.toThrow('Fetch failed');
+    const result: ReadMultinoteResult = await readMultinote({ note_ids: ['a', 'b'] }, context);
+
+    expect(result.notes).toHaveLength(2);
+    expect(result.notes).toEqual([noteA, noteB]);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('returns partial results when some notes fail', async () => {
+    const context = createContext();
+    const noteA = { ...sampleNote, id: 'a', title: 'A' };
+    context.client.getNote
+      .mockResolvedValueOnce(noteA)
+      .mockRejectedValueOnce(new Error('Not found'))
+      .mockResolvedValueOnce({ ...sampleNote, id: 'c', title: 'C' });
+
+    const result: ReadMultinoteResult = await readMultinote({ note_ids: ['a', 'b', 'c'] }, context);
+
+    expect(result.notes).toHaveLength(2);
+    expect(result.notes).toEqual([
+      { ...sampleNote, id: 'a', title: 'A' },
+      { ...sampleNote, id: 'c', title: 'C' },
+    ]);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toEqual({
+      note_id: 'b',
+      error: 'Not found',
+    });
+  });
+
+  it('returns no results when all notes fail', async () => {
+    const context = createContext();
+    context.client.getNote
+      .mockRejectedValueOnce(new Error('Fetch failed'))
+      .mockRejectedValueOnce(new Error('Not found'));
+
+    const result: ReadMultinoteResult = await readMultinote({ note_ids: ['a', 'b'] }, context);
+
+    expect(result.notes).toHaveLength(0);
+    expect(result.errors).toHaveLength(2);
+    expect(result.errors).toEqual([
+      { note_id: 'a', error: 'Fetch failed' },
+      { note_id: 'b', error: 'Not found' },
+    ]);
   });
 });
 
