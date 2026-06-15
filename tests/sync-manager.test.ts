@@ -137,6 +137,25 @@ describe('SyncManager', () => {
       // Must not throw
       expect(() => manager.stopPeriodicSync()).not.toThrow();
     });
+
+    it('guards against multiple periodic sync timers (MED-007)', async () => {
+      mockSync.mockResolvedValue(undefined);
+
+      manager.startPeriodicSync();
+      // Second call should be a no-op (early return)
+      manager.startPeriodicSync();
+
+      // Only one timer → only 1 sync after the first interval
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(mockSync).toHaveBeenCalledTimes(1);
+
+      // Second interval still fires as normal
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(mockSync).toHaveBeenCalledTimes(2);
+
+      // Verify a warning was logged about the duplicate call
+      expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('already running'));
+    });
   });
 
   // ── 3. Serialized sync (triggerSync queue) ──────────────────────────
@@ -252,6 +271,19 @@ describe('SyncManager', () => {
       expect(manager.getSyncStatus()).toBe('error');
       expect(mockLogger.error).toHaveBeenCalledWith(
         expect.objectContaining({ source: 'source-a' }),
+        expect.stringContaining('failed'),
+      );
+    });
+
+    it('sets status to error on periodic sync failure (MED-008)', async () => {
+      mockSync.mockRejectedValueOnce(new Error('periodic failure'));
+
+      manager.startPeriodicSync();
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(manager.getSyncStatus()).toBe('error');
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ err: expect.any(Error) }),
         expect.stringContaining('failed'),
       );
     });

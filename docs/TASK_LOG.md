@@ -683,3 +683,15 @@ Conducted comprehensive audit of all 282 unit tests across 13 test files against
     - Linter passes: 0 errors, 0 new warnings (4 pre-existing warnings unchanged)
     - 345/347 tests pass (2 pre-existing flaky tests in `server.test.ts`, unrelated)
     - **Git**: pending commit
+
+## 2026-06-15T15:48:00Z — Implemented MED-007 and MED-008: Guard Against Multiple Periodic Sync Timers + Update Sync Status on Failure
+
+- **Task**: Add guard against multiple periodic sync timers (MED-007) and update sync status on periodic sync failure (MED-008)
+- **Outcome**: Both fixes implemented, 2 new tests added, linter passes (0 errors), 19/19 sync-manager tests pass (345/347 overall, 2 pre-existing flaky in server.test.ts)
+- **Details**:
+  - MED-007 (`src/sync-manager.ts`, `startPeriodicSync()`): Added early-return guard — `if (this.timer) { this.logger.warn('Periodic sync already running, ignoring duplicate start'); return; }` — prevents timer leak when `startPeriodicSync()` is called multiple times, returns early preserving the existing timer
+  - MED-008 (`src/sync-manager.ts`, periodic interval callback): Added `this.status = 'error';` in the `.catch()` handler of `this.runSync('periodic')` — ensures sync status reflects error state when periodic sync fails
+  - MED-007 test (`tests/sync-manager.test.ts`): Calls `startPeriodicSync()` twice, verifies only one timer runs (1 sync at 5s, 2 at 10s), and `logger.warn` is called with expected message
+  - MED-008 test (`tests/sync-manager.test.ts`): Mocks rejection, verifies `getSyncStatus()` returns `'error'` and `logger.error` is called with error details
+  - Linter: 0 errors, 4 pre-existing warnings (unrelated files)
+  - **Git**: pending commit
