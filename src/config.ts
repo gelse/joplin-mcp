@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { GuardedString } from './guarded-string.js';
+import { ConfigError } from './errors.js';
 
 const configSchema = z.object({
   joplinServerUrl: z
@@ -58,7 +59,7 @@ export function parseConfig(): Config {
     const errors = result.error.errors
       .map((e) => `  - ${e.path.join('.')}: ${e.message}`)
       .join('\n');
-    throw new Error(
+    throw new ConfigError(
       `Configuration validation failed:\n${errors}\n\n` +
         `Ensure the following environment variables are set:\n` +
         `  JOPLIN_SERVER_URL (required)\n` +

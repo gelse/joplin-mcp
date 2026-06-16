@@ -53,3 +53,14 @@ export class AuthError extends DataApiError {
     this.name = 'AuthError';
   }
 }
+
+export class FatalError extends Error {
+  constructor(
+    message: string,
+    public readonly cause?: unknown,
+    public readonly exitCode: number = 1,
+  ) {
+    super(message);
+    this.name = 'FatalError';
+  }
+}

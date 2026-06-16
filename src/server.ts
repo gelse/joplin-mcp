@@ -6,16 +6,61 @@ import { JoplinDataClient } from './data-client.js';
 import { ToolRegistry } from './mcp/tool-registry.js';
 import { startMCPServer } from './mcp/server.js';
 import type { ToolContext } from './mcp/tools.js';
+import type { Logger } from './logger.js';
+
+/**
+ * Centralized fatal error handler.
+ * Normalizes any thrown value to an Error, logs via logger if available
+ * (falls back to console.error), runs an optional cleanup callback,
+ * then exits the process with the given exit code.
+ */
+function fatalErrorHandler(
+  logger: Logger | null,
+  message: string,
+  error: unknown,
+  cleanup?: () => void | Promise<void>,
+  exitCode: number = 1,
+): never {
+  const normalized = error instanceof Error ? error : new Error(String(error));
+
+  if (logger) {
+    logger.error({ err: normalized }, message);
+  } else {
+    console.error(`${message}:`, normalized.message);
+  }
+
+  if (cleanup) {
+    try {
+      const result = cleanup();
+      if (result instanceof Promise) {
+        result.catch(() => {});
+      }
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+
+  process.exit(exitCode);
+}
 
 /**
  * Handle a child process exit event.
  * Exits the parent process with code 1 if the child exited unexpectedly
  * (non-zero code and not a graceful shutdown signal).
  */
-export function handleChildExit(code: number | null, signal: string | null, stderr: string): void {
+export function handleChildExit(
+  code: number | null,
+  signal: string | null,
+  stderr: string,
+  logger?: Logger,
+): void {
   if (code !== 0 && signal !== 'SIGTERM' && signal !== 'SIGINT') {
-    console.error(`Joplin Data API exited unexpectedly (code=${code}, signal=${signal})`);
-    console.error(`stderr: ${stderr}`);
+    if (logger) {
+      logger.error({ code, signal, stderr }, 'Joplin Data API exited unexpectedly');
+    } else {
+      console.error(`Joplin Data API exited unexpectedly (code=${code}, signal=${signal})`);
+      console.error(`stderr: ${stderr}`);
+    }
     process.exit(1);
   }
 }
@@ -51,7 +96,7 @@ function startDataApiServer(
   });
 
   child.on('exit', (code, signal) => {
-    handleChildExit(code, signal, stderr);
+    handleChildExit(code, signal, stderr, logger);
   });
 
   // Poll the ping endpoint until the server is ready
@@ -116,9 +161,9 @@ async function main(): Promise<void> {
     const ping = await client.ping();
     logger.info({ status: ping.status, version: ping.version }, 'Data API ping successful');
   } catch (error) {
-    logger.error({ err: error }, 'Failed to ping Joplin Data API');
-    dataApi.process.kill();
-    process.exit(1);
+    fatalErrorHandler(logger, 'Failed to ping Joplin Data API', error, () => {
+      dataApi.process.kill();
+    });
   }
 
   // Initialize sync manager and perform initial sync
@@ -127,9 +172,9 @@ async function main(): Promise<void> {
   try {
     await syncManager.initialSync();
   } catch (error) {
-    logger.error({ err: error }, 'Initial sync failed, exiting');
-    dataApi.process.kill();
-    process.exit(1);
+    fatalErrorHandler(logger, 'Initial sync failed, exiting', error, () => {
+      dataApi.process.kill();
+    });
   }
 
   // Start periodic sync
@@ -181,13 +226,12 @@ async function main(): Promise<void> {
   try {
     await startMCPServer(registry, toolContext, logger);
   } catch (error) {
-    logger.error({ err: error }, 'MCP server error');
-    dataApi.process.kill();
-    process.exit(1);
+    fatalErrorHandler(logger, 'MCP server error', error, () => {
+      dataApi.process.kill();
+    });
   }
 }
 
 main().catch((error) => {
-  console.error('Fatal error:', error);
-  process.exit(1);
+  fatalErrorHandler(null, 'Fatal error', error);
 });

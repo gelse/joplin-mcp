@@ -71,10 +71,10 @@ const exitHandler = childProcess.on.mock.calls.find((call) => call[0] === 'exit'
 
 **Acceptance criteria:**
 
-- [ ] No test relies on `.mock.calls.find(...)` to locate event handlers
-- [ ] Exit handler behavior is tested via event emission on mocks
-- [ ] Tests continue to pass if additional `.on()` calls are added to `startDataApiServer()`
-- [ ] `npm run test` passes
+- [x] No test relies on `.mock.calls.find(...)` to locate event handlers
+- [x] Exit handler behavior is tested via event emission on mocks
+- [x] Tests continue to pass if additional `.on()` calls are added to `startDataApiServer()`
+- [x] `npm run test` passes
 
 ---
 
@@ -125,10 +125,10 @@ Only two custom rules are configured beyond the recommended presets: `@typescrip
 
 **Acceptance criteria:**
 
-- [ ] `no-floating-promises`, `await-thenable`, `no-misused-promises` are enforced as errors
-- [ ] `no-console` is enforced (warn or error)
-- [ ] `console.error` is replaced with structured logging in `server.ts:161`
-- [ ] `npm run lint` passes without violations
+- [x] `no-floating-promises`, `await-thenable`, `no-misused-promises` are enforced as errors
+- [x] `no-console` is enforced (warn or error)
+- [x] `console.error` is replaced with structured logging in `server.ts:161`
+- [x] `npm run lint` passes without violations
 
 ---
 
@@ -182,9 +182,9 @@ child.stderr?.on("data", (data: Buffer) => { stderr += data.toString(); });
 
 **Acceptance criteria:**
 
-- [ ] stdout is either consumed (with debug logging) or explicitly ignored
-- [ ] No backpressure risk from unconsumed stdout pipe
-- [ ] `npm run test` passes
+- [x] stdout is either consumed (with debug logging) or explicitly ignored
+- [x] No backpressure risk from unconsumed stdout pipe
+- [x] `npm run test` passes
 
 ---
 
@@ -229,10 +229,10 @@ joplinServerUrl: z.string().url().describe("JOPLIN_SERVER_URL"),
 
 **Acceptance criteria:**
 
-- [ ] Remote HTTP URLs are rejected by config validation
-- [ ] Localhost HTTP URLs are allowed for development
-- [ ] Validation error message is clear about the HTTPS requirement
-- [ ] `npm run test` passes with new config test cases
+- [x] Remote HTTP URLs are rejected by config validation
+- [x] Localhost HTTP URLs are allowed for development
+- [x] Validation error message is clear about the HTTPS requirement
+- [x] `npm run test` passes with new config test cases
 
 ---
 
@@ -294,9 +294,9 @@ vi.mock('../src/pagination.js', () => ({
 
 **Acceptance criteria:**
 
-- [ ] At least one test verifies pagination integration with real `fetchAllPages`
-- [ ] Pagination boundary conditions are tested (single page, empty, multi-page)
-- [ ] `npm run test` passes
+- [x] At least one test verifies pagination integration with real `fetchAllPages`
+- [x] Pagination boundary conditions are tested (single page, empty, multi-page)
+- [x] `npm run test` passes
 
 ---
 
@@ -366,10 +366,10 @@ The test suite for [`parseConfig()`](./src/config.ts:27) only covers happy-path 
 
 **Acceptance criteria:**
 
-- [ ] All config fields have test coverage for invalid/boundary values
-- [ ] Default values are verified when optional fields are omitted
-- [ ] Parameterized tests cover each config field with multiple invalid inputs
-- [ ] `npm run test` passes
+- [x] All config fields have test coverage for invalid/boundary values
+- [x] Default values are verified when optional fields are omitted
+- [x] Parameterized tests cover each config field with multiple invalid inputs
+- [x] `npm run test` passes
 
 ---
 
@@ -434,11 +434,11 @@ If `startPeriodicSync()` is called twice, the first timer continues running but 
 
 **Acceptance criteria:**
 
-- [ ] Multiple `startPeriodicSync()` calls do not create duplicate timers
-- [ ] Warning is logged on duplicate start attempt
-- [ ] `stopPeriodicSync()` properly cleans up the timer
-- [ ] Timer can be restarted after being stopped
-- [ ] `npm run test` passes
+- [x] Multiple `startPeriodicSync()` calls do not create duplicate timers
+- [x] Warning is logged on duplicate start attempt
+- [x] `stopPeriodicSync()` properly cleans up the timer
+- [x] Timer can be restarted after being stopped
+- [x] `npm run test` passes
 
 ---
 
@@ -484,10 +484,10 @@ this.timer = setInterval(() => {
 
 **Acceptance criteria:**
 
-- [ ] Sync status is set to `"error"` on periodic sync failure
-- [ ] Sync status transitions are tested for all paths
-- [ ] Status is correctly observable by MCP tools querying sync status
-- [ ] `npm run test` passes
+- [x] Sync status is set to `"error"` on periodic sync failure
+- [x] Sync status transitions are tested for all paths
+- [x] Status is correctly observable by MCP tools querying sync status
+- [x] `npm run test` passes
 
 ---
 
@@ -546,10 +546,10 @@ For a batch read operation, partial results are preferable — the user should r
 
 **Acceptance criteria:**
 
-- [ ] `readMultinote` uses `Promise.allSettled` instead of `Promise.all`
-- [ ] Partial results are returned when some fetches fail
-- [ ] Error details include which note IDs failed and why
-- [ ] `npm run test` passes
+- [x] `readMultinote` uses `Promise.allSettled` instead of `Promise.all`
+- [x] Partial results are returned when some fetches fail
+- [x] Error details include which note IDs failed and why
+- [x] `npm run test` passes
 
 ---
 
@@ -582,10 +582,10 @@ The server test suite mocks 6 modules (`child_process`, `config`, `logger`, `dat
 
 **Acceptance criteria:**
 
-- [ ] At least one integration test uses ≤3 mocks
-- [ ] Mock-based tests use stricter argument validation
-- [ ] Test file has documentation explaining the mock strategy
-- [ ] `npm run test` passes
+- [x] At least one integration test uses ≤3 mocks
+- [x] Mock-based tests use stricter argument validation
+- [x] Test file has documentation explaining the mock strategy
+- [x] `npm run test` passes
 
 ---
 
@@ -643,10 +643,10 @@ Error handling is inconsistent across the codebase:
 
 **Acceptance criteria:**
 
-- [ ] No `console.error` calls in production code paths
-- [ ] Shared error formatting utility exists and is used by all layers
-- [ ] Client-facing errors are sanitized; full details logged at DEBUG
-- [ ] `npm run test` passes
+- [x] No `console.error` calls in production code paths
+- [x] Shared error formatting utility exists and is used by all layers
+- [x] Client-facing errors are sanitized; full details logged at DEBUG
+- [x] `npm run test` passes
 
 ---
 
@@ -695,7 +695,7 @@ This branch has zero test coverage. If the transport configuration is broken (e.
 
 **Acceptance criteria:**
 
-- [ ] Debug log-level transport branch is tested
-- [ ] Test verifies pino-pretty is configured when logLevel is debug
-- [ ] Test verifies transport is undefined for non-debug levels
-- [ ] `npm run test` passes
+- [x] Debug log-level transport branch is tested
+- [x] Test verifies pino-pretty is configured when logLevel is debug
+- [x] Test verifies transport is undefined for non-debug levels
+- [x] `npm run test` passes

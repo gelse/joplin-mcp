@@ -6,6 +6,45 @@ import type { ToolContext } from './tools.js';
 import { ZodError } from 'zod';
 import { extractSchemaShape } from './schemas.js';
 
+/**
+ * Unified error handler for MCP tool execution.
+ * Logs ZodError at warn level (client error) and everything else at error level.
+ * Always returns an MCP error response with { content, isError: true }.
+ */
+function toolErrorHandler(
+  toolName: string,
+  error: unknown,
+  logger: Logger,
+): { content: Array<{ type: 'text'; text: string }>; isError: true } {
+  if (error instanceof ZodError) {
+    logger.warn({ tool: toolName, err: error }, 'MCP tool validation error');
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `Validation error: ${error.errors
+            .map((e) => `${e.path.join('.')}: ${e.message}`)
+            .join('; ')}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  logger.error({ tool: toolName, err: error }, 'MCP tool execution failed');
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: `Error executing ${toolName}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      },
+    ],
+    isError: true,
+  };
+}
+
 export async function createMCPServer(
   registry: ToolRegistry,
   ctx: ToolContext,
@@ -37,33 +76,7 @@ export async function createMCPServer(
             ],
           };
         } catch (error) {
-          // Handle Zod validation errors
-          if (error instanceof ZodError) {
-            return {
-              content: [
-                {
-                  type: 'text' as const,
-                  text: `Validation error: ${error.errors
-                    .map((e) => `${e.path.join('.')}: ${e.message}`)
-                    .join('; ')}`,
-                },
-              ],
-              isError: true,
-            };
-          }
-
-          logger.error({ tool: tool.name, err: error }, 'MCP tool execution failed');
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: `Error executing ${tool.name}: ${
-                  error instanceof Error ? error.message : String(error)
-                }`,
-              },
-            ],
-            isError: true,
-          };
+          return toolErrorHandler(tool.name, error, logger);
         }
       },
     );

@@ -202,6 +202,43 @@ describe('MCP Server', () => {
         ],
         isError: true,
       });
+
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        { tool: 'failing_tool', err: testError },
+        'MCP tool execution failed',
+      );
+    });
+
+    it('logs ZodError at warn level', async () => {
+      mockGetAllTools.mockReturnValue([
+        {
+          name: 'zod_failing_tool',
+          description: 'Zod fails',
+          schema: z.object({ name: z.string() }),
+        },
+      ]);
+
+      const zodError = new z.ZodError([
+        {
+          code: 'invalid_type',
+          expected: 'string',
+          received: 'number',
+          path: ['name'],
+          message: 'Expected string, received number',
+        },
+      ]);
+      mockExecuteTool.mockRejectedValue(zodError);
+
+      const { createMCPServer } = await import('../../src/mcp/server.js');
+      await createMCPServer(mockRegistry as any, mockCtx as any, mockLogger);
+
+      const handler = mockToolFn.mock.calls[0][3];
+      await handler({});
+
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        { tool: 'zod_failing_tool', err: zodError },
+        'MCP tool validation error',
+      );
     });
 
     it('extracts empty shape for tool without a ZodObject schema', async () => {
