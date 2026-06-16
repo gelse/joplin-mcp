@@ -13,6 +13,14 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
     volumes:
       - joplin_data:/home/joplin/.config/joplin
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
     restart: unless-stopped
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://localhost:${JOPLIN_DATA_API_PORT:-41100}/ping']
@@ -20,6 +28,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+    init: true
 
 volumes:
   joplin_data:

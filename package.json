@@ -2,6 +2,7 @@
   "name": "joplin-api-mcp",
   "version": "0.1.0",
   "description": "MCP server for Joplin, synced via Joplin Server backend",
+  "license": "MIT",
   "type": "module",
   "main": "dist/server.js",
   "scripts": {

@@ -97,7 +97,7 @@ export class CliExecutor {
       const { stdout, stderr } = await execFileAsync('joplin', args, {
         timeout: timeoutMs,
         maxBuffer: 10 * 1024 * 1024,
-        env: { ...process.env, HOME: process.env['HOME'] },
+        env: { PATH: process.env['PATH'], HOME: process.env['HOME'] },
       });
 
       const result: CliResult = {

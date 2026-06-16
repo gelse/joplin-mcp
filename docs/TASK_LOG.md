@@ -202,3 +202,29 @@
   - 🔵 LOW: `package.json` missing `license` field despite `LICENSE` file existing
 - **Notable Observations**: Coverage thresholds (70/60/70/70) remain low for production; `Pagination` interface imported but unused; password exposed via CLI args in `entrypoint.sh:47`; `scripts/smoke-test.sh` lacks MCP protocol validation
 - **CODEREVIEW.md**: Comprehensive 293-line report written with full analysis, severity ratings, and a summary table
+
+## 2026-06-16T19:32:00Z — Fix documentation/config findings M-2, M-3, L-2
+
+- **Task**: Fix three documentation/config issues in README.md and package.json
+- **Changes**:
+  - **M-2**: Replaced stale `SyncError` reference in error hierarchy tree with `FatalError` (the class that actually exists in `src/errors.ts`)
+  - **M-3**: Added 5 missing test files to project structure tree (`cli-executor.test.ts`, `data-client.test.ts`, `logger.test.ts`, `server.test.ts`, `sync-manager.test.ts`)
+  - **L-2**: Added `"license": "MIT"` field to `package.json`
+- **Outcome**: All three fixes applied and verified.
+
+## 2026-06-16T19:33:00Z — Address all CODEREVIEW.md findings (final pass)
+
+- **Task**: Read [`CODEREVIEW.md`](../CODEREVIEW.md) and resolved all 8 outstanding findings across 4 delegate subtasks
+- **HIGH** (2 findings):
+  - **H-1**: Fixed environment variable leak in [`src/cli-executor.ts`](../src/cli-executor.ts) — replaced full `process.env` spread with `PATH` and `HOME` only in `child_process.spawn` options
+  - **H-2**: Removed dead `CliError` class from [`src/errors.ts`](../src/errors.ts) (the class was never imported; the real `CliError` lives in [`src/cli-executor.ts`](../src/cli-executor.ts))
+- **MEDIUM** (4 findings):
+  - **M-1**: Added `FatalError` test coverage (6 tests) to [`tests/errors.test.ts`](../tests/errors.test.ts) — covers construction, message, cause chaining, symbol tagging, and `instanceof`
+  - **M-2**: Fixed stale `SyncError` reference in [`README.md`](../README.md) error hierarchy tree — replaced with `FatalError`
+  - **M-3**: Updated [`README.md`](../README.md) project structure tree to include 5 missing test files
+  - **M-4**: Added `init: true` to [`docker-compose.yml`](../docker-compose.yml)
+- **LOW** (2 findings):
+  - **L-1**: Added resource limits (cpus/memory) to [`docker-compose.yml`](../docker-compose.yml)
+  - **L-2**: Added `"license": "MIT"` to [`package.json`](../package.json)
+- **Verification**: `pnpm run build` passes (0 errors), `pnpm run test` passes (all tests green), linter passes (0 errors, 4 pre-existing warnings)
+- **Git**: `6dbb5a3` — Address all CODEREVIEW.md findings

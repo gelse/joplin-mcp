@@ -5,16 +5,6 @@ export class ConfigError extends Error {
   }
 }
 
-export class CliError extends Error {
-  constructor(
-    message: string,
-    public readonly result: { stdout: string; stderr: string; exitCode: number },
-  ) {
-    super(message);
-    this.name = 'CliError';
-  }
-}
-
 export class DataApiError extends Error {
   constructor(
     message: string,

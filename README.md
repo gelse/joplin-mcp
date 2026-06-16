@@ -133,8 +133,9 @@ Error
 │   ├── ConflictError (409)  # Resource modified since fetch
 │   ├── ValidationError (400)# Invalid input
 │   └── AuthError (401)      # Authentication failed
-└── SyncError                # Sync operation failure
-    └── Properties: cause?: Error
+└── FatalError               # Fatal/unexpected error
+    ├── cause?: unknown
+    └── exitCode: number (default 1)
 ```
 
 ## Available MCP Tools
@@ -192,9 +193,14 @@ src/
     ├── tools.ts           # 16 tool handler implementations
     └── tool-registry.ts   # Tool registration and dispatch
 tests/
+├── cli-executor.test.ts   # CLI executor tests
 ├── config.test.ts         # Config parser tests
+├── data-client.test.ts    # Data API client tests
 ├── errors.test.ts         # Error class hierarchy tests
-└── pagination.test.ts     # Pagination helper tests
+├── logger.test.ts         # Logger tests
+├── pagination.test.ts     # Pagination helper tests
+├── server.test.ts         # Server tests
+└── sync-manager.test.ts   # Sync manager tests
 scripts/
 └── smoke-test.sh          # End-to-end Docker container smoke test
 ```
