@@ -77,4 +77,122 @@ describe('Config Parser', () => {
     expect(config.logLevel).toBe('debug');
     expect(config.syncIntervalSeconds).toBe(120);
   });
+  describe('boundary values', () => {
+    it('should reject malformed URL for joplinServerUrl', async () => {
+      process.env['JOPLIN_SERVER_URL'] = 'not-a-valid-url';
+      process.env['JOPLIN_USERNAME'] = 'test@example.com';
+      process.env['JOPLIN_PASSWORD'] = 'dummy-password';
+
+      const { parseConfig } = await import('../src/config.js');
+      expect(() => parseConfig()).toThrow('Configuration validation failed');
+    });
+
+    it('should reject empty string for joplinServerUrl', async () => {
+      process.env['JOPLIN_SERVER_URL'] = '';
+      process.env['JOPLIN_USERNAME'] = 'test@example.com';
+      process.env['JOPLIN_PASSWORD'] = 'dummy-password';
+
+      const { parseConfig } = await import('../src/config.js');
+      expect(() => parseConfig()).toThrow('Configuration validation failed');
+    });
+
+    it('should reject empty string for joplinUsername', async () => {
+      process.env['JOPLIN_SERVER_URL'] = 'https://joplin.example.com/';
+      process.env['JOPLIN_USERNAME'] = '';
+      process.env['JOPLIN_PASSWORD'] = 'dummy-password';
+
+      const { parseConfig } = await import('../src/config.js');
+      expect(() => parseConfig()).toThrow('Configuration validation failed');
+    });
+
+    it('should reject empty string for joplinPassword', async () => {
+      process.env['JOPLIN_SERVER_URL'] = 'https://joplin.example.com/';
+      process.env['JOPLIN_USERNAME'] = 'test@example.com';
+      process.env['JOPLIN_PASSWORD'] = '';
+
+      const { parseConfig } = await import('../src/config.js');
+      expect(() => parseConfig()).toThrow('Configuration validation failed');
+    });
+
+    it('should reject negative port value', async () => {
+      process.env['JOPLIN_SERVER_URL'] = 'https://joplin.example.com/';
+      process.env['JOPLIN_USERNAME'] = 'test@example.com';
+      process.env['JOPLIN_PASSWORD'] = 'dummy-password';
+      process.env['JOPLIN_DATA_API_PORT'] = '-1';
+
+      const { parseConfig } = await import('../src/config.js');
+      expect(() => parseConfig()).toThrow('Configuration validation failed');
+    });
+
+    it('should reject zero port value', async () => {
+      process.env['JOPLIN_SERVER_URL'] = 'https://joplin.example.com/';
+      process.env['JOPLIN_USERNAME'] = 'test@example.com';
+      process.env['JOPLIN_PASSWORD'] = 'dummy-password';
+      process.env['JOPLIN_DATA_API_PORT'] = '0';
+
+      const { parseConfig } = await import('../src/config.js');
+      expect(() => parseConfig()).toThrow('Configuration validation failed');
+    });
+
+    it('should reject port value exceeding 65535', async () => {
+      process.env['JOPLIN_SERVER_URL'] = 'https://joplin.example.com/';
+      process.env['JOPLIN_USERNAME'] = 'test@example.com';
+      process.env['JOPLIN_PASSWORD'] = 'dummy-password';
+      process.env['JOPLIN_DATA_API_PORT'] = '99999';
+
+      const { parseConfig } = await import('../src/config.js');
+      expect(() => parseConfig()).toThrow('Configuration validation failed');
+    });
+
+    it('should reject non-numeric port value', async () => {
+      process.env['JOPLIN_SERVER_URL'] = 'https://joplin.example.com/';
+      process.env['JOPLIN_USERNAME'] = 'test@example.com';
+      process.env['JOPLIN_PASSWORD'] = 'dummy-password';
+      process.env['JOPLIN_DATA_API_PORT'] = 'abc';
+
+      const { parseConfig } = await import('../src/config.js');
+      expect(() => parseConfig()).toThrow('Configuration validation failed');
+    });
+
+    it('should reject invalid log level', async () => {
+      process.env['JOPLIN_SERVER_URL'] = 'https://joplin.example.com/';
+      process.env['JOPLIN_USERNAME'] = 'test@example.com';
+      process.env['JOPLIN_PASSWORD'] = 'dummy-password';
+      process.env['LOG_LEVEL'] = 'invalid-level';
+
+      const { parseConfig } = await import('../src/config.js');
+      expect(() => parseConfig()).toThrow('Configuration validation failed');
+    });
+
+    it('should reject negative sync interval', async () => {
+      process.env['JOPLIN_SERVER_URL'] = 'https://joplin.example.com/';
+      process.env['JOPLIN_USERNAME'] = 'test@example.com';
+      process.env['JOPLIN_PASSWORD'] = 'dummy-password';
+      process.env['SYNC_INTERVAL_SECONDS'] = '-10';
+
+      const { parseConfig } = await import('../src/config.js');
+      expect(() => parseConfig()).toThrow('Configuration validation failed');
+    });
+
+    it('should reject HTTP URL in production mode', async () => {
+      process.env['NODE_ENV'] = 'production';
+      process.env['JOPLIN_SERVER_URL'] = 'http://joplin.example.com/';
+      process.env['JOPLIN_USERNAME'] = 'test@example.com';
+      process.env['JOPLIN_PASSWORD'] = 'dummy-password';
+
+      const { parseConfig } = await import('../src/config.js');
+      expect(() => parseConfig()).toThrow('Configuration validation failed');
+    });
+
+    it('should accept HTTPS URL in production mode', async () => {
+      process.env['NODE_ENV'] = 'production';
+      process.env['JOPLIN_SERVER_URL'] = 'https://joplin.example.com/';
+      process.env['JOPLIN_USERNAME'] = 'test@example.com';
+      process.env['JOPLIN_PASSWORD'] = 'dummy-password';
+
+      const { parseConfig } = await import('../src/config.js');
+      const config = parseConfig();
+      expect(config.joplinServerUrl).toBe('https://joplin.example.com/');
+    });
+  });
 });

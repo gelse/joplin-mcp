@@ -2,14 +2,32 @@ import { z } from 'zod';
 import { GuardedString } from './guarded-string.js';
 
 const configSchema = z.object({
-  joplinServerUrl: z.string().url().describe('JOPLIN_SERVER_URL'),
+  joplinServerUrl: z
+    .string()
+    .url()
+    .describe('JOPLIN_SERVER_URL')
+    .refine(
+      (url) => {
+        if (process.env['NODE_ENV'] === 'production') {
+          return url.startsWith('https://');
+        }
+        return true;
+      },
+      { message: 'In production, JOPLIN_SERVER_URL must use HTTPS' },
+    ),
   joplinUsername: z.string().min(1).describe('JOPLIN_USERNAME'),
   joplinPassword: z
     .string()
     .min(1)
     .describe('JOPLIN_PASSWORD')
     .transform((val) => new GuardedString(val)),
-  dataApiPort: z.coerce.number().int().positive().default(41100).describe('JOPLIN_DATA_API_PORT'),
+  dataApiPort: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(65535)
+    .default(41100)
+    .describe('JOPLIN_DATA_API_PORT'),
   logLevel: z
     .enum(['debug', 'info', 'warn', 'error', 'silent'])
     .default('info')
