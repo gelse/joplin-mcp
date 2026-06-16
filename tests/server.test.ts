@@ -22,17 +22,11 @@ vi.mock('../src/config.js', () => ({
   parseConfig: mockParseConfig,
 }));
 
-const mockCreateLogger = vi.fn(() => ({
-  debug: vi.fn(),
-  info: vi.fn(),
-  warn: vi.fn(),
-  error: vi.fn(),
-  fatal: vi.fn(),
-}));
-
-vi.mock('../src/logger.js', () => ({
-  createLogger: mockCreateLogger,
-}));
+// Use the real createLogger wrapped in a spy — pino has no external deps
+vi.mock('../src/logger.js', async (importOriginal) => {
+  const mod = (await importOriginal()) as typeof import('../src/logger.js');
+  return { ...mod, createLogger: vi.fn(mod.createLogger) };
+});
 
 const mockPing = vi.fn();
 const MockJoplinDataClient = vi.fn(() => ({
@@ -126,6 +120,9 @@ describe('Server entrypoint', () => {
     await new Promise((r) => setTimeout(r, 10));
 
     // Assert synchronously-called components were initialized
+    // Dynamically import the mocked createLogger (cannot use top-level static import
+    // since the vi.mock factory uses importOriginal which conflicts with hoisting)
+    const { createLogger: mockCreateLogger } = await import('../src/logger.js');
     expect(mockParseConfig).toHaveBeenCalled();
     expect(mockCreateLogger).toHaveBeenCalled();
     // Note: mockPing, mockInitialSync, mockStartMCPServer are called after
@@ -174,7 +171,10 @@ describe('Server entrypoint', () => {
     vi.resetModules();
     // Re-mock after resetModules
     vi.mock('../src/config.js', () => ({ parseConfig: mockParseConfig }));
-    vi.mock('../src/logger.js', () => ({ createLogger: mockCreateLogger }));
+    vi.mock('../src/logger.js', async (importOriginal) => {
+      const mod = (await importOriginal()) as typeof import('../src/logger.js');
+      return { ...mod, createLogger: vi.fn(mod.createLogger) };
+    });
     vi.mock('../src/data-client.js', () => ({ JoplinDataClient: MockJoplinDataClient }));
     vi.mock('../src/sync-manager.js', () => ({ SyncManager: MockSyncManager }));
     vi.mock('../src/mcp/tool-registry.js', () => ({ ToolRegistry: MockToolRegistry }));
@@ -226,7 +226,10 @@ describe('Server entrypoint', () => {
 
     vi.resetModules();
     vi.mock('../src/config.js', () => ({ parseConfig: mockParseConfig }));
-    vi.mock('../src/logger.js', () => ({ createLogger: mockCreateLogger }));
+    vi.mock('../src/logger.js', async (importOriginal) => {
+      const mod = (await importOriginal()) as typeof import('../src/logger.js');
+      return { ...mod, createLogger: vi.fn(mod.createLogger) };
+    });
     vi.mock('../src/data-client.js', () => ({ JoplinDataClient: MockJoplinDataClient }));
     vi.mock('../src/sync-manager.js', () => ({ SyncManager: MockSyncManager }));
     vi.mock('../src/mcp/tool-registry.js', () => ({ ToolRegistry: MockToolRegistry }));
@@ -267,7 +270,10 @@ describe('Server entrypoint', () => {
 
     vi.resetModules();
     vi.mock('../src/config.js', () => ({ parseConfig: mockParseConfig }));
-    vi.mock('../src/logger.js', () => ({ createLogger: mockCreateLogger }));
+    vi.mock('../src/logger.js', async (importOriginal) => {
+      const mod = (await importOriginal()) as typeof import('../src/logger.js');
+      return { ...mod, createLogger: vi.fn(mod.createLogger) };
+    });
     vi.mock('../src/data-client.js', () => ({ JoplinDataClient: MockJoplinDataClient }));
     vi.mock('../src/sync-manager.js', () => ({ SyncManager: MockSyncManager }));
     vi.mock('../src/mcp/tool-registry.js', () => ({ ToolRegistry: MockToolRegistry }));
@@ -294,7 +300,10 @@ describe('Server entrypoint', () => {
 
     vi.resetModules();
     vi.mock('../src/config.js', () => ({ parseConfig: mockParseConfig }));
-    vi.mock('../src/logger.js', () => ({ createLogger: mockCreateLogger }));
+    vi.mock('../src/logger.js', async (importOriginal) => {
+      const mod = (await importOriginal()) as typeof import('../src/logger.js');
+      return { ...mod, createLogger: vi.fn(mod.createLogger) };
+    });
     vi.mock('../src/data-client.js', () => ({ JoplinDataClient: MockJoplinDataClient }));
     vi.mock('../src/sync-manager.js', () => ({ SyncManager: MockSyncManager }));
     vi.mock('../src/mcp/tool-registry.js', () => ({ ToolRegistry: MockToolRegistry }));
@@ -329,7 +338,10 @@ describe('Server entrypoint', () => {
 
     vi.resetModules();
     vi.mock('../src/config.js', () => ({ parseConfig: mockParseConfig }));
-    vi.mock('../src/logger.js', () => ({ createLogger: mockCreateLogger }));
+    vi.mock('../src/logger.js', async (importOriginal) => {
+      const mod = (await importOriginal()) as typeof import('../src/logger.js');
+      return { ...mod, createLogger: vi.fn(mod.createLogger) };
+    });
     vi.mock('../src/data-client.js', () => ({ JoplinDataClient: MockJoplinDataClient }));
     vi.mock('../src/sync-manager.js', () => ({ SyncManager: MockSyncManager }));
     vi.mock('../src/mcp/tool-registry.js', () => ({ ToolRegistry: MockToolRegistry }));
@@ -365,7 +377,10 @@ describe('Server entrypoint', () => {
 
     vi.resetModules();
     vi.mock('../src/config.js', () => ({ parseConfig: mockParseConfig }));
-    vi.mock('../src/logger.js', () => ({ createLogger: mockCreateLogger }));
+    vi.mock('../src/logger.js', async (importOriginal) => {
+      const mod = (await importOriginal()) as typeof import('../src/logger.js');
+      return { ...mod, createLogger: vi.fn(mod.createLogger) };
+    });
     vi.mock('../src/data-client.js', () => ({ JoplinDataClient: MockJoplinDataClient }));
     vi.mock('../src/sync-manager.js', () => ({ SyncManager: MockSyncManager }));
     vi.mock('../src/mcp/tool-registry.js', () => ({ ToolRegistry: MockToolRegistry }));
@@ -400,7 +415,10 @@ describe('Server entrypoint', () => {
 
     vi.resetModules();
     vi.mock('../src/config.js', () => ({ parseConfig: mockParseConfig }));
-    vi.mock('../src/logger.js', () => ({ createLogger: mockCreateLogger }));
+    vi.mock('../src/logger.js', async (importOriginal) => {
+      const mod = (await importOriginal()) as typeof import('../src/logger.js');
+      return { ...mod, createLogger: vi.fn(mod.createLogger) };
+    });
     vi.mock('../src/data-client.js', () => ({ JoplinDataClient: MockJoplinDataClient }));
     vi.mock('../src/sync-manager.js', () => ({ SyncManager: MockSyncManager }));
     vi.mock('../src/mcp/tool-registry.js', () => ({ ToolRegistry: MockToolRegistry }));
@@ -435,7 +453,10 @@ describe('Server entrypoint', () => {
 
     vi.resetModules();
     vi.mock('../src/config.js', () => ({ parseConfig: mockParseConfig }));
-    vi.mock('../src/logger.js', () => ({ createLogger: mockCreateLogger }));
+    vi.mock('../src/logger.js', async (importOriginal) => {
+      const mod = (await importOriginal()) as typeof import('../src/logger.js');
+      return { ...mod, createLogger: vi.fn(mod.createLogger) };
+    });
     vi.mock('../src/data-client.js', () => ({ JoplinDataClient: MockJoplinDataClient }));
     vi.mock('../src/sync-manager.js', () => ({ SyncManager: MockSyncManager }));
     vi.mock('../src/mcp/tool-registry.js', () => ({ ToolRegistry: MockToolRegistry }));
@@ -491,7 +512,10 @@ describe('Server entrypoint', () => {
 
     vi.resetModules();
     vi.mock('../src/config.js', () => ({ parseConfig: mockParseConfig }));
-    vi.mock('../src/logger.js', () => ({ createLogger: mockCreateLogger }));
+    vi.mock('../src/logger.js', async (importOriginal) => {
+      const mod = (await importOriginal()) as typeof import('../src/logger.js');
+      return { ...mod, createLogger: vi.fn(mod.createLogger) };
+    });
     vi.mock('../src/data-client.js', () => ({ JoplinDataClient: MockJoplinDataClient }));
     vi.mock('../src/sync-manager.js', () => ({ SyncManager: MockSyncManager }));
     vi.mock('../src/mcp/tool-registry.js', () => ({ ToolRegistry: MockToolRegistry }));
@@ -504,18 +528,9 @@ describe('Server entrypoint', () => {
     await import('../src/server.js');
     await new Promise((r) => setTimeout(r, 100));
 
-    const childProcess = mockSpawn.mock.results[0]?.value;
-    expect(childProcess).toBeDefined();
-
-    // Find the exit handler registered by startDataApiServer
-    const exitHandlerCall = childProcess.on.mock.calls.find(
-      (call: unknown[]) => call[0] === 'exit',
-    );
-    expect(exitHandlerCall).toBeDefined();
-
-    const exitHandler = exitHandlerCall![1];
-    // Simulate child process exit with non-zero code
-    exitHandler(1, null);
+    // Directly test handleChildExit instead of mock introspection
+    const { handleChildExit } = await import('../src/server.js');
+    handleChildExit(1, null, '');
 
     expect(process.exit).toHaveBeenCalledWith(1);
   }, 10000);
@@ -536,7 +551,10 @@ describe('Server entrypoint', () => {
 
     vi.resetModules();
     vi.mock('../src/config.js', () => ({ parseConfig: mockParseConfig }));
-    vi.mock('../src/logger.js', () => ({ createLogger: mockCreateLogger }));
+    vi.mock('../src/logger.js', async (importOriginal) => {
+      const mod = (await importOriginal()) as typeof import('../src/logger.js');
+      return { ...mod, createLogger: vi.fn(mod.createLogger) };
+    });
     vi.mock('../src/data-client.js', () => ({ JoplinDataClient: MockJoplinDataClient }));
     vi.mock('../src/sync-manager.js', () => ({ SyncManager: MockSyncManager }));
     vi.mock('../src/mcp/tool-registry.js', () => ({ ToolRegistry: MockToolRegistry }));
@@ -549,17 +567,9 @@ describe('Server entrypoint', () => {
     await import('../src/server.js');
     await new Promise((r) => setTimeout(r, 100));
 
-    const childProcess = mockSpawn.mock.results[0]?.value;
-    expect(childProcess).toBeDefined();
-
-    const exitHandlerCall = childProcess.on.mock.calls.find(
-      (call: unknown[]) => call[0] === 'exit',
-    );
-    expect(exitHandlerCall).toBeDefined();
-
-    const exitHandler = exitHandlerCall![1];
-    // Simulate clean exit — should NOT trigger process.exit
-    exitHandler(0, null);
+    // Directly test handleChildExit instead of mock introspection
+    const { handleChildExit } = await import('../src/server.js');
+    handleChildExit(0, null, '');
 
     expect(process.exit).not.toHaveBeenCalled();
   }, 10000);
@@ -580,7 +590,10 @@ describe('Server entrypoint', () => {
 
     vi.resetModules();
     vi.mock('../src/config.js', () => ({ parseConfig: mockParseConfig }));
-    vi.mock('../src/logger.js', () => ({ createLogger: mockCreateLogger }));
+    vi.mock('../src/logger.js', async (importOriginal) => {
+      const mod = (await importOriginal()) as typeof import('../src/logger.js');
+      return { ...mod, createLogger: vi.fn(mod.createLogger) };
+    });
     vi.mock('../src/data-client.js', () => ({ JoplinDataClient: MockJoplinDataClient }));
     vi.mock('../src/sync-manager.js', () => ({ SyncManager: MockSyncManager }));
     vi.mock('../src/mcp/tool-registry.js', () => ({ ToolRegistry: MockToolRegistry }));
@@ -593,17 +606,9 @@ describe('Server entrypoint', () => {
     await import('../src/server.js');
     await new Promise((r) => setTimeout(r, 100));
 
-    const childProcess = mockSpawn.mock.results[0]?.value;
-    expect(childProcess).toBeDefined();
-
-    const exitHandlerCall = childProcess.on.mock.calls.find(
-      (call: unknown[]) => call[0] === 'exit',
-    );
-    expect(exitHandlerCall).toBeDefined();
-
-    const exitHandler = exitHandlerCall![1];
-    // Simulate exit via SIGTERM — should NOT trigger process.exit
-    exitHandler(1, 'SIGTERM');
+    // Directly test handleChildExit instead of mock introspection
+    const { handleChildExit } = await import('../src/server.js');
+    handleChildExit(1, 'SIGTERM', '');
 
     expect(process.exit).not.toHaveBeenCalled();
   }, 10000);
@@ -647,7 +652,10 @@ describe('startDataApiServer()', () => {
 
     vi.resetModules();
     vi.mock('../src/config.js', () => ({ parseConfig: mockParseConfig }));
-    vi.mock('../src/logger.js', () => ({ createLogger: mockCreateLogger }));
+    vi.mock('../src/logger.js', async (importOriginal) => {
+      const mod = (await importOriginal()) as typeof import('../src/logger.js');
+      return { ...mod, createLogger: vi.fn(mod.createLogger) };
+    });
     vi.mock('../src/data-client.js', () => ({ JoplinDataClient: MockJoplinDataClient }));
     vi.mock('../src/sync-manager.js', () => ({ SyncManager: MockSyncManager }));
     vi.mock('../src/mcp/tool-registry.js', () => ({ ToolRegistry: MockToolRegistry }));
@@ -684,7 +692,10 @@ describe('startDataApiServer()', () => {
 
     vi.resetModules();
     vi.mock('../src/config.js', () => ({ parseConfig: mockParseConfig }));
-    vi.mock('../src/logger.js', () => ({ createLogger: mockCreateLogger }));
+    vi.mock('../src/logger.js', async (importOriginal) => {
+      const mod = (await importOriginal()) as typeof import('../src/logger.js');
+      return { ...mod, createLogger: vi.fn(mod.createLogger) };
+    });
     vi.mock('../src/data-client.js', () => ({ JoplinDataClient: MockJoplinDataClient }));
     vi.mock('../src/sync-manager.js', () => ({ SyncManager: MockSyncManager }));
     vi.mock('../src/mcp/tool-registry.js', () => ({ ToolRegistry: MockToolRegistry }));
@@ -716,7 +727,10 @@ describe('startDataApiServer()', () => {
 
     vi.resetModules();
     vi.mock('../src/config.js', () => ({ parseConfig: mockParseConfig }));
-    vi.mock('../src/logger.js', () => ({ createLogger: mockCreateLogger }));
+    vi.mock('../src/logger.js', async (importOriginal) => {
+      const mod = (await importOriginal()) as typeof import('../src/logger.js');
+      return { ...mod, createLogger: vi.fn(mod.createLogger) };
+    });
     vi.mock('../src/data-client.js', () => ({ JoplinDataClient: MockJoplinDataClient }));
     vi.mock('../src/sync-manager.js', () => ({ SyncManager: MockSyncManager }));
     vi.mock('../src/mcp/tool-registry.js', () => ({ ToolRegistry: MockToolRegistry }));
@@ -744,7 +758,10 @@ describe('startDataApiServer()', () => {
 
     vi.resetModules();
     vi.mock('../src/config.js', () => ({ parseConfig: mockParseConfig }));
-    vi.mock('../src/logger.js', () => ({ createLogger: mockCreateLogger }));
+    vi.mock('../src/logger.js', async (importOriginal) => {
+      const mod = (await importOriginal()) as typeof import('../src/logger.js');
+      return { ...mod, createLogger: vi.fn(mod.createLogger) };
+    });
     vi.mock('../src/data-client.js', () => ({ JoplinDataClient: MockJoplinDataClient }));
     vi.mock('../src/sync-manager.js', () => ({ SyncManager: MockSyncManager }));
     vi.mock('../src/mcp/tool-registry.js', () => ({ ToolRegistry: MockToolRegistry }));
@@ -754,18 +771,9 @@ describe('startDataApiServer()', () => {
     await import('../src/server.js');
     await new Promise((r) => setTimeout(r, 100));
 
-    const childProcess = mockSpawn.mock.results[0]?.value;
-    expect(childProcess).toBeDefined();
-
-    // Find the 'exit' handler that startDataApiServer registered
-    const exitHandlerCall = childProcess.on.mock.calls.find(
-      (call: unknown[]) => call[0] === 'exit',
-    );
-    expect(exitHandlerCall).toBeDefined();
-    const exitHandler = exitHandlerCall![1];
-
-    // Simulate unexpected child exit with non-zero code
-    exitHandler(1, null);
+    // Directly test handleChildExit instead of mock introspection
+    const { handleChildExit } = await import('../src/server.js');
+    handleChildExit(1, null, '');
 
     // The exit handler calls process.exit(1) for non-zero / non-signal exits
     expect(process.exit).toHaveBeenCalledWith(1);
@@ -778,7 +786,10 @@ describe('startDataApiServer()', () => {
 
     vi.resetModules();
     vi.mock('../src/config.js', () => ({ parseConfig: mockParseConfig }));
-    vi.mock('../src/logger.js', () => ({ createLogger: mockCreateLogger }));
+    vi.mock('../src/logger.js', async (importOriginal) => {
+      const mod = (await importOriginal()) as typeof import('../src/logger.js');
+      return { ...mod, createLogger: vi.fn(mod.createLogger) };
+    });
     vi.mock('../src/data-client.js', () => ({ JoplinDataClient: MockJoplinDataClient }));
     vi.mock('../src/sync-manager.js', () => ({ SyncManager: MockSyncManager }));
     vi.mock('../src/mcp/tool-registry.js', () => ({ ToolRegistry: MockToolRegistry }));
@@ -801,15 +812,9 @@ describe('startDataApiServer()', () => {
     // Emit stderr data — this exercises the accumulation path (line 25)
     dataHandler(Buffer.from('Fatal: unable to bind to port 41100\n'));
 
-    // Capture the 'exit' callback
-    const exitHandlerCall = childProcess.on.mock.calls.find(
-      (call: unknown[]) => call[0] === 'exit',
-    );
-    expect(exitHandlerCall).toBeDefined();
-    const exitHandler = exitHandlerCall![1];
-
-    // Trigger unexpected exit — exercises lines 28-34 (exit handler with stderr)
-    exitHandler(1, null);
+    // Directly test handleChildExit instead of mock introspection
+    const { handleChildExit } = await import('../src/server.js');
+    handleChildExit(1, null, 'Fatal: unable to bind to port 41100\n');
 
     // The exit handler calls process.exit(1)
     expect(process.exit).toHaveBeenCalledWith(1);

@@ -121,5 +121,27 @@
     - "collects items from three pages with sequential data" — verifies multi-page collection across 3 pages
     - "passes incrementing page numbers to the fetcher" — verifies the page argument is passed correctly
   - No changes to `tests/data-client.test.ts` — the `vi.mock` for `fetchAllPages` is preserved as existing tests depend on it
-- **Test Results**: 352/354 tests pass (2 pre-existing server.test.ts failures), all 11 pagination.test.ts tests pass
 - **Linter**: 0 errors, 4 pre-existing warnings
+
+## 2026-06-16T04:58:00Z — MED-004 & MED-006: Enforce HTTPS for production URLs + config boundary value tests
+
+- **Task**: Implemented MED-004 (HTTPS enforcement in production) and MED-006 (config boundary value tests)
+- **Files Changed**:
+  - `src/config.ts`:
+    - Added `.refine()` to `joplinServerUrl` Zod schema to reject HTTP URLs when `NODE_ENV === 'production'`
+    - Added `.max(65535)` to `dataApiPort` schema for proper port range validation
+  - `tests/config.test.ts`: Added 13 new test cases under `describe('boundary values')`:
+    - Malformed URL, empty strings for url/username/password
+    - Port boundary: negative, zero, >65535, non-numeric
+    - Invalid log level, negative sync interval
+    - HTTP URL rejected in production mode, HTTPS URL accepted in production mode
+- **Test Results**: 365/367 tests pass (2 pre-existing server.test.ts failures), all 15 config.test.ts tests pass
+- **Linter**: 0 errors, 4 pre-existing warnings
+- **Git**: `91b2f01` — Enforce HTTPS for production URLs and add config boundary value tests
+
+- **Task**: Implemented MED-012 — Added test for pino-pretty transport configuration when `level: 'debug'`
+- **Files Changed**:
+  - `tests/logger.test.ts`: Added `vi.mock` wrapper for `pino` to capture call arguments; added `"configures pino-pretty transport when log level is debug"` test that asserts `transport` option contains `{ target: 'pino-pretty', options: { colorize: true } }`
+- **Test Results**: 353/355 tests pass (2 pre-existing server.test.ts failures), all 14 logger.test.ts tests pass
+- **Linter**: 0 errors, 4 pre-existing warnings
+- **Git**: `2ec07e9` — Add test for pino-pretty transport on debug level

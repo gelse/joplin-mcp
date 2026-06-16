@@ -8,6 +8,19 @@ import { startMCPServer } from './mcp/server.js';
 import type { ToolContext } from './mcp/tools.js';
 
 /**
+ * Handle a child process exit event.
+ * Exits the parent process with code 1 if the child exited unexpectedly
+ * (non-zero code and not a graceful shutdown signal).
+ */
+export function handleChildExit(code: number | null, signal: string | null, stderr: string): void {
+  if (code !== 0 && signal !== 'SIGTERM' && signal !== 'SIGINT') {
+    console.error(`Joplin Data API exited unexpectedly (code=${code}, signal=${signal})`);
+    console.error(`stderr: ${stderr}`);
+    process.exit(1);
+  }
+}
+
+/**
  * Start the Joplin Data API server as a child process.
  * Returns the child process and a promise that resolves when the server is ready.
  */
@@ -38,11 +51,7 @@ function startDataApiServer(
   });
 
   child.on('exit', (code, signal) => {
-    if (code !== 0 && signal !== 'SIGTERM' && signal !== 'SIGINT') {
-      console.error(`Joplin Data API exited unexpectedly (code=${code}, signal=${signal})`);
-      console.error(`stderr: ${stderr}`);
-      process.exit(1);
-    }
+    handleChildExit(code, signal, stderr);
   });
 
   // Poll the ping endpoint until the server is ready
