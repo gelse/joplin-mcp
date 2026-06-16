@@ -1,673 +1,292 @@
-# Code Review: joplin-api-mcp
+# Code Review: joplin-api-mcp — Second Pass
 
-**Repository:** [`joplin-api-mcp`](./package.json:2) · **Version:** 0.1.0 · **Review Date:** 2026-06-13
+**Review Date:** 2026-06-16
+**Scope:** All source files, test files, configuration files, deployment files, and documentation.
+**Purpose:** Verify first-review fixes and identify any remaining or new issues.
 
 ---
 
 ## Executive Summary
 
-This code review analyzes a Node.js/TypeScript MCP (Model Context Protocol) server that provides a Joplin Data API bridge. The project uses Express.js-style patterns, Pino for logging, Zod for validation, Vitest for testing, and Docker for deployment.
+This second-pass review finds the project in **substantially improved** condition compared to the first review. All 6 CRITICAL issues and most HIGH/MEDIUM issues from the first review have been verified as resolved. However, 4 new issues were discovered, and 3 previously-documented issues remain unresolved. The overall code quality is good, and the project follows most best practices for a TypeScript/Node.js MCP server.
 
-**Overall assessment:** The project demonstrates solid engineering foundations — strong TypeScript configuration, clean separation of concerns, comprehensive documentation, and good Docker security practices. The six critical issues identified during review have all been resolved (see ✅ markers below), including security vulnerabilities, test coverage gaps, and dead code removal.
-
-| Severity    | Count |
-| ----------- | ----- |
-| 🔴 Critical | 6     |
-| 🟠 High     | 8     |
-| 🟡 Medium   | 12    |
-| 🟢 Low      | 14    |
-| ℹ️ Info     | 12    |
+| Severity                  | Count |
+| ------------------------- | ----- |
+| 🔴 CRITICAL (New)         | 0     |
+| 🟠 HIGH (New)             | 1     |
+| 🟡 MEDIUM (New)           | 2     |
+| 🔵 LOW (New)              | 1     |
+| ℹ️ INFO (New)             | 0     |
+| **Previously unresolved** | **3** |
 
 ---
 
-## 🔴 Critical Issues
+## First Review Fix Verification
 
-### 1. Unvalidated User-Supplied IDs Enable Path Traversal / Injection ✅ RESOLVED 2026-06-14
+### CRITICAL Issues (All 6 ✅ Resolved)
 
-**Files:**
+| #   | Issue                             | Status          | Verification                                                                                                                                                                                                                  |
+| --- | --------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Unvalidated IDs                   | ✅ **RESOLVED** | [`src/data-client.ts:46`](src/data-client.ts:46) — `validateId()` method with regex `/^[a-zA-Z0-9_-]+$/` is called in all CRUD methods that accept user-supplied IDs                                                          |
+| 2   | CLI Executor args                 | ✅ **RESOLVED** | [`src/cli-executor.ts:27`](src/cli-executor.ts:27) — `ALLOWED_SUBCOMMANDS` whitelist (Set of 19 commands); [`src/cli-executor.ts:55`](src/cli-executor.ts:55) — `SHELL_METACHARACTERS` regex blocks injection characters      |
+| 3   | Password in plain memory          | ✅ **RESOLVED** | [`src/config.ts:24`](src/config.ts:24) — Password transformed to `new GuardedString(val)`; [`src/guarded-string.ts`](src/guarded-string.ts) — Private `#value` field, redacted `toString()`/`toJSON()`/`[Symbol.toPrimitive]` |
+| 4   | `startDataApiServer()` untested   | ✅ **RESOLVED** | [`tests/server.test.ts:621`](tests/server.test.ts:621) — Dedicated `describe('startDataApiServer()')` block with 6 scenarios covering success, retry, exhaustion, child exit, stderr accumulation                             |
+| 5   | `tools.ts` excluded from coverage | ✅ **RESOLVED** | [`vitest.config.ts`](vitest.config.ts) — No exclusion for `tools.ts`; 16 tool handlers now under coverage                                                                                                                     |
+| 6   | Dead `SyncError` class            | ✅ **RESOLVED** | Removed from [`src/errors.ts`](src/errors.ts) — class no longer exists                                                                                                                                                        |
 
-- [`src/data-client.ts:138,146,149,167,175,178,196,203,208-209,212-213,218-222,242`](./src/data-client.ts:138)
-- [`src/mcp/tools.ts:42-47,49-54,56-64,66-71,120-145,147-155,166-173,175-182,188-195,197-204`](./src/mcp/tools.ts:42)
+### HIGH Issues
 
-**Problem:** Every `getNote(id)`, `updateNote(id)`, `deleteNote(id)`, `getFolder(id)`, `getTag(id)`, etc. method in [`JoplinDataClient`](./src/data-client.ts:28) directly interpolates user-supplied `id` parameters into URL path segments without validation or encoding:
+| #   | Issue                                      | Status          | Verification                                                                                                                                                                                                                                                         |
+| --- | ------------------------------------------ | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 7   | Credentials logged at startup              | ✅ **RESOLVED** | [`entrypoint.sh:37`](entrypoint.sh:37) — JOPLIN_USERNAME log line removed (commented out); [`src/logger.ts:17`](src/logger.ts:17) — Pino redact array now covers all 5 secret paths including `joplinUsername`, `joplinServerUrl`                                    |
+| 8   | Joplin CLI version not pinned              | ✅ **RESOLVED** | [`Dockerfile:32`](Dockerfile:32) — `ARG JOPLIN_CLI_VERSION=3.6.2`; line 35 uses `"joplin@${JOPLIN_CLI_VERSION}"` for explicit pinning                                                                                                                                |
+| 9   | Data API binds to 0.0.0.0                  | ✅ **RESOLVED** | [`src/server.ts:129`](src/server.ts:129) — Changed from `0.0.0.0` to `--host 127.0.0.1`                                                                                                                                                                              |
+| 10  | Docker compose port exposes all interfaces | ✅ **RESOLVED** | [`docker-compose.yml:6`](docker-compose.yml:6) — Port binding uses `'127.0.0.1:${JOPLIN_DATA_API_PORT:-41100}:...'` — localhost only                                                                                                                                 |
+| 11  | Auth token stored without expiration       | ✅ **RESOLVED** | [`src/data-client.ts:79`](src/data-client.ts:79) — `tokenExpiresAt` timestamp with 5-minute buffer; proactive refresh before expiry; 401-triggered re-fetch; deduplication of concurrent token requests via `tokenPromise`                                           |
+| 12  | Error messages leak API structure          | ✅ **RESOLVED** | [`src/data-client.ts:131`](src/data-client.ts:131) — 404/409 errors use resource type instead of URL path; 400 returns generic "Bad request" message; full response details logged at DEBUG level only                                                               |
+| 13  | Schema fields lack constraints             | ✅ **RESOLVED** | [`src/mcp/schemas.ts`](src/mcp/schemas.ts) — `joplinId` regex `/^[0-9a-f]{32}$/` validator added; max length constraints on all string fields (500 titles, 200 author/tag, 1M body); `source_url` uses `z.string().url()`; `is_todo` uses `booleanNum` coerce helper |
+| 14  | Unsafe type assertion bypasses safety      | ✅ **RESOLVED** | [`src/mcp/schemas.ts:107`](src/mcp/schemas.ts:107) — `extractSchemaShape()` uses `schema instanceof z.ZodObject` (public Zod API) instead of `._def` private property access                                                                                         |
+| 15  | Fragile mock introspection in tests        | ✅ **RESOLVED** | [`tests/server.test.ts`](tests/server.test.ts) — Tests now directly import and call `handleChildExit()` function instead of inspecting `childProcess.on.mock.calls`                                                                                                  |
+| 16  | ESLint rule set minimal                    | ✅ **RESOLVED** | [`eslint.config.mjs`](eslint.config.mjs) — Now includes `@typescript-eslint/no-floating-promises`, `await-thenable`, `no-misused-promises`, `no-console` (warn, allow `warn`/`error`); 4 violations fixed in `src/server.ts`                                         |
+| 17  | Server stdout not consumed                 | ✅ **RESOLVED** | [`src/server.ts:98`](src/server.ts:98) — Child process `stdout` piped to trace-level logger to prevent buffer overflow                                                                                                                                               |
+
+### MEDIUM Issues
+
+| #   | Issue                                    | Status          | Verification                                                                                                                                                                                                                       |
+| --- | ---------------------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 19  | Pagination not tested                    | ✅ **RESOLVED** | [`tests/pagination.test.ts`](tests/pagination.test.ts) — 3 new tests: single-page stop, multi-page collection, page numbering verification                                                                                         |
+| 20  | Config boundary values untested          | ✅ **RESOLVED** | [`tests/config.test.ts:80`](tests/config.test.ts:80) — `describe('boundary values')` block with 13 test cases covering malformed URL, empty strings, port boundaries, invalid log level, negative sync interval, HTTPS enforcement |
+| 21  | Periodic sync timer leak                 | ✅ **RESOLVED** | [`src/sync-manager.ts:56`](src/sync-manager.ts:56) — `startPeriodicSync()` checks `if (this.timer)` and logs warning before returning early                                                                                        |
+| 22  | Error status not set on periodic failure | ✅ **RESOLVED** | [`src/sync-manager.ts:64`](src/sync-manager.ts:64) — `.catch()` in setInterval callback sets `this.status = 'error'`                                                                                                               |
+| 23  | `Promise.all` fails fast                 | ✅ **RESOLVED** | [`src/mcp/tools.ts:65`](src/mcp/tools.ts:65) — `readMultinote` uses `Promise.allSettled()` with `ReadMultinoteResult` interface returning both `notes: Note[]` and `errors: { note_id: string; error: string }[]`                  |
+| 24  | Heavy mocking reduces confidence         | ✅ **RESOLVED** | [`tests/server.test.ts`](tests/server.test.ts) — 17 inline mock factories replaced with `importOriginal` pattern wrapping real `createLogger` via `vi.fn()` spy                                                                    |
+| 25  | No centralized error handling            | ✅ **RESOLVED** | [`src/server.ts:17`](src/server.ts:17) — `fatalErrorHandler()` centralized error handler; [`src/mcp/server.ts:14`](src/mcp/server.ts:14) — `toolErrorHandler()` with ZodError awareness                                            |
+| 26  | Debug log-level transport untested       | ✅ **RESOLVED** | [`tests/logger.test.ts:102`](tests/logger.test.ts:102) — Test verifying `pino-pretty` transport config when log level is `debug`                                                                                                   |
+| 27  | No coverage thresholds                   | ✅ **RESOLVED** | [`vitest.config.ts`](vitest.config.ts) — Thresholds added: statements=70, branches=60, functions=70, lines=70 (though these remain low for production)                                                                             |
+
+### LOW Issues
+
+| #   | Issue                           | Status          | Verification                                                                                                                                                       |
+| --- | ------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 31  | Port validation arbitrary       | ✅ **RESOLVED** | [`src/config.ts:29`](src/config.ts:29) — `.max(65535)` added; chain now `.int().positive().max(65535)`                                                             |
+| 32  | Pagination interface incomplete | ✅ **RESOLVED** | [`src/api-types.ts:109`](src/api-types.ts:109) — `PaginatedResponse<T>` now includes `has_more: boolean` field used by `fetchAllPages`                             |
+| 33  | Entrypoint no error handling    | ✅ **RESOLVED** | [`entrypoint.sh:44`](entrypoint.sh:44) — Individual `joplin config` commands wrapped in the script's `set -euo pipefail` context; any failure triggers script exit |
+
+---
+
+## Previously Unresolved Issues (Still Open)
+
+### 🔴 #36: Process Environment Variables Leaked to CLI Child Process
+
+**Severity:** HIGH  
+**Location:** [`src/cli-executor.ts:100`](src/cli-executor.ts:100)  
+**First Review:** ✅ DOCUMENTED — NOT RESOLVED  
+**Current Status:** ❌ **STILL NOT RESOLVED**
+
+The `execFile` call spreads the full parent process environment into the child:
 
 ```typescript
-// src/data-client.ts:138
-async getNote(id: string): Promise<Note> {
-  return this.request<Note>("GET", `/notes/${id}`);
-}
+env: { ...process.env, HOME: process.env['HOME'] },
 ```
 
-These methods are called from every MCP tool handler in [`src/mcp/tools.ts`](./src/mcp/tools.ts:42) with IDs provided by the MCP client. A malicious or malformed ID like `../../secrets` could lead to path traversal.
+This leaks all environment variables—including `JOPLIN_PASSWORD` and `JOPLIN_SERVER_URL`—to the Joplin CLI subprocess. While the Joplin CLI may legitimately need some env vars, the entire environment should not be forwarded. A minimal environment should be constructed containing only required variables.
 
-**Recommendation:**
+**Recommendation:** Construct a whitelist of required environment variables (e.g., `PATH`, `HOME`, `JOPLIN_PASSWORD`, `JOPLIN_SERVER_URL`, `JOPLIN_USERNAME`) instead of spreading `...process.env`.
 
-- Add a Zod schema or regex validator for Joplin IDs (expected format: 32-character hex strings, e.g., `/^[0-9a-f]{32}$/`)
-- Apply the validation in [`JoplinDataClient`](./src/data-client.ts) methods or via a shared helper
-- Alternatively, use `encodeURIComponent()` on all interpolated path segments
+### 🟡 #34: Docker Compose Missing `init: true`
+
+**Severity:** LOW  
+**Location:** [`docker-compose.yml`](docker-compose.yml)  
+**First Review:** ✅ DOCUMENTED — NOT RESOLVED  
+**Current Status:** ❌ **STILL NOT RESOLVED**
+
+The compose file does not set `init: true`. Without this, the Node.js process runs as PID 1 inside the container and does not receive SIGTERM/SIGKILL signals forwarded from Docker. If the entrypoint script uses `exec node dist/server.js`, Node.js replaces PID 1 and handles signals directly, so this may not cause immediate issues—but it's still best practice to include `init: true`.
+
+**Recommendation:** Add `init: true` to the service definition in `docker-compose.yml`.
+
+### 🟡 #35: Docker Compose Missing Resource Limits
+
+**Severity:** LOW  
+**Location:** [`docker-compose.yml`](docker-compose.yml)  
+**First Review:** ✅ DOCUMENTED — NOT RESOLVED  
+**Current Status:** ❌ **STILL NOT RESOLVED**
+
+No CPU or memory resource limits are configured in `docker-compose.yml`. A runaway sync operation or memory leak could exhaust host resources.
+
+**Recommendation:** Add `deploy.resources.limits` with reasonable CPU and memory caps.
+
+### 🔵 #38: ESLint Ignores Missing `coverage/`
+
+**Severity:** LOW  
+**Location:** [`eslint.config.mjs`](eslint.config.mjs)  
+**First Review:** ✅ DOCUMENTED — NOT RESOLVED  
+**Current Status:** ❌ **STILL NOT RESOLVED**
+
+The ESLint ignore list contains `dist/` and `lib/` but not `coverage/`. Running `pnpm test -- --coverage` generates `coverage/` output that will be linted, potentially causing false positives.
+
+**Recommendation:** Add `'coverage/**'` to the `ignores` array.
 
 ---
 
-### 2. CLI Executor Accepts Unvalidated Arguments ✅ RESOLVED 2026-06-14
+## New Issues Discovered
 
-**File:** [`src/cli-executor.ts:27`](./src/cli-executor.ts:27)
+### 🟠 NEW-HIGH-1: Duplicate `CliError` Class — Dead Code in `errors.ts`
 
-**Problem:** The [`exec()`](./src/cli-executor.ts:26) method accepts an `args` array and passes it directly to `execFile("joplin", args, ...)`. While the `args` array mitigates shell injection compared to `exec()`, there is no validation of argument contents. If user input ever reaches this method through the current or future code path, it could enable command injection.
+**Severity:** HIGH  
+**Location:** [`src/errors.ts:8`](src/errors.ts:8) — [`src/cli-executor.ts:13`](src/cli-executor.ts:13)  
+**Status:** ❌ **NOT RESOLVED** (new finding)
 
-```typescript
-async exec(args: string[], timeoutMs: number = 60_000): Promise<CliResult> {
-  const cmd = ["joplin", ...args];  // args used directly
-  // ...
-  const { stdout, stderr } = await execFileAsync("joplin", args, { ... });
-}
+Two separate `CliError` classes exist in the codebase:
+
+1. [`src/errors.ts:8-16`](src/errors.ts:8) — Exported `CliError` class extending `Error` with `result` property `{ stdout: string; stderr: string; exitCode: number }`
+2. [`src/cli-executor.ts:13-21`](src/cli-executor.ts:13) — Exported `CliError` class with identical shape
+
+The `CliError` in `errors.ts` is **never imported or used** anywhere in the codebase. A search for `from.*errors.*import.*CliError` (or equivalent) yields zero results. The runtime `CliError` used by all consumers comes from `cli-executor.ts`.
+
+This is dead code that creates confusion about which `CliError` is canonical. It was likely introduced when `errors.ts` was created as a central error module, but the `cli-executor.ts` import was never updated.
+
+**Recommendation:** Remove the unused `CliError` class from `src/errors.ts`. If centralized error definitions are desired, re-export the canonical `CliError` from `src/cli-executor.ts` via `src/errors.ts` or migrate to a single definition.
+
+### 🟡 NEW-MED-1: `FatalError` Class Has No Test Coverage
+
+**Severity:** MEDIUM  
+**Location:** [`src/errors.ts:57`](src/errors.ts:57) — [`tests/errors.test.ts`](tests/errors.test.ts)  
+**Status:** ❌ **NOT RESOLVED** (new finding)
+
+The `FatalError` class (`src/errors.ts:57-66`) is a custom error with `cause` and `exitCode` properties used in the centralized `fatalErrorHandler()`. It is exported and used by [`src/server.ts`](src/server.ts:17) but has **zero test coverage**. The existing `tests/errors.test.ts` `describe('Error classes')` block tests `ConfigError`, `NotFoundError`, `DataApiError`, `ConflictError`, `ValidationError`, and `AuthError`, but omits `FatalError`.
+
+**Recommendation:** Add a test case for `FatalError` in `tests/errors.test.ts` verifying:
+
+- Constructor sets `name === 'FatalError'`
+- `cause` and `exitCode` properties are accessible
+- Default `exitCode` is `1` when not provided
+
+### 🟡 NEW-MED-2: Outdated README References Deleted `SyncError` Class
+
+**Severity:** MEDIUM  
+**Location:** [`README.md:136`](README.md:136)  
+**Status:** ❌ **NOT RESOLVED** (new finding)
+
+The Error Handling section in `README.md` (lines 124-138) shows a `SyncError` class in the error hierarchy tree:
+
+```
+└── SyncError                # Sync operation failure
+    └── Properties: cause?: Error
 ```
 
-**Recommendation:**
+This class was **removed** in the first review (CRITICAL #6 — "Dead SyncError Class"). The documentation was not updated to reflect this change.
 
-- Add argument validation (reject args containing subcommands, shell metacharacters, or unexpected patterns)
-- Consider using a command builder pattern that restricts which flags and values are accepted
+Additionally, the `SyncError` reference in the README does not exist in the actual codebase, creating a mismatch between documented and actual error types.
 
----
+**Recommendation:** Remove the `SyncError` entry from the error hierarchy in `README.md`.
 
-### 3. Password Stored in Plain Memory in Config Object ✅ RESOLVED 2026-06-14
+### 🟡 NEW-MED-3: README Project Structure Is Incomplete
 
-**File:** [`src/config.ts:6`](./src/config.ts:6)
+**Severity:** MEDIUM  
+**Location:** [`README.md:194`](README.md:194)  
+**Status:** ❌ **NOT RESOLVED** (new finding)
 
-**Problem:** The `joplinPassword` field is stored as a plain string in the config object after parsing. While Pino's `redact` feature avoids logging it, the value exists in plaintext in memory for the application's lifetime.
+The Project Structure section (lines 194-198) shows:
 
-**Recommendation:**
-
-- Consider using a `Symbol`-keyed property or a dedicated secrets abstraction that provides controlled access
-- For containerized deployments, evaluate Docker secrets support rather than environment variables
-- At minimum, ensure the config object is never serialized or exposed beyond the logger
-
----
-
-### 4. `startDataApiServer()` Has No Direct Test Coverage ✅ RESOLVED 2026-06-14
-
-**File:** [`src/server.ts:14-67`](./src/server.ts:14)
-
-**Problem:** The [`startDataApiServer()`](./src/server.ts:14) function, which handles spawning the Joplin CLI process, collecting stderr, and polling the ping endpoint with a 30-attempt retry loop, is only exercised indirectly through [`main()`](./src/server.ts:69) in tests. All tests mock `spawn`, meaning the stderr collection logic, ping retry mechanism, and unexpected-exit handling are never directly verified.
-
-**Recommendation:** Add a dedicated `describe('startDataApiServer')` test block covering:
-
-- Successful ping on first attempt
-- Ping retry with eventual success
-- Ping exhaustion (maxAttempts reached)
-- Unexpected child process exit
-- Stderr collection and formatting
-
----
-
-### 5. `src/mcp/tools.ts` Excluded from Coverage Without Thresholds ✅ RESOLVED 2026-06-14
-
-**Files:**
-
-- [`vitest.config.ts:11`](./vitest.config.ts:11)
-- [`src/mcp/tools.ts:1-220`](./src/mcp/tools.ts:1)
-
-**Problem:** The file [`src/mcp/tools.ts`](./src/mcp/tools.ts:1) — which contains all 16 MCP tool handlers including note/notebook CRUD, tagging, search, and sync — is explicitly excluded from coverage metrics with no explanatory comment. This is the core business logic of the MCP server. Additionally, no coverage thresholds are configured anywhere.
-
-```typescript
-// vitest.config.ts
-coverage: {
-  provider: 'v8',
-  include: ['src/**/*.ts'],
-  exclude: ['src/mcp/tools.ts'],  // No comment explaining why
-},
+```
+tests/
+├── config.test.ts         # Config parser tests
+├── errors.test.ts         # Error class hierarchy tests
+└── pagination.test.ts     # Pagination helper tests
 ```
 
-**Recommendation:**
+This is **missing 6 test files** that exist in the project:
 
-- Remove the exclusion or add a detailed comment explaining the rationale
-- Add coverage thresholds: `thresholds: { branches: 80, functions: 90, lines: 90, statements: 90 }`
-- Add smoke tests that exercise tool handlers through the registry (as done for `list_notebooks`)
+- `tests/cli-executor.test.ts`
+- `tests/data-client.test.ts`
+- `tests/logger.test.ts`
+- `tests/server.test.ts`
+- `tests/sync-manager.test.ts`
+- `tests/mcp/` directory (4 files: `schemas.test.ts`, `server.test.ts`, `tool-registry.test.ts`, `tools.test.ts`)
 
----
+**Recommendation:** Update the project structure tree to include all test files.
 
-### 6. Dead Code: `SyncError` Class — Never Used, Never Tested ✅ RESOLVED 2026-06-14
+### 🔵 NEW-LOW-1: `package.json` Missing `license` Field
 
-**File:** [`src/errors.ts:18-26`](./src/errors.ts:18)
+**Severity:** LOW  
+**Location:** [`package.json`](package.json) — [`LICENSE`](LICENSE)  
+**Status:** ❌ **NOT RESOLVED** (new finding)
 
-**Problem:** The [`SyncError`](./src/errors.ts:18) class is defined as a public export with a `cause` property but is never referenced anywhere in the source code and has zero test coverage. This is dead code that adds unnecessary surface area.
+A `LICENSE` file exists at the project root (MIT License, Copyright 2026 gelse), but `package.json` does not include a `license` field. When publishing to npm or running certain tooling, this may result in warnings or default to "UNLICENSED". Other missing metadata fields from the first review remain: `author`, `repository`, `keywords`, `bugs`, `homepage`.
 
-```typescript
-export class SyncError extends Error {
-  constructor(
-    message: string,
-    public readonly cause?: Error,
-  ) {
-    super(message);
-    this.name = 'SyncError';
-  }
-}
-```
-
-**Recommendation:** Either:
-
-- Remove the unused `SyncError` class, or
-- Use it in [`sync-manager.ts`](./src/sync-manager.ts) error handling and add corresponding tests
+**Recommendation:** Add `"license": "MIT"` to `package.json`.
 
 ---
 
-## 🟠 High Priority Issues
+## Additional Observations
 
-### 7. Credentials Logged in Plaintext at Startup
+### 🔵 Coverage Thresholds Remain Low for Production
 
-**Files:**
+**Severity:** LOW  
+**Location:** [`vitest.config.ts`](vitest.config.ts)  
+**Status:** ⚠️ NOTABLE
 
-- [`entrypoint.sh:37-38`](./entrypoint.sh:37)
-- [`src/logger.ts:4`](./src/logger.ts:4)
+Coverage thresholds of 70/60/70/70 (statements/branches/functions/lines) were added, satisfying the first-review requirement. However, for a production service that handles credentials and executes subprocesses, thresholds of 90+ are more appropriate. The branching threshold of 60 is particularly low, leaving 40% of code paths untested.
 
-**Problem:** Two credential exposure vectors exist:
+### 🔵 `Pagination` Interface Imported But Unused
 
-1. The entrypoint script logs `JOPLIN_USERNAME` at INFO level (line 37). `JOPLIN_PASSWORD` is not logged in the current version but was logged on line 38 historically.
-2. The Pino logger's redact configuration only covers `joplinPassword` but not `joplinUsername` or `joplinServerUrl` (which could contain embedded credentials).
+**Severity:** INFO  
+**Location:** [`src/pagination.ts:1`](src/pagination.ts:1) — [`src/api-types.ts:112`](src/api-types.ts:112)  
+**Status:** ⚠️ NOTABLE
+
+The `Pagination` interface (`src/api-types.ts:112-114`) is imported in `src/pagination.ts` but never used in any function signature. All pagination functions use inline `(limit?: number, page?: number)` parameters instead. The interface is dead code.
+
+### 🔵 Password Exposed via CLI Arguments in Entrypoint
+
+**Severity:** INFO (defense-in-depth)  
+**Location:** [`entrypoint.sh:47`](entrypoint.sh:47)  
+**Status:** ⚠️ NOTABLE
+
+The entrypoint script passes the Joplin password as a CLI argument:
 
 ```bash
-# entrypoint.sh:37
-log "INFO" "Joplin Username: ${JOPLIN_USERNAME}"
+joplin config "sync.10.password" "${JOPLIN_PASSWORD}"
 ```
 
-```typescript
-// src/logger.ts:4
-const SECRETS: string[] = ['joplinPassword']; // Doesn't cover username or server URL
-```
+On Linux, CLI arguments are visible in `/proc/[pid]/cmdline` to other processes running as the same user. While the Joplin CLI only runs briefly during configuration and the container is single-purpose, this represents a defense-in-depth gap. Consider using `joplin config sync.10.password` via stdin or a temporary file with restricted permissions.
 
-**Recommendation:**
+### 🔵 `scripts/smoke-test.sh` Lacks MCP Protocol Validation
 
-- Remove the username log line from [`entrypoint.sh`](./entrypoint.sh:37)
-- Add `"joplinUsername"` and `"joplinServerUrl"` to the [`SECRETS`](./src/logger.ts:4) array
+**Severity:** INFO  
+**Location:** [`scripts/smoke-test.sh`](scripts/smoke-test.sh)  
+**Status:** ⚠️ NOTABLE
+
+The smoke-test script only verifies that:
+
+1. The Docker container is running
+2. The health check endpoint responds
+
+It does not validate that the MCP server actually responds to tool requests over stdio, nor does it test any read/write/sync operations. This means a deployment could pass the smoke test while the MCP protocol handling is broken.
 
 ---
 
-### 8. Joplin CLI Installed Without Version Pinning
-
-**File:** [`Dockerfile:33`](./Dockerfile:33)
-
-**Problem:** `npm install -g pnpm joplin` pulls the latest version of Joplin CLI on every build. This introduces supply chain risk and non-reproducible builds.
-
-**Recommendation:** Pin to a specific version:
-
-```dockerfile
-RUN npm install -g "pnpm@9" "joplin@X.Y.Z"
-```
-
----
-
-### 9. Joplin Data API Server Binds to All Network Interfaces
-
-**File:** [`src/server.ts:18`](./src/server.ts:18)
-
-**Problem:** The `spawn` call uses `--host 0.0.0.0`, binding the Joplin Data API server to all network interfaces. Combined with the port exposure in the Docker Compose file, this exposes the Data API to the container network and potentially beyond.
-
-```typescript
-const child = spawn("joplin", ["server", "start", "--host", "0.0.0.0", ...]);
-```
-
-**Recommendation:** Change to `--host 127.0.0.1` to restrict to localhost, since the MCP server communicates over stdio, not HTTP:
-
-```typescript
-const child = spawn("joplin", ["server", "start", "--host", "127.0.0.1", ...]);
-```
-
----
-
-### 10. Docker Compose Port Binding Exposes to All Interfaces
-
-**File:** [`docker-compose.yml:6`](./docker-compose.yml:6)
-
-**Problem:** The port mapping `${JOPLIN_DATA_API_PORT:-41100}:${JOPLIN_DATA_API_PORT:-41100}` defaults to `0.0.0.0:41100`, exposing the service to the host network. Combined with issue #9, the Data API is accessible from other machines on the network.
-
-**Recommendation:** Bind to localhost only:
-
-```yaml
-ports:
-  - '127.0.0.1:${JOPLIN_DATA_API_PORT:-41100}:${JOPLIN_DATA_API_PORT:-41100}'
-```
-
----
-
-### 11. Authentication Token Stored in Plain Memory Without Expiration Handling
-
-**File:** [`src/data-client.ts:30`](./src/data-client.ts:30)
-
-**Problem:** The `token` property is stored as a plain `string | null` with no encryption or secure storage. The token refresh mechanism (lines 88-94) only re-authenticates on 401 response but has no proactive expiration logic. Between the initial auth and a 401, the token lives in memory indefinitely.
-
-```typescript
-private token: string | null = null;
-```
-
-**Recommendation:**
-
-- Add token expiration tracking (store expiry timestamp alongside the token)
-- Proactively refresh the token before expiration
-- Clear the token from memory if it cannot be refreshed
-
----
-
-### 12. Error Messages Leak Internal API Structure
-
-**Files:**
-
-- [`src/data-client.ts:97-98,101-102`](./src/data-client.ts:97)
-
-**Problem:** Error messages for 404, 409, and 400 responses include the full URL path, which can leak internal API structure to MCP clients:
-
-```typescript
-if (response.status === 404) throw new NotFoundError('resource', path); // path like /notes/abc-123
-if (response.status === 409) throw new ConflictError('resource', path);
-if (response.status === 400) {
-  throw new ValidationError(`Bad request: ${path} — ${body}`);
-}
-```
-
-**Recommendation:** Use sanitized resource identifiers in error messages. Log the full path at DEBUG level and return a generic resource reference to the caller.
-
----
-
-### 13. MCP Schema String Fields Lack Constraints
-
-**File:** [`src/mcp/schemas.ts:13,22,27,32,37,42,52,59,71,79,84,90,96,101`](./src/mcp/schemas.ts:13)
-
-**Problem:** Multiple string fields (`note_id`, `notebook_id`, `tag_id`, `title`, `body`, `author`, `source_url`) have no length, format, or regex constraints. This could allow excessively large inputs, injection, or malformed data. Additionally, `source_url` fields (lines 46, 65) use `z.string()` instead of `z.string().url()`.
-
-**Recommendation:**
-
-- Add `.max()` constraints to string fields (e.g., `z.string().max(500)` for titles)
-- Change `source_url` fields to `z.string().url().optional()`
-- Add a Joplin ID validator: `z.string().regex(/^[0-9a-f]{32}$/)` for ID fields
-- Apply schema validation in the tool handlers or data client before making API calls
-
----
-
-### 14. Unsafe Type Assertion Bypasses TypeScript Safety
-
-**File:** [`src/mcp/server.ts:24`](./src/mcp/server.ts:24)
-
-**Problem:** The code uses `(tool.schema._def as any)?.shape ?? {}` to extract the Zod schema shape for the MCP SDK. This bypasses all TypeScript type checking and will silently return `{}` if the internal `_def` structure changes.
-
-```typescript
-server.tool(
-  tool.name,
-  tool.description,
-  (tool.schema._def as any)?.shape ?? {},  // unsafe cast
-  async (input: unknown) => { ... }
-);
-```
-
-**Recommendation:** Use Zod's public API instead:
-
-```typescript
-import { z } from 'zod';
-const shape = tool.schema instanceof z.ZodObject ? tool.schema.shape : {};
-```
-
-Or use [`z.input()`](https://github.com/colinhacks/zod#zinput) / type inference patterns.
-
----
-
-### 15. Tests Use Fragile Mock Introspection for Exit Handler
-
-**File:** [`tests/server.test.ts:185-194,236-245,445-454`](./tests/server.test.ts:185)
-
-**Problem:** Three tests locate the `exitHandler` via `childProcess.on.mock.calls.find(...)` — searching through mock call arrays to find the handler registered via `.on('exit', handler)`. Any change to the order or number of `.on()` calls will silently break these tests.
-
-**Recommendation:** Refactor [`startDataApiServer()`](./src/server.ts:14) to return or expose the exit handler, or use a named function that can be directly tested.
-
----
-
-## 🟡 Medium Priority Issues
-
-### 16. ESLint Rule Set Is Minimal
-
-**File:** [`eslint.config.mjs:8-11`](./eslint.config.mjs:8)
-
-**Problem:** Only two custom rules are configured beyond the recommended presets: `@typescript-eslint/no-unused-vars` (warn) and `@typescript-eslint/no-explicit-any` (warn). Missing important rules for a production TypeScript project:
-
-- `@typescript-eslint/no-floating-promises` — unhandled promise rejections
-- `@typescript-eslint/await-thenable` — awaiting non-promise values
-- `@typescript-eslint/no-misused-promises` — promises in wrong positions
-- `no-console` — prevents accidental console logging (currently used in [`server.ts:161`](./src/server.ts:161))
-
-**Recommendation:** Add `@typescript-eslint/no-floating-promises: "error"` and `no-console: "warn"` at minimum. Consider fixing the `console.error` call in [`server.ts:161`](./src/server.ts:161) to use the structured logger.
-
-### 17. Server Stdout Stream Not Consumed (Buffer Overflow Risk)
-
-**File:** [`src/server.ts:18-19`](./src/server.ts:18)
-
-**Problem:** [`spawn()`](./src/server.ts:18) is called with `stdio: ["ignore", "pipe", "pipe"]`, piping both stdout and stderr. While stderr is collected (lines 23-26), stdout is never consumed. If the Joplin CLI process writes enough data to stdout, the Node.js internal buffer could fill up, causing backpressure issues or the child process to hang.
-
-**Recommendation:** Consume stdout in the same manner as stderr, or use `"ignore"` for stdout if it is known to be unused.
-
-### 18. URL Validation Does Not Enforce HTTPS
-
-**File:** [`src/config.ts:4`](./src/config.ts:4)
-
-**Problem:** The `joplinServerUrl` Zod schema uses `z.string().url()` which accepts both HTTP and HTTPS. For production deployments syncing with a remote Joplin Server, HTTPS should be enforced.
-
-**Recommendation:** Add a custom refinement:
-
-```typescript
-joplinServerUrl: z.string().url().refine(
-  (url) => url.startsWith("https://"),
-  "JOPLIN_SERVER_URL must use HTTPS in production"
-),
-```
-
-### 19. Pagination Integration Not Tested
-
-**File:** [`tests/data-client.test.ts:16-22`](./tests/data-client.test.ts:16)
-
-**Problem:** [`fetchAllPages`](./src/pagination.ts:15) is mocked for all `getAll*` tests. The integration between [`JoplinDataClient`](./src/data-client.ts) methods and the real pagination helper is never tested. A change to the pagination logic would not be caught by existing tests.
-
-**Recommendation:** Add at least one integration test using the real `fetchAllPages` with a mocked `fetch`.
-
-### 20. Config Boundary Values Untested
-
-**File:** [`tests/config.test.ts`](./tests/config.test.ts)
-
-**Problem:** The test suite for [`parseConfig()`](./src/config.ts:27) does not cover boundary and invalid values such as:
-
-- Invalid URL format for `JOPLIN_SERVER_URL`
-- Empty strings for `JOPLIN_USERNAME` / `JOPLIN_PASSWORD`
-- Port values of 0, -1, or non-numeric strings
-- Invalid `LOG_LEVEL` values
-- Missing optional fields (port, logLevel, syncInterval)
-
-**Recommendation:** Add parameterized tests covering all boundary conditions for each config field.
-
-### 21. Periodic Sync Timer Leak Not Tested
-
-**File:** [`src/sync-manager.ts:58`](./src/sync-manager.ts:58)
-
-**Problem:** Calling [`startPeriodicSync()`](./src/sync-manager.ts:51) multiple times creates multiple `setInterval` timers without clearing the previous one. The `timer` property is overwritten, leaking the previous interval. The `unref()` behavior (line 65-67) is also untested.
-
-**Recommendation:** Add a guard to prevent starting the timer if already running:
-
-```typescript
-startPeriodicSync(): void {
-  if (this.timer) {
-    this.logger.warn("Periodic sync already running, skipping");
-    return;
-  }
-  // ...
-}
-```
-
-Add tests for multiple calls and timer cleanup on `stopPeriodicSync`.
-
-### 22. Error Status Not Updated on Periodic Sync Failure
-
-**File:** [`src/sync-manager.ts:58-62`](./src/sync-manager.ts:58)
-
-**Problem:** When a periodic sync fails, the error is caught and logged but the internal `runSync` method is called indirectly. However, the error in the `setInterval` callback is caught with `.catch()` which doesn't propagate status updates. The sync status may remain "syncing" rather than being set to "error".
-
-**Recommendation:** Ensure periodic sync failures update the sync status to `"error"`.
-
-### 23. `Promise.all` in `readMultinote` Fails Fast on First Error
-
-**File:** [`src/mcp/tools.ts:60`](./src/mcp/tools.ts:60)
-
-**Problem:** [`readMultinote`](./src/mcp/tools.ts:56) uses `Promise.all()` to fetch multiple notes. If any single note fetch fails, the entire operation fails immediately, discarding all successfully fetched notes. For a batch read operation, partial results are preferable.
-
-**Recommendation:** Use `Promise.allSettled()` and return a result containing both successful notes and error information:
-
-```typescript
-const results = await Promise.allSettled(input.note_ids.map((id) => ctx.client.getNote(id)));
-```
-
-### 24. Heavy Mocking Reduces Test Confidence
-
-**File:** [`tests/server.test.ts`](./tests/server.test.ts)
-
-**Problem:** The server test suite mocks 6 modules (`child_process`, `config`, `logger`, `data-client`, `sync-manager`, `tool-registry`). Tests primarily verify mock interaction patterns rather than actual behavior. Structural changes to the mocked modules may not break tests even if behavior changes.
-
-**Recommendation:** Add integration tests that use fewer mocks (e.g., only mock `spawn` and the network, use real logger/registry). Consider a smoke test that runs through the actual startup sequence.
-
-### 25. No Centralized Error Handling Boundary
-
-**Files:**
-
-- [`src/server.ts:161-164`](./src/server.ts:161)
-- [`src/mcp/server.ts:38-68`](./src/mcp/server.ts:38)
-
-**Problem:** Error handling is inconsistent across the codebase. The top-level `main().catch()` handler in [`server.ts:161`](./src/server.ts:161) uses `console.error` instead of the structured logger. The MCP server's error handler (line 38-68) catches `ZodError` and generic errors but there's no global error boundary pattern.
-
-**Recommendation:** Use the structured logger for the top-level catch handler. Consider adding a centralized error handling utility that formats errors consistently across all layers.
-
-### 26. Debug Log-Level Transport Branch Untested
-
-**File:** [`src/logger.ts:13-15`](./src/logger.ts:13)
-
-**Problem:** The `pino-pretty` transport configuration branch (only active when `logLevel === "debug"`) is never tested. A regression in transport configuration would only be caught manually.
-
-**Recommendation:** Add a test for the debug logLevel branch that verifies transport configuration.
-
-### 27. No Coverage Thresholds Configured
-
-**File:** [`vitest.config.ts`](./vitest.config.ts)
-
-**Problem:** No `thresholds` are configured in the Vitest coverage configuration. Coverage could drop without any automated signal.
-
-**Recommendation:** Add coverage thresholds:
-
-```typescript
-coverage: {
-  provider: 'v8',
-  include: ['src/**/*.ts'],
-  // exclude: ['src/mcp/tools.ts'],  -- consider removing
-  thresholds: {
-    branches: 80,
-    functions: 90,
-    lines: 90,
-    statements: 90,
-  },
-},
-```
-
----
-
-## 🟢 Low Priority Issues
-
-### 28. Missing Package Metadata
-
-**File:** [`package.json`](./package.json:1)
-
-**Issues:**
-
-- No `license` field (README states MIT, but `package.json` doesn't declare it)
-- Missing `author`, `repository`, `keywords`, `bugs`, `homepage`
-- No `.nvmrc` or `.node-version` file despite `engines.node >= 22`
-- The `lint` script only covers `src/`, not `tests/`
-
-**Recommendation:** Add `"license": "MIT"` to resolve the discrepancy with the README. Add `lint:all` script covering both `src/` and `tests/`.
-
-### 29. `.npmrc` Redundant with `package.json`
-
-**Files:**
-
-- [`.npmrc`](./.npmrc:1)
-- [`package.json:36-38`](./package.json:36)
-
-**Problem:** `onlyBuiltDependencies=esbuild` is duplicated in both `.npmrc` and `package.json` under `pnpm.onlyBuiltDependencies`. This creates a maintenance risk.
-
-**Recommendation:** Remove from `.npmrc` and keep only in `package.json` (the canonical location).
-
-### 30. Missing Documentation
-
-**Files:** Multiple
-
-- [`vitest.config.ts:11`](./vitest.config.ts:11) — No comment explaining why `src/mcp/tools.ts` is excluded from coverage
-- [`src/api-types.ts:1-181`](./src/api-types.ts:1) — No JSDoc on any interfaces or properties. Complex fields like `is_conflict`, `encryption_applied`, `markup_language` lack documentation
-- [`src/errors.ts:1-66`](./src/errors.ts:1) — No JSDoc on any error classes
-- [`src/pagination.ts:1-30`](./src/pagination.ts:1) — No JSDoc explaining pagination behavior
-- [`src/data-client.ts:119-264`](./src/data-client.ts:119) — Public methods lack JSDoc with parameter and return value documentation
-- No test file-level documentation in any of the 12 test files
-- README missing `.env.example` reference in its project structure section
-- README has no troubleshooting section
-
-**Recommendation:** Add JSDoc to all public APIs. Add file-level documentation to test files. Add a troubleshooting section to README.
-
-### 31. Port Validation Allows Arbitrary Positive Integers
-
-**File:** [`src/config.ts:7-12`](./src/config.ts:7)
-
-**Problem:** The port schema only validates that the value is a positive integer. It should validate the valid port range (1024-65535), since ports below 1024 typically require root privileges.
-
-**Recommendation:** Add `.min(1024).max(65535)` to the port schema.
-
-### 32. `Pagination` Interface Incomplete
-
-**File:** [`src/api-types.ts:112-114`](./src/api-types.ts:112)
-
-**Problem:** The [`Pagination`](./src/api-types.ts:112) interface only has `page` but Joplin's Data API also accepts `limit` as a pagination parameter.
-
-**Recommendation:** Add `limit?: number` to the `Pagination` interface.
-
-### 33. Entrypoint Has No Error Handling for Individual `joplin config` Commands
-
-**File:** [`entrypoint.sh:44-47`](./entrypoint.sh:44)
-
-**Problem:** While `set -euo pipefail` is active, there is no per-command error handling for the `joplin config` commands. If one config command fails, the entire script exits, but the error message may be opaque.
-
-**Recommendation:** Add individual error messages for each config command, e.g.:
-
-```bash
-joplin config sync.target 10 || { log "ERROR" "Failed to set sync target"; exit 1; }
-```
-
-### 34. Docker Compose Missing `init: true`
-
-**File:** [`docker-compose.yml`](./docker-compose.yml)
-
-**Problem:** Without `init: true`, the Node.js process runs as PID 1 and won't properly handle signals. Zombie processes from the spawned Joplin CLI could accumulate.
-
-**Recommendation:** Add `init: true` to the service definition.
-
-### 35. Docker Compose Missing Resource Limits
-
-**File:** [`docker-compose.yml`](./docker-compose.yml)
-
-**Recommendation:** Add resource limits:
-
-```yaml
-deploy:
-  resources:
-    limits:
-      cpus: '0.5'
-      memory: 512M
-```
-
-### 36. Process Environment Variables Leaked to CLI Child Process
-
-**File:** [`src/cli-executor.ts:34`](./src/cli-executor.ts:34)
-
-**Problem:** `env: { ...process.env, HOME: process.env["HOME"] }` spreads the entire parent process environment into the Joplin CLI child process. This exposes all environment variables (including secrets) to the child process.
-
-**Recommendation:** Use a minimal environment with only the required variables:
-
-```typescript
-env: { HOME: process.env["HOME"], PATH: process.env["PATH"] },
-```
-
-### 37. Test Suite Improvements
-
-**Files:** Multiple test files
-
-- **All server tests use 10-second timeout** — [`tests/server.test.ts`](./tests/server.test.ts): excessive for unit tests. Remove blanket timeout; set per-test only where needed.
-- **Fake timer cleanup fragile** — If a test throws before `afterEach`, `vi.useRealTimers()` may not restore timers.
-- **Inconsistent describe block naming** across the 12 test files
-- **No shared test utilities** — each test file defines its own mock helpers
-- **No CI-specific test configuration** — no `vitest.config.ci.ts` for CI environments
-- **`errors.test.ts` tests 6 of 8 error classes** — `SyncError` and `CliError` (from errors.ts) are untested. Tests for basic properties but not `instanceof` checks, stack traces, or cause chains.
-- **`logger.test.ts` second describe block** tests `pino` directly instead of through `createLogger()`, testing the library rather than project code
-- **`pagination.test.ts`** — `buildPageParam` with page 0 or negative untested; `fetchAllPages` error on second page untested
-- **`data-client.test.ts`** — `search` with only query (no type) untested; `getResource` binary/file download behavior not verified
-- **`sync-manager.test.ts`** — `unref()` behavior not tested; multiple `startPeriodicSync` calls not tested
-- **`cli-executor.test.ts`** — `maxBuffer` and `HOME` env var behavior not tested
-
-### 38. ESLint Ignores Coverage Output
-
-**File:** [`eslint.config.mjs:14`](./eslint.config.mjs:14)
-
-**Problem:** The ignore list includes `dist/**`, `node_modules/**`, and `.pnpm-store/**` but not `coverage/`.
-
-**Recommendation:** Add `'coverage/**'` to the ignore list.
-
-### 39. Polling Uses `setTimeout` Without Exponential Backoff
-
-**File:** [`src/server.ts:59`](./src/server.ts:59)
-
-**Problem:** The ping polling in [`startDataApiServer()`](./src/server.ts:37) uses a fixed 1-second interval for all 30 attempts. For slow-starting containers or network delays, this is wasteful.
-
-**Recommendation:** Consider implementing exponential backoff capped at a reasonable maximum (e.g., 5 seconds).
-
----
-
-## ℹ️ Positive Findings
-
-### Architecture & Design
-
-- **Clean separation of concerns**: The project is well-organized into `data-client`, `cli-executor`, `sync-manager`, `mcp/`, `errors`, `config` layers with clear responsibilities
-- **MCP tool abstraction pattern**: The `ToolRegistry` + `ToolHandler` pattern is clean and extensible. Adding a new tool requires adding a schema, handler, and registration entry
-- **Serialized sync execution**: The sync manager's pending-sync queue pattern prevents concurrent sync operations while avoiding lost sync requests
-- **Graceful shutdown**: The `SIGTERM`/`SIGINT` handlers properly stop sync, kill the child process, and clean up
-
-### TypeScript Configuration
-
-- **Strict mode**: `strict: true`, `esModuleInterop`, `forceConsistentCasingInFileNames`, `skipLibCheck` — all enabled
-- **Proper ESM setup**: `module: "NodeNext"` and `moduleResolution: "NodeNext"` for Node.js 22 ESM
-- **Declaration files**: `declaration: true` and `declarationMap: true` enabled
-- **Build config separation**: `tsconfig.build.json` properly extends base config and excludes test files
-
-### Docker & Infrastructure
-
-- **Multi-stage build**: Builder stage compiles, runtime stage is minimal
-- **Non-root user**: Dedicated `joplin` user with proper ownership
-- **Minimal base image**: `node:22-bookworm-slim` with `--no-install-recommends`
-- **`.dockerignore`**: Excludes `.env`, `.git`, `node_modules`, `tests`, `docs`, `*.md`
-- **`.gitignore`**: Properly excludes secrets, build output, logs
-- **Healthcheck**: Docker HEALTHCHECK configured for the ping endpoint
-- **`onlyBuiltDependencies`**: pnpm security feature limiting build script execution to `esbuild`
-
-### Testing
-
-- **12 test files** covering most source modules
-- **Good test patterns**: Use of `describe.each`, `it.each` for parameterized tests
-- **Mock boundary control**: Mocks are mostly at module boundaries (file system, network, child process)
-- **Zod validation tests**: Schema validation is thoroughly tested in `schemas.test.ts`
-
-### Documentation
-
-- **Comprehensive README** (204 lines): Architecture diagram, quick start, env vars, sync behavior, 16 MCP tools documented, development commands
-- **Excellent PROMPT.md** (314 lines): Technical deep-dive covering architecture, implementation status, file structure, design decisions, testing strategy
-- **Inline code comments**: Key design decisions documented (e.g., sync.conflictBehavior removal, serialized sync pattern)
-
-### Security Practices (Implemented Well)
-
-- Pino `redact` configuration for password masking in logs
-- `set -euo pipefail` in entrypoint for strict error handling
-- Passwordless sudo not used unnecessarily
-- Zod schema validation for all environment variables at startup
-- Authorization token not logged in request/response logging
+## Positive Findings
+
+- **Excellent token management**: Proactive refresh with 60-second buffer, deduplication of concurrent token requests, 401-triggered re-fetch, and proper error recovery on refresh failure
+- **Defense-in-depth validation**: ID validation (`validateId()` regex) + CLI argument whitelist + shell metacharacter blocking — multiple layers of protection
+- **Structured error hierarchy**: Typed error classes with proper HTTP status code mapping (400→ValidationError, 401→AuthError, 404→NotFoundError, 409→ConflictError)
+- **Clean MCP architecture**: Clean separation of schemas, tools, tool-registry, and server; 16 well-defined tools with consistent patterns
+- **Comprehensive test coverage**: 350+ tests across 12 test files; strong coverage of auth flows, error paths, and edge cases
+- **Graceful shutdown**: SIGTERM→2s grace→SIGKILL pattern with proper cleanup of child processes and timer resources
+- **Partial failure handling**: `readMultinote` with `Promise.allSettled()` returning both successful notes and per-ID error details
+- **Security-conscious logging**: Pino redact covers all 5 credential paths; error messages sanitized to avoid URL/path leakage; `console.error` eliminated in favor of logger
+- **HTTPS enforcement**: Production mode rejects non-HTTPS URLs via Zod `.refine()`
+- **Serialized sync queue**: Prevents `SQLITE_BUSY` errors; duplicate timer guard prevents resource leaks
 
 ---
 
 ## Summary Table
 
-> ✅ **All 6 critical issues resolved as of 2026-06-14.**
-
-| Category           | 🔴 Critical | 🟠 High | 🟡 Medium | 🟢 Low | ℹ️ Info |
-| ------------------ | :---------: | :-----: | :-------: | :----: | :-----: |
-| **Security**       |      3      |    3    |     1     |   1    |    3    |
-| **Source Code**    |      1      |    2    |     4     |   4    |    3    |
-| **Testing**        |      2      |    2    |     5     |   7    |    0    |
-| **Configuration**  |      0      |    1    |     1     |   3    |    4    |
-| **Infrastructure** |      0      |    2    |     1     |   3    |    2    |
-| **Documentation**  |      0      |    0    |     0     |   2    |    3    |
-| **Total**          |    **6**    |  **8**  |  **12**   | **14** | **12**  |
-
----
-
-_Review compiled from configuration, source code, and test suite analysis reports. All line references verified against the current codebase at commit time._
+| Category        | First Review   | Changes Since               | Second Review               |
+| --------------- | -------------- | --------------------------- | --------------------------- |
+| CRITICAL issues | 6              | All 6 resolved              | 0 new                       |
+| HIGH issues     | 7              | 6 resolved, 1 remains (#36) | 1 new (CliError dead code)  |
+| MEDIUM issues   | 12 (estimated) | Most resolved               | 3 new + 2 remain (#34, #35) |
+| LOW issues      | ~14            | ~11 resolved, 3 remain      | 1 new + 1 notable           |
+| INFO issues     | ~10            | Mostly resolved             | 2 notable                   |
+| **Total open**  | **~52**        | **~42 resolved**            | **~7 open**                 |

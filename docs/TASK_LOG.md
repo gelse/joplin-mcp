@@ -177,3 +177,28 @@
   - MED-001/010: Exit handler extracted as exported `handleChildExit()` + mock overuse reduced via `importOriginal` pattern replacing 17 inline mock factories
   - MED-011: Centralized error handling with `FatalError` class, `fatalErrorHandler()`, `toolErrorHandler()`; no `console.error` in production paths
 - **Final state**: 0 lint errors, all non-flaky tests passing
+
+## 2026-06-16T15:15:00Z — Second code review pass
+
+- **Task**: Performed comprehensive second-pass code review of all files in the project
+- **Files Analyzed**:
+  - All 9 source files in `src/` (config, errors, api-types, server, data-client, cli-executor, logger, pagination, guarded-string, sync-manager)
+  - All 4 MCP source files in `src/mcp/` (schemas, server, tool-registry, tools)
+  - All 13 test files in `tests/` and `tests/mcp/`
+  - Config files: `package.json`, `tsconfig.json`, `eslint.config.mjs`, `vitest.config.ts`
+  - Deployment files: `Dockerfile`, `entrypoint.sh`, `docker-compose.yml`
+  - Documentation: `README.md`, `docs/TASK_LOG.md`
+  - Other: `scripts/smoke-test.sh`, `.npmrc`, `LICENSE`
+- **First-Review Verification** (52 issues tracked):
+  - 6/6 CRITICAL issues **resolved**
+  - 11/12 HIGH issues **resolved** (1 remains: #36 process.env leak to CLI child process)
+  - Most MEDIUM/LOW issues **resolved** across source, test, config, and deployment files
+  - 3 previously-unresolved issues **confirmed remaining**: #34 (missing `init: true`), #35 (missing resource limits), #38 (ESLint ignores missing `coverage/`)
+- **New Issues Discovered** (4):
+  - 🔴 HIGH: Duplicate `CliError` class — dead code in `src/errors.ts:8-16` (never imported; real one is in `src/cli-executor.ts:13-21`)
+  - 🟡 MED: `FatalError` class in `src/errors.ts:57-66` has zero test coverage in `tests/errors.test.ts`
+  - 🟡 MED: README.md:136 references deleted `SyncError` class in error hierarchy tree
+  - 🟡 MED: README.md:194 project structure tree missing 6 test files
+  - 🔵 LOW: `package.json` missing `license` field despite `LICENSE` file existing
+- **Notable Observations**: Coverage thresholds (70/60/70/70) remain low for production; `Pagination` interface imported but unused; password exposed via CLI args in `entrypoint.sh:47`; `scripts/smoke-test.sh` lacks MCP protocol validation
+- **CODEREVIEW.md**: Comprehensive 293-line report written with full analysis, severity ratings, and a summary table
