@@ -84,7 +84,7 @@ Add to your MCP client configuration (e.g., Claude Desktop):
 | `JOPLIN_SERVER_URL`     | **Yes**  | —       | Joplin Server URL (e.g., `https://joplin.example.com/`)      |
 | `JOPLIN_USERNAME`       | **Yes**  | —       | Joplin Server username/email                                 |
 | `JOPLIN_PASSWORD`       | **Yes**  | —       | Joplin Server password                                       |
-| `JOPLIN_DATA_API_PORT`  | No       | `41100` | Internal Data API listen port                                |
+| `JOPLIN_DATA_API_PORT`  | No       | `41184` | Internal Data API listen port (Joplin ClipperServer hardcoded default) |
 | `LOG_LEVEL`             | No       | `info`  | Log level: `debug`, `info`, `warn`, `error`, `silent`        |
 | `SYNC_INTERVAL_SECONDS` | No       | `300`   | Periodic sync interval in seconds                            |
 | `NODE_ENV`              | No       | —       | Set to `production` to enforce HTTPS for `JOPLIN_SERVER_URL` |
@@ -113,7 +113,7 @@ Add to your MCP client configuration (e.g., Claude Desktop):
 3. **Start TypeScript server** — `exec node dist/server.js` (foreground)
 4. **Parse config** — Zod schema validates all env vars with defaults
 5. **Initialize logger** — Pino structured logger at configured level
-6. **Start Joplin Data API** — Spawned as child process on configurable port (default: 41100)
+6. **Start Joplin Data API** — Spawned as child process on configurable port (default: 41184)
 7. **Wait for readiness** — Polls `/ping` endpoint (up to 30s, 1s intervals)
 8. **Verify connectivity** — Pings Data API to confirm auth and version
 9. **Perform initial sync** — SyncManager runs full sync via Joplin CLI
@@ -252,9 +252,9 @@ The Joplin Data API uses bearer token authentication. The token is obtained auto
 
 ### Localhost-Only Defaults
 
-- The Joplin Data API child process is spawned with `--host 127.0.0.1`, binding exclusively to the loopback interface inside the container
+- The Joplin ClipperServer hardcodes binding to `127.0.0.1`, making it unreachable from outside the container directly. A socat TCP proxy inside the container forwards the proxy port (`JOPLIN_DATA_API_PORT + 1`) to `127.0.0.1:JOPLIN_DATA_API_PORT`, started after ClipperServer readiness
 - The MCP server communicates over **stdio transport** — there is no network port exposed for MCP traffic
-- However, the default `docker-compose.yml` maps the Data API port (`JOPLIN_DATA_API_PORT`, default `41100`) to the host's loopback interface via `127.0.0.1:41100:41100`. This makes the Data API accessible at `localhost:41100` on the **host machine**, but not from other network hosts
+- The `docker-compose.yml` maps the host port (`JOPLIN_DATA_API_PORT`, default `41184`) to the container's proxy port (`JOPLIN_DATA_API_PORT + 1`, i.e., `41185`). This makes the Data API accessible at `http://localhost:41184` on the **host machine**, but not from other network hosts (bound to `127.0.0.1`)
 - If you do not need host-side access to the Data API, remove the `ports:` block from `docker-compose.yml` to keep the port container-internal only
 
 ### Token Rotation Best Practices

@@ -4,9 +4,10 @@ services:
     image: joplin-api-mcp
     container_name: joplin-mcp-server
     ports:
-      - '127.0.0.1:${JOPLIN_DATA_API_PORT:-41100}:${JOPLIN_DATA_API_PORT:-41100}'
+      # Host port 41184 → container proxy port 41185 (socat 0.0.0.0:41185 → 127.0.0.1:41184)
+      - '127.0.0.1:${JOPLIN_DATA_API_PORT:-41184}:41185'
     expose:
-      - '${JOPLIN_DATA_API_PORT:-41100}'
+      - '41185'
     env_file:
       - .env
     environment:
@@ -24,7 +25,7 @@ services:
           memory: 256M
     restart: unless-stopped
     healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:${JOPLIN_DATA_API_PORT:-41100}/ping']
+      test: ['CMD', 'curl', '-f', 'http://localhost:41185/ping']
       interval: 30s
       timeout: 10s
       retries: 3

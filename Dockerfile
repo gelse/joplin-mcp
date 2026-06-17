@@ -27,6 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsecret-1-0 \
     ca-certificates \
     curl \
+    socat \
     && rm -rf /var/lib/apt/lists/*
 
 ARG JOPLIN_CLI_VERSION=3.6.2
@@ -57,8 +58,9 @@ RUN mkdir -p /home/joplin/.config/joplin && chown -R joplin:joplin /home/joplin 
 # Switch to non-root user
 USER joplin
 
-# Health check using Joplin Data API ping endpoint
+# Health check via socat proxy port (dataApiPort + 1 = 41185)
+# ClipperServer binds 127.0.0.1:41184; socat proxies 0.0.0.0:41185 → 127.0.0.1:41184
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=60s \
-    CMD curl -f http://localhost:${JOPLIN_DATA_API_PORT:-41100}/ping || exit 1
+    CMD curl -f http://localhost:41185/ping || exit 1
 
 ENTRYPOINT ["./entrypoint.sh"]

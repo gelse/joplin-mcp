@@ -1,7 +1,5 @@
-import { GuardedString } from './guarded-string.js';
 import type { Logger } from './logger.js';
 import {
-  AuthError,
   ConflictError,
   DataApiError,
   NotFoundError,
@@ -28,9 +26,7 @@ import { clampLimit, buildPageParam, fetchAllPages } from './pagination.js';
 
 export class JoplinDataClient {
   private readonly baseUrl: string;
-  private token: GuardedString | null = null;
-  private tokenExpiresAt: Date | null = null;
-  private tokenPromise: Promise<string> | null = null;
+  private readonly apiToken: string;
   private readonly maxConcurrency: number;
   private activeRequests = 0;
   private requestQueue: Array<{
@@ -41,10 +37,12 @@ export class JoplinDataClient {
 
   constructor(
     port: number,
+    apiToken: string,
     private readonly logger: Logger,
     maxConcurrency: number = 5,
   ) {
     this.baseUrl = `http://127.0.0.1:${port}`;
+    this.apiToken = apiToken;
     this.maxConcurrency = maxConcurrency;
   }
 
@@ -59,77 +57,6 @@ export class JoplinDataClient {
         `Invalid ${label}: "${id}" — must contain only alphanumeric characters, hyphens, and underscores`,
       );
     }
-  }
-
-  /**
-   * Get an auth token, proactively refreshing it if it's near expiry.
-   * Concurrent calls are deduplicated via tokenPromise.
-   */
-  private async getToken(): Promise<string> {
-    if (this.token && this.tokenExpiresAt && Date.now() < this.tokenExpiresAt.getTime() - 60_000) {
-      return this.token.value;
-    }
-
-    // Deduplicate concurrent in-flight token requests
-    if (this.tokenPromise) {
-      return this.tokenPromise;
-    }
-
-    this.tokenPromise = this.fetchToken();
-    try {
-      return await this.tokenPromise;
-    } finally {
-      this.tokenPromise = null;
-    }
-  }
-
-  /**
-   * Fetch a fresh token from the /auth endpoint.
-   */
-  private async fetchToken(): Promise<string> {
-    const response = await fetch(`${this.baseUrl}/auth`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    });
-
-    if (!response.ok) {
-      throw new AuthError(
-        `Failed to obtain Joplin API token: ${response.status} ${response.statusText}`,
-      );
-    }
-
-    const data = (await response.json()) as {
-      auth_token?: string;
-      expires_at?: string;
-      expires_in?: number;
-    };
-    if (!data.auth_token) {
-      throw new AuthError('No auth_token in response');
-    }
-
-    this.token = new GuardedString(data.auth_token);
-    if (data.expires_at) {
-      this.tokenExpiresAt = new Date(data.expires_at);
-    } else {
-      this.tokenExpiresAt = new Date(Date.now() + (data.expires_in ?? 3300) * 1000);
-    }
-    return this.token.value;
-  }
-
-  /**
-   * Clear the cached token (e.g. after a 401 response).
-   */
-  private clearToken(): void {
-    this.token = null;
-    this.tokenExpiresAt = null;
-  }
-
-  /**
-   * Check whether the cached token has expired.
-   */
-  private isTokenExpired(): boolean {
-    if (!this.tokenExpiresAt) return false;
-    return Date.now() >= this.tokenExpiresAt.getTime();
   }
 
   /**
@@ -173,54 +100,34 @@ export class JoplinDataClient {
     }
   }
 
+  /**
+   * Append the api.token as a query parameter to the path.
+   * The Joplin ClipperServer Data API uses ?token= for authentication.
+   */
+  private appendToken(path: string): string {
+    const separator = path.includes('?') ? '&' : '?';
+    return `${path}${separator}token=${encodeURIComponent(this.apiToken)}`;
+  }
+
   private async request<T>(
     method: string,
     path: string,
     body?: unknown,
-    retryAuth = true,
   ): Promise<T> {
     return this.enqueueRequest(async () => {
-      // Check token expiration before each API call
-      if (this.token && this.isTokenExpired()) {
-        this.clearToken();
-        throw new AuthError('Token has expired. Please re-authenticate.');
-      }
-
-      const makeRequest = async (token?: string): Promise<Response> => {
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-        };
-
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        }
-
-        this.logger.debug({ method, path }, 'Data API request');
-
-        return fetch(`${this.baseUrl}${path}`, {
-          method,
-          headers,
-          body: body ? JSON.stringify(body) : undefined,
-        });
+      const url = `${this.baseUrl}${this.appendToken(path)}`;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
       };
 
-      // If we already have a cached token, ensure it's still fresh (proactive refresh)
-      let token: string | undefined;
-      if (this.token) {
-        token = await this.getToken();
-      }
+      this.logger.debug({ method, path }, 'Data API request');
 
-      let response = await makeRequest(token);
+      const response = await fetch(url, {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+      });
 
-      // If unauthorized, try getting a new token and retry once
-      if (response.status === 401 && retryAuth) {
-        this.logger.debug('Token expired, refreshing');
-        this.clearToken();
-        token = await this.getToken();
-        response = await makeRequest(token);
-      }
-
-      if (response.status === 401) throw new AuthError();
       if (response.status === 404) {
         const resourceType = path.split('/').filter(Boolean)[0] || 'resource';
         this.logger.debug({ status: 404, path }, 'Request failed');
@@ -235,6 +142,11 @@ export class JoplinDataClient {
         const body = await response.text().catch(() => '');
         this.logger.debug({ status: 400, path, body }, 'Request failed');
         throw new ValidationError('Bad request');
+      }
+      if (response.status === 403) {
+        const body = await response.text().catch(() => '');
+        this.logger.debug({ status: 403, path, body }, 'Request failed');
+        throw new ValidationError(`Forbidden: ${body}`);
       }
       if ([500, 502, 503].includes(response.status)) {
         const resourceType = path.split('/').filter(Boolean)[0] || 'resource';
@@ -255,7 +167,12 @@ export class JoplinDataClient {
         );
       }
 
-      return response.json() as Promise<T>;
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        return response.json() as Promise<T>;
+      }
+      // Non-JSON response (e.g., /ping returns plain text)
+      return response.text() as unknown as T;
     });
   }
 
@@ -269,7 +186,12 @@ export class JoplinDataClient {
    * @throws {DataApiError} On unexpected HTTP errors
    */
   async ping(): Promise<PingResponse> {
-    return this.request<PingResponse>('GET', '/ping');
+    const response = await this.request<string>('GET', '/ping');
+    // ClipperServer returns plain text (e.g., "JoplinClipperServer")
+    if (typeof response === 'string') {
+      return { status: 'ok', version: response };
+    }
+    return response as unknown as PingResponse;
   }
 
   // === Notes ===

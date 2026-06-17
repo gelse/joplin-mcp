@@ -1,5 +1,10 @@
 # Task Log
 
+## 2026-06-17T10:03:00Z — Add image tag to docker-compose.yml
+
+- **Task**: Added `image: joplin-api-mcp` to the `joplin-mcp` service in docker-compose.yml so that `docker compose build` tags the image as `joplin-api-mcp:latest`, matching the README.md MCP Client Configuration references
+- **Outcome**: Success. Single line inserted at line 4, directly after `build: .`
+
 ## 2026-06-17T09:41:00Z — Docker build and smoke-test
 
 - **Task**: Build, run, and smoke-test the Docker container per README.md instructions
@@ -349,4 +354,47 @@ Applied all fixes from the README.md analysis report based on source code verifi
   - **docker-compose.yml**: Added `image: joplin-api-mcp` to the `joplin-mcp` service to ensure predictable, directory-independent image naming
   - **package.json**: Verified `tsx` dev dependency (`^4.19.4`) and `dev` script (`tsx watch src/server.ts`) match README documentation
 - **Outcome**: Image name in docker-compose.yml now matches README.md MCP client configuration. `docker compose build` produces `joplin-api-mcp:latest`.
+- **Git**: Pending commit
+
+## 2026-06-17T12:30:00Z — Rebuild-start-test cycle: fix ClipperServer external access
+
+- **Task**: Complete rebuild-start-test cycle with READ-ONLY curl tests against the Joplin Data API. Discovered and fixed that Joplin's ClipperServer hardcodes binding to `127.0.0.1` and ignores both `--host` and `--port` CLI flags.
+
+### Root Cause Analysis
+
+- **Discovery**: External curl to `localhost:41184` returned "Empty reply from server" (exit code 56), even though `docker exec` curl to `127.0.0.1:41184/ping` inside the container worked fine
+- **Verification**: `/proc/net/tcp` showed `0100007F:A0E0` (127.0.0.1:41184, state 0A=LISTEN) — ClipperServer bound exclusively to loopback
+- **Confirmation**: Even `--host 0.0.0.0 --port 41184` flags were silently ignored by Joplin; the ClipperServer always binds `127.0.0.1:41184`
+
+### Fix #1 — socat TCP proxy (initial attempt, caused fork bomb)
+
+- Added socat TCP proxy to forward `0.0.0.0:41184` → `127.0.0.1:41184`
+- **Problem**: socat started in `entrypoint.sh` BEFORE ClipperServer was ready. Node.js readiness polling (1/sec) connected through socat, each connection forking a new socat process. Result: 4,116 PIDs, 293% CPU, 509MB/512MB memory — container became unresponsive
+- **Fix**: Moved socat startup from `entrypoint.sh` into `server.ts`, triggered after `await dataApi.ready` confirms ClipperServer is listening. Added socat cleanup in shutdown handler
+
+### Fix #2 — Separate proxy port (port conflict)
+
+- **Problem**: After fix #1, external curl still returned "Empty reply from server." Only ClipperServer was listening — socat on `0.0.0.0:41184` conflicted with ClipperServer's `127.0.0.1:41184` because `0.0.0.0` includes loopback on Linux
+- **Fix**: Use a separate proxy port (`dataApiPort + 1 = 41185`). socat now listens on `0.0.0.0:41185` and forwards to `127.0.0.1:41184`
+
+### Files Changed
+
+- **`src/server.ts`**:
+  - Simplified ClipperServer spawn args (removed `--host` and `--port` as they're ignored)
+  - Added socat proxy startup after ClipperServer readiness: `spawn('socat', ['TCP-LISTEN:41185,bind=0.0.0.0,fork,reuseaddr', 'TCP:127.0.0.1:41184'], { stdio: 'ignore', detached: true })`
+  - Added socat cleanup in shutdown handler (SIGTERM before ClipperServer kill)
+- **`entrypoint.sh`**: Removed premature socat startup; added comment noting socat is started by Node.js after readiness
+- **`Dockerfile`**: Added `socat` to system dependencies; HEALTHCHECK uses proxy port `41185`
+- **`docker-compose.yml`**: Port mapping `127.0.0.1:41184:41185`, expose `41185`, healthcheck uses `http://localhost:41185/ping`
+- **`README.md`**: Updated default port from `41100` to `41184`; updated Localhost-Only Defaults section to document socat proxy architecture
+
+### Test Results
+
+All four READ-ONLY curl GET tests passed against `http://localhost:41184`:
+- `/ping` → `JoplinClipperServer` (HTTP 200, 19 bytes, 0.002s)
+- `/notes` → 57 notes in JSON (HTTP 200, 8035 bytes, 0.009s)
+- `/folders` → 9 folders in JSON (HTTP 200, 983 bytes, 0.005s)
+- `/search?query=test&type=note` → 4 matching notes (HTTP 200, 622 bytes, 0.015s)
+
+- **Container**: Healthy in ~20 seconds, 0 errors in logs, periodic sync running every 300s
 - **Git**: Pending commit

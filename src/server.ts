@@ -76,13 +76,16 @@ function startDataApiServer(
   process: ChildProcess;
   ready: Promise<void>;
 } {
-  const MAX_RETRIES = 30;
+  const MAX_RETRIES = 300;
   const RETRY_DELAY_MS = 1000;
   const INITIAL_DELAY_MS = 1000;
 
   const child = spawn(
     'joplin',
-    ['server', 'start', '--host', '127.0.0.1', '--port', String(port), '--no-open'],
+    // NOTE: Joplin ClipperServer ignores --host and --port flags;
+    // it hardcodes 127.0.0.1:41184. A socat proxy in entrypoint.sh
+    // forwards 0.0.0.0:41184 → 127.0.0.1:41184 for Docker access.
+    ['server', 'start', '--no-open'],
     {
       stdio: ['ignore', 'pipe', 'pipe'],
     },
@@ -93,10 +96,12 @@ function startDataApiServer(
     logger.trace({ stdout: data.toString().trimEnd() }, 'Joplin Data API stdout');
   });
 
-  // Collect stderr for diagnostics
+  // Collect and log stderr for diagnostics
   let stderr = '';
   child.stderr?.on('data', (data: Buffer) => {
-    stderr += data.toString();
+    const chunk = data.toString();
+    stderr += chunk;
+    logger.warn({ stderr: chunk.trimEnd() }, 'Joplin Data API stderr');
   });
 
   child.on('exit', (code, signal) => {
@@ -120,7 +125,13 @@ function startDataApiServer(
         // Server not ready yet
       }
 
+      // Log progress every 30 attempts (~30 seconds)
+      if (attempts % 30 === 0) {
+        logger.info({ attempts, maxAttempts, stderrSnippet: stderr.slice(-500) }, 'Still waiting for Joplin Data API to start');
+      }
+
       if (attempts >= maxAttempts) {
+        logger.error({ stderr }, 'Joplin Data API stderr at failure');
         child.kill();
         reject(new Error(`Joplin Data API failed to start after ${maxAttempts} attempts`));
         return;
@@ -157,8 +168,26 @@ async function main(): Promise<void> {
   await dataApi.ready;
   logger.info('Joplin Data API server is ready');
 
+  // Start socat proxy to expose the ClipperServer externally.
+  // The Joplin ClipperServer hardcodes binding to 127.0.0.1:41184 and ignores
+  // --host/--port flags. socat proxies 0.0.0.0:PROXY_PORT → 127.0.0.1:41184.
+  // Uses a SEPARATE port (dataApiPort + 1) because 0.0.0.0:PORT conflicts
+  // with ClipperServer's 127.0.0.1:PORT on Linux (0.0.0.0 includes loopback).
+  // Started AFTER readiness to avoid fork bombs from readiness-poll connections.
+  const proxyPort = config.dataApiPort + 1;
+  const socatProcess = spawn(
+    'socat',
+    [
+      `TCP-LISTEN:${proxyPort},bind=0.0.0.0,fork,reuseaddr`,
+      `TCP:127.0.0.1:${config.dataApiPort}`,
+    ],
+    { stdio: 'ignore', detached: true },
+  );
+  socatProcess.unref();
+  logger.info({ proxyPort, dataApiPort: config.dataApiPort, socatPid: socatProcess.pid }, 'socat proxy started');
+
   // Initialize data client (connects to the Data API)
-  const client = new JoplinDataClient(config.dataApiPort, logger);
+  const client = new JoplinDataClient(config.dataApiPort, config.joplinApiToken, logger);
 
   // Verify connectivity
   try {
@@ -199,6 +228,12 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'Received shutdown signal');
     syncManager.stopPeriodicSync();
+
+    // Kill the socat proxy
+    if (socatProcess.pid && !socatProcess.killed) {
+      logger.info({ socatPid: socatProcess.pid }, 'Stopping socat proxy');
+      socatProcess.kill('SIGTERM');
+    }
 
     // Kill the Data API child process
     if (dataApi.process.exitCode === null) {

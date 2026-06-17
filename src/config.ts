@@ -27,8 +27,12 @@ const configSchema = z.object({
     .int()
     .positive()
     .max(65535)
-    .default(41100)
+    .default(41184)
     .describe('JOPLIN_DATA_API_PORT'),
+  joplinApiToken: z
+    .string()
+    .min(1)
+    .describe('JOPLIN_API_TOKEN'),
   logLevel: z
     .enum(['debug', 'info', 'warn', 'error', 'silent'])
     .default('info')
@@ -49,6 +53,7 @@ export function parseConfig(): Config {
     joplinUsername: process.env['JOPLIN_USERNAME'],
     joplinPassword: process.env['JOPLIN_PASSWORD'],
     dataApiPort: process.env['JOPLIN_DATA_API_PORT'],
+    joplinApiToken: process.env['JOPLIN_API_TOKEN'],
     logLevel: process.env['LOG_LEVEL'],
     syncIntervalSeconds: process.env['SYNC_INTERVAL_SECONDS'],
   };
@@ -65,7 +70,8 @@ export function parseConfig(): Config {
         `  JOPLIN_SERVER_URL (required)\n` +
         `  JOPLIN_USERNAME (required)\n` +
         `  JOPLIN_PASSWORD (required)\n` +
-        `  JOPLIN_DATA_API_PORT (optional, default: 41100)\n` +
+        `  JOPLIN_API_TOKEN (required — run "joplin config api.token" to get it)\n` +
+        `  JOPLIN_DATA_API_PORT (optional, default: 41184)\n` +
         `  LOG_LEVEL (optional, default: "info")\n` +
         `  SYNC_INTERVAL_SECONDS (optional, default: 300)`,
     );

@@ -29,7 +29,7 @@ if [ ${#MISSING[@]} -gt 0 ]; then
 fi
 
 # --- Set defaults ---
-JOPLIN_DATA_API_PORT="${JOPLIN_DATA_API_PORT:-41100}"
+JOPLIN_DATA_API_PORT="${JOPLIN_DATA_API_PORT:-41184}"
 LOG_LEVEL="${LOG_LEVEL:-info}"
 
 log "INFO" "Starting Joplin API MCP Server"
@@ -50,13 +50,31 @@ joplin config "sync.10.password" "${JOPLIN_PASSWORD}"
 
 log "INFO" "Joplin CLI configured"
 
+# --- Extract API token from Joplin config ---
+log "INFO" "Reading Joplin API token..."
+JOPLIN_API_TOKEN=$(joplin config api.token 2>/dev/null || true)
+if [ -z "${JOPLIN_API_TOKEN:-}" ]; then
+    # Fallback: read directly from settings.json
+    if [ -f /home/joplin/.config/joplin/settings.json ]; then
+        JOPLIN_API_TOKEN=$(grep -o '"api\.token"[[:space:]]*:[[:space:]]*"[^"]*"' /home/joplin/.config/joplin/settings.json | grep -o '[^"]*"$' | tr -d '"' || true)
+    fi
+fi
+if [ -z "${JOPLIN_API_TOKEN:-}" ]; then
+    log "ERROR" "Could not read Joplin API token from config or settings.json"
+    exit 1
+fi
+log "INFO" "Joplin API token obtained"
+
 # --- Export env vars for the TypeScript server ---
 export JOPLIN_SERVER_URL
 export JOPLIN_USERNAME
 export JOPLIN_PASSWORD
 export JOPLIN_DATA_API_PORT
+export JOPLIN_API_TOKEN
 export LOG_LEVEL
 
 # --- Start TypeScript MCP server (foreground) ---
+# NOTE: socat proxy is started by the Node.js server AFTER the ClipperServer
+# is ready, to avoid a fork bomb from readiness-poll connections.
 log "INFO" "Starting Joplin MCP server..."
 exec node dist/server.js
