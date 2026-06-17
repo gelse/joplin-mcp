@@ -407,3 +407,32 @@ All four READ-ONLY curl GET tests passed against `http://localhost:41184`:
   - [`.gitignore`](../.gitignore): Added IDE entries (`.vscode/`, `.idea/`, `*.swp`, `*.swo`) and OS entries (`.DS_Store`, `Thumbs.db`)
   - [`tsconfig.build.json`](../tsconfig.build.json): Added `compilerOptions` with `sourceMap: false` and `declarationMap: false`; tightened `exclude` to `["tests", "src/**/*.test.ts"]`
 - **Git**: `4c781d7` — Add package metadata, IDE entries to gitignore, disable prod source maps
+
+## 2026-06-17T13:51:00Z — Publishing Cleanup (Batches 1–3) & Docker Build Verification
+
+- **Task**: Publishing preparation cleanup across 3 batches, culminating in Docker build verification
+
+### Batch 1 — Secrets & Config Hygiene
+- **Files Changed**:
+  - [`.env.example`](../.env.example): Created with placeholder values for all 11 environment variables
+  - `package.json` files: Added `"publishConfig": {"access": "public"}`
+  - [`CODEREVIEW.md`](../docs/CODEREVIEW.md): Moved from project root to `docs/`
+  - [`PROMPT.md`](../docs/PROMPT.md): Moved from project root to `docs/`
+- **Outcome**: Secrets scrubbed, npm publish config ready, documentation consolidated
+
+### Batch 2 — Package Metadata & Build Hygiene
+- **Files Changed**:
+  - [`package.json`](../package.json): Added `author`, `repository`, `bugs`, `homepage`, `keywords`
+  - [`.gitignore`](../.gitignore): Added IDE entries (`.vscode/`, `.idea/`, `*.swp`, `*.swo`) and OS entries (`.DS_Store`, `Thumbs.db`)
+  - [`tsconfig.build.json`](../tsconfig.build.json): Set `sourceMap: false` and `declarationMap: false` for production builds
+- **Outcome**: npm metadata complete, editor/OS artifacts excluded, production source maps disabled
+
+### Batch 3 — Docker Build Verification
+- **Files Changed**:
+  - [`Dockerfile`](../Dockerfile): Added `RUN pnpm run test` after `RUN pnpm run build` in the builder stage (line 18)
+- **Build Results**:
+  - **TypeScript compilation (`pnpm run build`)**: ✅ Passed — 0 errors
+  - **Test execution (`pnpm run test`)**: ❌ Failed — `No test files found, exiting with code 1`
+  - **Root cause**: `.dockerignore` excludes `tests/` (line 5) and `vitest.config.ts` (line 13). The Dockerfile builder stage does not copy these files. Vitest runs but finds zero test files to execute.
+  - **Resolution needed**: Either remove `tests` and `vitest.config.ts` from `.dockerignore` and add `COPY tests/ ./tests/` + `COPY vitest.config.ts ./` to the builder stage, OR accept that tests run only on the host (via `pnpm run test`) and not during Docker build.
+- **Git**: Pending commit

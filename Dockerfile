@@ -15,6 +15,7 @@ RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY tsconfig.json tsconfig.build.json ./
 COPY src/ ./src/
 RUN pnpm run build
+RUN pnpm run test
 
 # Stage 2: Production runtime
 FROM node:22-bookworm-slim
