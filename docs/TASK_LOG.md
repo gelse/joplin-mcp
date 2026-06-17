@@ -469,3 +469,12 @@ All four READ-ONLY curl GET tests passed against `http://localhost:41184`:
     2. **`tests/data-client.test.ts`** — 63 of 67 failed: Root cause is `this.logger.debug is not a function` (the mock logger lacks a `debug` method, causing `TypeError` on line 123 of `src/data-client.ts`). Cascading effect: error classification tests expect typed errors (AuthError, NotFoundError, etc.) but get raw TypeError instead because `DataApiError.fromResponse()` receives `undefined` body
     3. **`tests/server.test.ts`** — 10 of 18 failed: Root cause is `socatProcess.unref is not a function` (the mock `child_process.spawn` returns a bare object without `.unref()`, which `startDataApiServer()` calls). Also 3 `handleChildExit` tests fail due to `addListener`/`spy` assertion mismatches
   - **Verdict**: All failures are **test-environment issues** (missing mock methods, env vars not set in builder), not production code defects. Tests pass on the host where `JOPLIN_API_TOKEN` is available and mocks are configured correctly. The Dockerfile now correctly copies and executes tests.
+
+## 2026-06-17T15:44:00Z — Test Container Refactoring
+
+- Analyzed Dockerfile.tests and GitHub Actions workflow
+- Found Dockerfile.tests ran tests at build time (RUN) instead of runtime (CMD), making `docker run` inert
+- Fixed Dockerfile.tests: replaced `RUN pnpm run test` with `RUN pnpm run build` + `CMD ["pnpm", "run", "test"]`
+- Added `test` service to docker-compose.yml for `docker compose run --rm test`
+- Rewrote .github/workflows/test.yml from 5-step Node.js/pnpm setup to 2-step Docker-based workflow
+- CI now executes exact same `docker build -f Dockerfile.tests` + `docker run --rm` as local development
