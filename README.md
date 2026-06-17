@@ -7,8 +7,8 @@ MCP (Model Context Protocol) server for [Joplin](https://joplinapp.org/), synced
 ```mermaid
 graph TD
     A[AI Client] -->|MCP stdio| B[TypeScript MCP Server]
-    B -->|HTTP fetch()| C[JoplinDataClient]
-    C -->|Token Auth| D[Joplin Data API]
+    B -->|TypeScript method calls| C[JoplinDataClient]
+    C -->|HTTP fetch() + Bearer Token| D[Joplin Data API]
     D -->|Child Process| E[Joplin SQLite DB]
     B -->|SyncManager| F[Joplin CLI sync]
     F -->|sync.target 10| G[Joplin Server]
@@ -23,7 +23,7 @@ graph TD
 3. **JoplinDataClient** communicates with the **Joplin Data API** (HTTP, token auth, localhost)
 4. **Joplin Data API** runs as a child process spawned by the server, reading/writing the local **SQLite database**
 5. **SyncManager** orchestrates sync via the **Joplin CLI** (subprocess) against **Joplin Server** (sync target 10)
-6. Write operations trigger fire-and-forget sync; periodic sync runs every 5 minutes
+6. Write operations trigger immediate sync (blocking until the sync completes); periodic sync runs every 5 minutes
 
 ## Quick Start
 
@@ -55,6 +55,8 @@ graph TD
    docker compose up -d
    ```
 
+   > **Note**: The `deploy.resources` block in `docker-compose.yml` (CPU/memory limits) is only enforced by Docker Swarm. When using `docker compose up`, these limits are silently ignored. For local resource constraints, use `--cpus` and `--memory` flags or set resource limits in your container runtime (e.g., Docker Desktop settings).
+
 4. Check logs:
    ```bash
    docker compose logs -f
@@ -77,21 +79,22 @@ Add to your MCP client configuration (e.g., Claude Desktop):
 
 ## Environment Variables
 
-| Variable                | Required | Default | Description                                             |
-| ----------------------- | -------- | ------- | ------------------------------------------------------- |
-| `JOPLIN_SERVER_URL`     | **Yes**  | —       | Joplin Server URL (e.g., `https://joplin.example.com/`) |
-| `JOPLIN_USERNAME`       | **Yes**  | —       | Joplin Server username/email                            |
-| `JOPLIN_PASSWORD`       | **Yes**  | —       | Joplin Server password                                  |
-| `JOPLIN_DATA_API_PORT`  | No       | `41100` | Internal Data API listen port                           |
-| `LOG_LEVEL`             | No       | `info`  | Log level: `debug`, `info`, `warn`, `error`, `silent`   |
-| `SYNC_INTERVAL_SECONDS` | No       | `300`   | Periodic sync interval in seconds                       |
+| Variable                | Required | Default | Description                                                  |
+| ----------------------- | -------- | ------- | ------------------------------------------------------------ |
+| `JOPLIN_SERVER_URL`     | **Yes**  | —       | Joplin Server URL (e.g., `https://joplin.example.com/`)      |
+| `JOPLIN_USERNAME`       | **Yes**  | —       | Joplin Server username/email                                 |
+| `JOPLIN_PASSWORD`       | **Yes**  | —       | Joplin Server password                                       |
+| `JOPLIN_DATA_API_PORT`  | No       | `41100` | Internal Data API listen port                                |
+| `LOG_LEVEL`             | No       | `info`  | Log level: `debug`, `info`, `warn`, `error`, `silent`        |
+| `SYNC_INTERVAL_SECONDS` | No       | `300`   | Periodic sync interval in seconds                            |
+| `NODE_ENV`              | No       | —       | Set to `production` to enforce HTTPS for `JOPLIN_SERVER_URL` |
 
 ## Sync Behavior
 
 - **Initial sync**: Runs on startup via SyncManager before accepting MCP requests
 - **Periodic sync**: Every 5 minutes (configurable via `SYNC_INTERVAL_SECONDS`)
-- **Write-triggered sync**: After every create/update/delete/untag operation (fire-and-forget via serialized queue)
-- **Conflict resolution**: Remote always wins (merge conflicts logged at WARN level)
+- **Write-triggered sync**: After every create/update/delete/untag operation (immediate, blocking until sync completes)
+- **Conflict resolution**: Remote always wins (Joplin CLI built-in behaviour; conflicted copies are flagged in Joplin)
 - **Serialized queue**: Prevents `SQLITE_BUSY` errors by serializing sync operations
 
 ## Key Design Decisions
@@ -100,7 +103,7 @@ Add to your MCP client configuration (e.g., Claude Desktop):
 2. **No HTTP framework** — MCP SDK provides stdio transport; `fetch()` (built-in Node.js) handles Data API calls
 3. **Write-through sync** — Write tools trigger immediate sync so Joplin Server is always up-to-date
 4. **Serialized sync queue** — Prevents concurrent sync calls causing `SQLITE_BUSY` errors
-5. **Remote-wins conflict resolution** — Simplifies conflict handling; local changes always yield to remote
+5. **Remote-wins conflict resolution** — Delegated to Joplin CLI built-in behaviour; local changes always yield to remote
 6. **Token lifecycle** — Auth token obtained via `POST /auth`, reused with 5-minute freshness check, re-fetched on 401 responses
 
 ## Entrypoint Flow
@@ -249,9 +252,10 @@ The Joplin Data API uses bearer token authentication. The token is obtained auto
 
 ### Localhost-Only Defaults
 
-- The Joplin Data API child process is spawned with `--host 127.0.0.1`, binding exclusively to the loopback interface
+- The Joplin Data API child process is spawned with `--host 127.0.0.1`, binding exclusively to the loopback interface inside the container
 - The MCP server communicates over **stdio transport** — there is no network port exposed for MCP traffic
-- This defence-in-depth approach ensures that even if the container's network is exposed, the Data API is not accessible from external hosts
+- However, the default `docker-compose.yml` maps the Data API port (`JOPLIN_DATA_API_PORT`, default `41100`) to the host's loopback interface via `127.0.0.1:41100:41100`. This makes the Data API accessible at `localhost:41100` on the **host machine**, but not from other network hosts
+- If you do not need host-side access to the Data API, remove the `ports:` block from `docker-compose.yml` to keep the port container-internal only
 
 ### Token Rotation Best Practices
 
@@ -358,9 +362,10 @@ src/
 ├── logger.ts              # Pino structured logger
 ├── cli-executor.ts        # Joplin CLI subprocess wrapper
 ├── sync-manager.ts        # Serialized sync queue orchestrator
-├── data-client.ts         # Joplin Data API HTTP client (21 methods, token auth)
+├── data-client.ts         # Joplin Data API HTTP client (26 methods, token auth)
 ├── api-types.ts           # TypeScript type definitions for Joplin API
 ├── errors.ts              # Typed error class hierarchy
+├── guarded-string.ts      # Secure string wrapper (prevents accidental secret leakage)
 ├── pagination.ts          # Pagination helpers (clampLimit, fetchAllPages)
 └── mcp/
     ├── server.ts          # MCP stdio server setup
@@ -372,15 +377,21 @@ tests/
 ├── config.test.ts         # Config parser tests
 ├── data-client.test.ts    # Data API client tests
 ├── errors.test.ts         # Error class hierarchy tests
+├── integration.test.ts    # Integration tests against live Joplin Data API
 ├── logger.test.ts         # Logger tests
 ├── pagination.test.ts     # Pagination helper tests
 ├── server.test.ts         # Server tests
-└── sync-manager.test.ts   # Sync manager tests
+├── sync-manager.test.ts   # Sync manager tests
+└── mcp/
+    ├── schemas.test.ts     # Zod schema validation tests
+    ├── server.test.ts      # MCP server lifecycle tests
+    ├── tool-registry.test.ts # Tool registration & dispatch tests
+    └── tools.test.ts       # Tool handler tests
 docs/
 ├── ARCHITECTURE.md        # Architecture documentation with Mermaid diagrams
 └── TASK_LOG.md             # Workspace action log
 scripts/
-└── smoke-test.sh          # End-to-end Docker container smoke test
+└── smoke-test.sh          # Docker container smoke test (checks container up + Data API /ping)
 ```
 
 ## License

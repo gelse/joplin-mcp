@@ -320,3 +320,19 @@
 - **Test Results**: All tests pass (2 pre-existing flaky server.test.ts failures unchanged)
 - **Linter**: 0 errors, 0 warnings
 - **Git**: `5cd8939` — Finalize code review fixes - all 17 issues addressed
+
+## 2026-06-17T09:06:00Z — Fix all Critical and Major README issues (analysis report pass)
+
+Applied all fixes from the README.md analysis report based on source code verification:
+
+- **C-1** (Critical): Replaced "fire-and-forget sync" with accurate "immediate, blocking sync" descriptions on lines 26 and 93; corrected "conflict resolution" over-promise (line 94) to "Joplin CLI built-in behaviour"
+- **C-2** (Critical): Rewrote "Localhost-Only Defaults" section (lines 250-254) to accurately describe port exposure in docker-compose.yml, providing instructions to remove the ports block for strict localhost-only access
+- **C-3** (Critical): Fixed architecture diagram arrows — B→C now reads "TypeScript method calls", C→D now reads "HTTP fetch() + Bearer Token"
+- **M-1** (Major): Added 5 missing test files to the project tree: `tests/integration.test.ts`, `tests/mcp/schemas.test.ts`, `tests/mcp/server.test.ts`, `tests/mcp/tool-registry.test.ts`, `tests/mcp/tools.test.ts`
+- **M-2** (Major): Added `src/guarded-string.ts` to the source tree
+- **M-3** (Major): Updated method count from 21 to 26 in `src/data-client.ts` description
+- **M-4** (Major): Added note about `deploy.resources` being Docker Swarm-only with suggested alternatives
+- **M-5** (Major): Updated smoke test description to reflect what it actually tests
+- Added `NODE_ENV` to the environment variables table (undocumented env var affecting HTTPS enforcement)
+- Fixed Key Design Decisions item 5 to credit "Joplin CLI built-in behaviour" instead of project-implemented remote-wins
+- **Git**: Pending commit
