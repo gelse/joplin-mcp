@@ -1,6 +1,18 @@
 # Task Log
 
 
+## 2026-06-17T17:30:00Z — Fix 3 failing tests in server.test.ts
+
+- **Task**: Fixed 3 failing tests in `tests/server.test.ts`: SIGKILL not sent, ping retry fetch count mismatch, and exhaustion timer too short
+- **Root causes**: (1) `shutdown()` uses real `setTimeout(2000)` but test ran synchronously without fake timers, (2) `setTimeout` callbacks from first describe block's `startDataApiServer()` calls leaked into second describe block's "resolves ready" test via the real event loop, (3) exhaustion test only advanced 35s but `MAX_RETRIES=300` needs 301s
+- **Changes made**:
+  - `tests/server.test.ts` line ~99: Added `vi.unstubAllGlobals()` to first describe block's `afterEach` to prevent global fetch stub leakage
+  - `tests/server.test.ts` line ~502: Wrapped SIGTERM handler call with `vi.useFakeTimers()` / `vi.advanceTimersByTimeAsync(2500)` / `vi.useRealTimers()` so `shutdown()`'s 2s timeout fires
+  - `tests/server.test.ts` line ~653: Added `vi.unstubAllGlobals()` to second describe block's `beforeEach`
+  - `tests/server.test.ts` line ~665: Replaced real `setTimeout` wait with `vi.useFakeTimers()` / `vi.advanceTimersByTimeAsync(1100)` in "resolves ready" test to avoid event-loop timer contamination from prior describe block
+  - `tests/server.test.ts` line ~764: Changed `vi.advanceTimersByTimeAsync(35000)` to `vi.advanceTimersByTimeAsync(310000)` to match `MAX_RETRIES=300 * 1000ms + 1000ms`
+- **Outcome**: Success. All 18 tests pass. No production source code modified.
+
 ## 2026-06-17T16:13:00Z — Fix 76 failing unit tests across 3 test files
 
 - **Task**: Fixed 76 failing unit tests in `tests/data-client.test.ts`, `tests/config.test.ts`, and `tests/server.test.ts`

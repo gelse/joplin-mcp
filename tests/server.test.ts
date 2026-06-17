@@ -98,6 +98,7 @@ describe('Server entrypoint', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('loads config, creates logger, and initializes all components', async () => {
@@ -500,11 +501,15 @@ describe('Server entrypoint', () => {
     expect(sigtermHandler).toBeDefined();
 
     // The handler sends SIGTERM, waits 2s, then sends SIGKILL
+    vi.useFakeTimers();
     await sigtermHandler('SIGTERM');
+    await vi.advanceTimersByTimeAsync(2500);
 
     // Verify both signals were sent
     expect(childProcess.kill).toHaveBeenCalledWith('SIGTERM');
     expect(childProcess.kill).toHaveBeenCalledWith('SIGKILL');
+
+    vi.useRealTimers();
   }, 10000);
 
   it('exits with code 1 on unexpected child process exit', async () => {
@@ -645,6 +650,7 @@ describe('startDataApiServer()', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
     vi.spyOn(process, 'exit').mockImplementation((() => undefined as never) as any);
     vi.spyOn(process, 'on').mockImplementation((() => process) as any);
   });
@@ -665,6 +671,7 @@ describe('startDataApiServer()', () => {
     const mockFetch = vi.fn(() => Promise.resolve({ ok: true }));
     vi.stubGlobal('fetch', mockFetch);
 
+    vi.useFakeTimers();
     vi.resetModules();
     vi.mock('../src/config.js', () => ({ parseConfig: mockParseConfig }));
     vi.mock('../src/logger.js', async (importOriginal) => {
@@ -678,13 +685,15 @@ describe('startDataApiServer()', () => {
     vi.mock('node:child_process', () => ({ spawn: mockSpawn }));
 
     await import('../src/server.js');
-    // Wait for the initial setTimeout(check, 1000) to fire and ready to resolve
-    await new Promise((r) => setTimeout(r, 1500));
+    // Advance past INITIAL_DELAY_MS so check() fires and ready resolves
+    await vi.advanceTimersByTimeAsync(1100);
 
     // fetch called exactly once — first ping succeeded
     expect(mockFetch).toHaveBeenCalledTimes(1);
     // main() continued past await dataApi.ready → client.ping() called
     expect(mockPing).toHaveBeenCalled();
+
+    vi.useRealTimers();
   }, 10000);
 
   // ── Scenario 2: Ping retry (fail N times then succeed) ────────────────
@@ -754,8 +763,8 @@ describe('startDataApiServer()', () => {
 
     await import('../src/server.js');
 
-    // Advance enough time for all 30 retries (30 × 1s + initial 1s)
-    await vi.advanceTimersByTimeAsync(35000);
+    // Advance enough time for all 300 retries (300 × 1s + initial 1s)
+    await vi.advanceTimersByTimeAsync(310000);
 
     // After 30 failed attempts, child.kill() must have been called
     const childProcess = mockSpawn.mock.results[0]?.value;
