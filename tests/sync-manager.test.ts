@@ -353,4 +353,53 @@ describe('SyncManager', () => {
       expect(manager.getLastSyncTime()).toBeInstanceOf(Date);
     });
   });
+
+  // ── 8. Error context (getLastError) ─────────────────────────────────
+
+  describe('getLastError', () => {
+    it('returns null initially', () => {
+      expect(manager.getLastError()).toBeNull();
+    });
+
+    it('returns null after a successful sync', async () => {
+      mockSync.mockResolvedValueOnce(undefined);
+
+      await manager.triggerSync('test');
+
+      expect(manager.getLastError()).toBeNull();
+    });
+
+    it('returns the error object after a failed triggerSync', async () => {
+      const testError = new Error('trigger failed');
+      mockSync.mockRejectedValueOnce(testError);
+
+      await manager.triggerSync('source');
+
+      expect(manager.getLastError()).toBe(testError);
+    });
+
+    it('overwrites lastError on subsequent failure', async () => {
+      const firstError = new Error('first failure');
+      const secondError = new Error('second failure');
+      mockSync.mockRejectedValueOnce(firstError).mockRejectedValueOnce(secondError);
+
+      await manager.triggerSync('first');
+      expect(manager.getLastError()).toBe(firstError);
+
+      await manager.triggerSync('second');
+      expect(manager.getLastError()).toBe(secondError);
+    });
+
+    it('clears lastError on subsequent success', async () => {
+      mockSync
+        .mockRejectedValueOnce(new Error('previous failure'))
+        .mockResolvedValueOnce(undefined);
+
+      await manager.triggerSync('fail');
+      expect(manager.getLastError()).toBeInstanceOf(Error);
+
+      await manager.triggerSync('ok');
+      expect(manager.getLastError()).toBeNull();
+    });
+  });
 });

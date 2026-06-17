@@ -39,6 +39,9 @@ export const searchNotes: ToolHandler<{ query: string; type?: string }, SearchRe
   input,
   ctx,
 ) => {
+  if (!input.query || input.query.trim().length === 0) {
+    throw new Error('searchNotes validation failed: query must be a non-empty string');
+  }
   return ctx.client.search({
     query: input.query,
     type: input.type as 'note' | 'folder' | 'tag' | undefined,

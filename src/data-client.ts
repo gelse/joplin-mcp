@@ -1,3 +1,4 @@
+import { GuardedString } from './guarded-string.js';
 import type { Logger } from './logger.js';
 import {
   AuthError,
@@ -27,15 +28,24 @@ import { clampLimit, buildPageParam, fetchAllPages } from './pagination.js';
 
 export class JoplinDataClient {
   private readonly baseUrl: string;
-  private token: string | null = null;
-  private tokenExpiresAt: number | null = null;
+  private token: GuardedString | null = null;
+  private tokenExpiresAt: Date | null = null;
   private tokenPromise: Promise<string> | null = null;
+  private readonly maxConcurrency: number;
+  private activeRequests = 0;
+  private requestQueue: Array<{
+    resolve: (value: unknown) => void;
+    reject: (reason: unknown) => void;
+    fn: () => Promise<unknown>;
+  }> = [];
 
   constructor(
     port: number,
     private readonly logger: Logger,
+    maxConcurrency: number = 5,
   ) {
     this.baseUrl = `http://127.0.0.1:${port}`;
+    this.maxConcurrency = maxConcurrency;
   }
 
   /**
@@ -56,8 +66,8 @@ export class JoplinDataClient {
    * Concurrent calls are deduplicated via tokenPromise.
    */
   private async getToken(): Promise<string> {
-    if (this.token && this.tokenExpiresAt && Date.now() < this.tokenExpiresAt - 60_000) {
-      return this.token;
+    if (this.token && this.tokenExpiresAt && Date.now() < this.tokenExpiresAt.getTime() - 60_000) {
+      return this.token.value;
     }
 
     // Deduplicate concurrent in-flight token requests
@@ -88,14 +98,22 @@ export class JoplinDataClient {
       );
     }
 
-    const data = (await response.json()) as { auth_token?: string; expires_in?: number };
+    const data = (await response.json()) as {
+      auth_token?: string;
+      expires_at?: string;
+      expires_in?: number;
+    };
     if (!data.auth_token) {
       throw new AuthError('No auth_token in response');
     }
 
-    this.token = data.auth_token;
-    this.tokenExpiresAt = Date.now() + (data.expires_in ?? 3300) * 1000;
-    return this.token;
+    this.token = new GuardedString(data.auth_token);
+    if (data.expires_at) {
+      this.tokenExpiresAt = new Date(data.expires_at);
+    } else {
+      this.tokenExpiresAt = new Date(Date.now() + (data.expires_in ?? 3300) * 1000);
+    }
+    return this.token.value;
   }
 
   /**
@@ -106,72 +124,139 @@ export class JoplinDataClient {
     this.tokenExpiresAt = null;
   }
 
+  /**
+   * Check whether the cached token has expired.
+   */
+  private isTokenExpired(): boolean {
+    if (!this.tokenExpiresAt) return false;
+    return Date.now() >= this.tokenExpiresAt.getTime();
+  }
+
+  /**
+   * Enforce a configurable concurrency limit on API requests.
+   * If the maximum number of concurrent requests is already in flight,
+   * the call is queued and executed when a slot becomes available.
+   */
+  private enqueueRequest<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.activeRequests < this.maxConcurrency) {
+      this.activeRequests++;
+      return fn().finally(() => {
+        this.activeRequests--;
+        this.processQueue();
+      });
+    }
+
+    return new Promise<T>((resolve, reject) => {
+      this.requestQueue.push({
+        resolve: resolve as (value: unknown) => void,
+        reject,
+        fn,
+      });
+    });
+  }
+
+  /**
+   * Process the next queued request(s) when concurrency slots open up.
+   */
+  private processQueue(): void {
+    while (this.activeRequests < this.maxConcurrency && this.requestQueue.length > 0) {
+      const item = this.requestQueue.shift()!;
+      this.activeRequests++;
+      item
+        .fn()
+        .then(item.resolve)
+        .catch(item.reject)
+        .finally(() => {
+          this.activeRequests--;
+          this.processQueue();
+        });
+    }
+  }
+
   private async request<T>(
     method: string,
     path: string,
     body?: unknown,
     retryAuth = true,
   ): Promise<T> {
-    const makeRequest = async (token?: string): Promise<Response> => {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
+    return this.enqueueRequest(async () => {
+      // Check token expiration before each API call
+      if (this.token && this.isTokenExpired()) {
+        this.clearToken();
+        throw new AuthError('Token has expired. Please re-authenticate.');
       }
 
-      this.logger.debug({ method, path }, 'Data API request');
+      const makeRequest = async (token?: string): Promise<Response> => {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
 
-      return fetch(`${this.baseUrl}${path}`, {
-        method,
-        headers,
-        body: body ? JSON.stringify(body) : undefined,
-      });
-    };
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
 
-    // If we already have a cached token, ensure it's still fresh (proactive refresh)
-    let token: string | undefined;
-    if (this.token) {
-      token = await this.getToken();
-    }
+        this.logger.debug({ method, path }, 'Data API request');
 
-    let response = await makeRequest(token);
+        return fetch(`${this.baseUrl}${path}`, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+      };
 
-    // If unauthorized, try getting a new token and retry once
-    if (response.status === 401 && retryAuth) {
-      this.logger.debug('Token expired, refreshing');
-      this.clearToken();
-      token = await this.getToken();
-      response = await makeRequest(token);
-    }
+      // If we already have a cached token, ensure it's still fresh (proactive refresh)
+      let token: string | undefined;
+      if (this.token) {
+        token = await this.getToken();
+      }
 
-    if (response.status === 401) throw new AuthError();
-    if (response.status === 404) {
-      const resourceType = path.split('/').filter(Boolean)[0] || 'resource';
-      this.logger.debug({ status: 404, path }, 'Request failed');
-      throw new NotFoundError(resourceType, resourceType);
-    }
-    if (response.status === 409) {
-      const resourceType = path.split('/').filter(Boolean)[0] || 'resource';
-      this.logger.debug({ status: 409, path }, 'Request failed');
-      throw new ConflictError(resourceType, resourceType);
-    }
-    if (response.status === 400) {
-      const body = await response.text().catch(() => '');
-      this.logger.debug({ status: 400, path, body }, 'Request failed');
-      throw new ValidationError('Bad request');
-    }
-    if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      throw new DataApiError(
-        `Joplin Data API error: ${response.status} ${response.statusText}`,
-        response.status,
-        body,
-      );
-    }
+      let response = await makeRequest(token);
 
-    return response.json() as Promise<T>;
+      // If unauthorized, try getting a new token and retry once
+      if (response.status === 401 && retryAuth) {
+        this.logger.debug('Token expired, refreshing');
+        this.clearToken();
+        token = await this.getToken();
+        response = await makeRequest(token);
+      }
+
+      if (response.status === 401) throw new AuthError();
+      if (response.status === 404) {
+        const resourceType = path.split('/').filter(Boolean)[0] || 'resource';
+        this.logger.debug({ status: 404, path }, 'Request failed');
+        throw new NotFoundError(resourceType, resourceType);
+      }
+      if (response.status === 409) {
+        const resourceType = path.split('/').filter(Boolean)[0] || 'resource';
+        this.logger.debug({ status: 409, path }, 'Request failed');
+        throw new ConflictError(resourceType, resourceType);
+      }
+      if (response.status === 400) {
+        const body = await response.text().catch(() => '');
+        this.logger.debug({ status: 400, path, body }, 'Request failed');
+        throw new ValidationError('Bad request');
+      }
+      if ([500, 502, 503].includes(response.status)) {
+        const resourceType = path.split('/').filter(Boolean)[0] || 'resource';
+        const body = await response.text().catch(() => '');
+        this.logger.debug({ status: response.status, path }, 'Request failed');
+        throw new DataApiError(
+          `Server error (${response.status}) accessing ${resourceType}`,
+          response.status,
+          body,
+        );
+      }
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        throw new DataApiError(
+          `Joplin Data API error: ${response.status} ${response.statusText}`,
+          response.status,
+          body,
+        );
+      }
+
+      return response.json() as Promise<T>;
+    });
   }
 
   // === Ping ===

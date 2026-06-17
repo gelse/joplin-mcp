@@ -232,3 +232,11 @@
 ## 2026-06-17T04:58:11Z — Code Review Pass #3
 
 - **Task**: Completed third code review. Created [`CODEREVIEW.md`](CODEREVIEW.md) with 14 findings: 1 CRITICAL (token stored in plaintext), 4 HIGH (token expiry, CLI injection, input validation, integration tests, README security), 5 MEDIUM, 4 LOW. Key strengths: TypeScript strict mode, clean architecture, good unit test coverage.
+
+## 2026-06-17T05:56:00Z — Fix MEDIUM-007 and LOW-008 code review issues
+
+### Changes Made
+- **MEDIUM-007** (`src/sync-manager.ts`): Added `private lastError: Error | null` field, `getLastError(): Error | null` public method, save-on-failure in catch block, and clear-on-success in try block
+- **LOW-008** (`src/server.ts`): Extracted magic numbers `MAX_RETRIES = 30`, `RETRY_DELAY_MS = 1000`, `INITIAL_DELAY_MS = 1000` as named constants in `startDataApiServer()`
+- **Tests** (`tests/sync-manager.test.ts`): Added 5 test cases for `getLastError()` (initial null, null after success, error after failure, overwrites on subsequent failure, clears on subsequent success)
+- **Test Results**: All 24 sync-manager tests pass; 2 pre-existing server.test.ts failures unrelated to changes

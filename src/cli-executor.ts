@@ -52,7 +52,7 @@ const ALLOWED_SUBCOMMANDS = new Set([
  * Characters that are forbidden in CLI arguments to prevent shell injection.
  * While execFile does not spawn a shell, this is defense-in-depth.
  */
-const SHELL_METACHARACTERS = /[;|&$`(){}<>\n]/;
+const SHELL_METACHARACTERS = /[;|&$`(){}<>\n`]/;
 
 export class CliExecutor {
   constructor(private readonly logger: Logger) {}

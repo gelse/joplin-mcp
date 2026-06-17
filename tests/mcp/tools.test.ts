@@ -214,6 +214,34 @@ describe('searchNotes', () => {
     expect(context.syncManager.triggerSync).not.toHaveBeenCalled();
   });
 
+  it('rejects empty string query', async () => {
+    const context = createContext();
+
+    await expect(searchNotes({ query: '' }, context)).rejects.toThrow(
+      'query must be a non-empty string',
+    );
+  });
+
+  it('rejects whitespace-only query', async () => {
+    const context = createContext();
+
+    await expect(searchNotes({ query: '   ' }, context)).rejects.toThrow(
+      'query must be a non-empty string',
+    );
+  });
+
+  it('does not call client.search for empty query', async () => {
+    const context = createContext();
+
+    try {
+      await searchNotes({ query: '' }, context);
+    } catch {
+      // expected
+    }
+
+    expect(context.client.search).not.toHaveBeenCalled();
+  });
+
   it('propagates client errors', async () => {
     const context = createContext();
     context.client.search.mockRejectedValue(new Error('Search failed'));

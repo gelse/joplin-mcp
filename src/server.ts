@@ -76,6 +76,10 @@ function startDataApiServer(
   process: ChildProcess;
   ready: Promise<void>;
 } {
+  const MAX_RETRIES = 30;
+  const RETRY_DELAY_MS = 1000;
+  const INITIAL_DELAY_MS = 1000;
+
   const child = spawn(
     'joplin',
     ['server', 'start', '--host', '127.0.0.1', '--port', String(port), '--no-open'],
@@ -101,7 +105,7 @@ function startDataApiServer(
 
   // Poll the ping endpoint until the server is ready
   const ready = new Promise<void>((resolve, reject) => {
-    const maxAttempts = 30;
+    const maxAttempts = MAX_RETRIES;
     let attempts = 0;
 
     const check = async () => {
@@ -124,13 +128,13 @@ function startDataApiServer(
 
       void setTimeout(() => {
         void check();
-      }, 1000);
+      }, RETRY_DELAY_MS);
     };
 
     // Give the child process a moment to start before first ping
     void setTimeout(() => {
       void check();
-    }, 1000);
+    }, INITIAL_DELAY_MS);
   });
 
   return { process: child, ready };

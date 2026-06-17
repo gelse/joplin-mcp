@@ -10,6 +10,7 @@ export class SyncManager {
   private timer: ReturnType<typeof setInterval> | null = null;
   private pendingSync = false;
   private syncPromise: Promise<void> | null = null;
+  private lastError: Error | null = null;
   private readonly cli: CliExecutor;
 
   constructor(
@@ -25,6 +26,10 @@ export class SyncManager {
 
   getLastSyncTime(): Date | null {
     return this.lastSyncTime;
+  }
+
+  getLastError(): Error | null {
+    return this.lastError;
   }
 
   /**
@@ -111,9 +116,11 @@ export class SyncManager {
         await this.cli.sync();
         this.lastSyncTime = new Date();
         this.status = 'idle';
+        this.lastError = null;
         this.logger.info({ source }, 'Sync completed');
       } catch (error) {
         this.status = 'error';
+        this.lastError = error instanceof Error ? error : new Error(String(error));
         this.logger.error({ err: error, source }, 'Sync failed');
       } finally {
         this.syncPromise = null;

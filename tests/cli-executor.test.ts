@@ -322,7 +322,64 @@ describe('CliExecutor', () => {
     });
   });
 
-  // ── 8. Error result structure ───────────────────────────────────────
+  // ── 8. Shell metacharacter validation ───────────────────────────────
+
+  describe('shell metacharacter validation', () => {
+    it('rejects arguments containing a semicolon', async () => {
+      await expect(executor.exec(['sync', '; rm -rf /'])).rejects.toThrow(CliError);
+    });
+
+    it('rejects arguments containing a pipe', async () => {
+      await expect(executor.exec(['sync', '| cat /etc/passwd'])).rejects.toThrow(CliError);
+    });
+
+    it('rejects arguments containing an ampersand', async () => {
+      await expect(executor.exec(['sync', '& echo pwned'])).rejects.toThrow(CliError);
+    });
+
+    it('rejects arguments containing a backtick', async () => {
+      await expect(executor.exec(['sync', '`id`'])).rejects.toThrow(CliError);
+    });
+
+    it('rejects arguments containing dollar-parenthesis', async () => {
+      await expect(executor.exec(['sync', '$(whoami)'])).rejects.toThrow(CliError);
+    });
+
+    it('rejects arguments containing a subprocess execution pattern', async () => {
+      await expect(executor.exec(['sync', '$(echo hi)'])).rejects.toThrow(CliError);
+    });
+
+    it('rejects arguments containing output redirection', async () => {
+      await expect(executor.exec(['sync', '> /dev/null'])).rejects.toThrow(CliError);
+    });
+
+    it('rejects arguments containing a newline', async () => {
+      await expect(executor.exec(['sync', 'ls\n'])).rejects.toThrow(CliError);
+    });
+
+    it('rejects the first argument when it contains shell metacharacters', async () => {
+      await expect(executor.exec([';ls'])).rejects.toThrow(CliError);
+    });
+
+    it('includes the dangerous argument in the error message', async () => {
+      try {
+        await executor.exec(['sync', '$(pwd)']);
+        expect.unreachable('Should have thrown');
+      } catch (e) {
+        const cliErr = e as CliError;
+        expect(cliErr.message).toContain('$(pwd)');
+      }
+    });
+
+    it('allows safe arguments with special characters in the middle of words', async () => {
+      mockSuccess();
+      await expect(
+        executor.exec(['export', '--path', '/safe/path/with-dashes_and_underscores']),
+      ).resolves.toBeDefined();
+    });
+  });
+
+  // ── 9. Error result structure ───────────────────────────────────────
 
   describe('CliError result structure', () => {
     it('wraps the full result in the thrown CliError', async () => {
