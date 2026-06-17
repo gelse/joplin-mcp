@@ -1,5 +1,16 @@
 # Task Log
 
+
+## 2026-06-17T16:13:00Z — Fix 76 failing unit tests across 3 test files
+
+- **Task**: Fixed 76 failing unit tests in `tests/data-client.test.ts`, `tests/config.test.ts`, and `tests/server.test.ts`
+- **Root causes**: (1) Constructor parameter mismatch — `JoplinDataClient(PORT, mockLogger)` missing `apiToken`, (2) Missing `JOPLIN_API_TOKEN` env var in config tests, (3) `mockSpawn` missing `pid`/`killed`/`unref` and `mockConfig` missing `joplinApiToken`
+- **Changes made**:
+  - `tests/data-client.test.ts`: Added `'test-api-token'` as second argument to all 4 `JoplinDataClient` constructor calls
+  - `tests/config.test.ts`: Added `'JOPLIN_API_TOKEN'` to `ENV_VARS` array and set `process.env['JOPLIN_API_TOKEN'] = 'test-api-token-12345'` in 3 positive test cases
+  - `tests/server.test.ts`: Added `pid: 12345`, `killed: false`, `unref: vi.fn()` to `mockSpawn` return; added `joplinApiToken: 'test-token'` to all 12 `mockConfig` objects
+- **Outcome**: Success. 3 files changed, 27 insertions, 8 deletions. No production source code modified.
+
 ## 2026-06-17T10:03:00Z — Add image tag to docker-compose.yml
 
 - **Task**: Added `image: joplin-api-mcp` to the `joplin-mcp` service in docker-compose.yml so that `docker compose build` tags the image as `joplin-api-mcp:latest`, matching the README.md MCP Client Configuration references
