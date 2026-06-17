@@ -341,3 +341,12 @@ Applied all fixes from the README.md analysis report based on source code verifi
 - Added `NODE_ENV` to the environment variables table (undocumented env var affecting HTTPS enforcement)
 - Fixed Key Design Decisions item 5 to credit "Joplin CLI built-in behaviour" instead of project-implemented remote-wins
 - **Git**: Pending commit
+
+## 2026-06-17T09:52:00Z — Fix Docker image name discrepancy
+
+- **Task**: Fix image name discrepancy between README (references `joplin-api-mcp`) and docker-compose.yml (which had no `image:` field, causing compose to auto-generate `joplin-api-joplin-mcp:latest`)
+- **Changes**:
+  - **docker-compose.yml**: Added `image: joplin-api-mcp` to the `joplin-mcp` service to ensure predictable, directory-independent image naming
+  - **package.json**: Verified `tsx` dev dependency (`^4.19.4`) and `dev` script (`tsx watch src/server.ts`) match README documentation
+- **Outcome**: Image name in docker-compose.yml now matches README.md MCP client configuration. `docker compose build` produces `joplin-api-mcp:latest`.
+- **Git**: Pending commit
