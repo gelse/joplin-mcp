@@ -37,6 +37,8 @@ services:
       context: .
       dockerfile: Dockerfile.tests
     image: joplin-api-tests:latest
+    volumes:
+      - ./reports:/app/reports
 
 volumes:
   joplin_data:

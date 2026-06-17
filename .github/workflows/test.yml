@@ -14,4 +14,19 @@ jobs:
       - name: Build test image
         run: docker build -f Dockerfile.tests -t joplin-api-tests .
       - name: Run tests
-        run: docker run --rm joplin-api-tests
+        run: |
+          mkdir -p reports
+          docker run --rm -v $(pwd)/reports:/app/reports joplin-api-tests
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: reports/junit.xml
+      - name: Publish test report
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: Vitest Results
+          path: reports/junit.xml
+          reporter: java-junit
