@@ -398,3 +398,12 @@ All four READ-ONLY curl GET tests passed against `http://localhost:41184`:
 
 - **Container**: Healthy in ~20 seconds, 0 errors in logs, periodic sync running every 300s
 - **Git**: Pending commit
+
+## 2026-06-17T13:04:00Z — Package Metadata & Config Cleanup
+
+- **Task**: Add package metadata fields, IDE/OS entries to `.gitignore`, and disable production source maps
+- **Files Changed**:
+  - [`package.json`](../package.json): Added `author` (empty string), `repository`, `bugs`, `homepage` URLs with placeholder `YOUR_USERNAME`, and `keywords` array
+  - [`.gitignore`](../.gitignore): Added IDE entries (`.vscode/`, `.idea/`, `*.swp`, `*.swo`) and OS entries (`.DS_Store`, `Thumbs.db`)
+  - [`tsconfig.build.json`](../tsconfig.build.json): Added `compilerOptions` with `sourceMap: false` and `declarationMap: false`; tightened `exclude` to `["tests", "src/**/*.test.ts"]`
+- **Git**: `4c781d7` — Add package metadata, IDE entries to gitignore, disable prod source maps
