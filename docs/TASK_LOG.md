@@ -437,6 +437,14 @@ All four READ-ONLY curl GET tests passed against `http://localhost:41184`:
   - **Resolution needed**: Either remove `tests` and `vitest.config.ts` from `.dockerignore` and add `COPY tests/ ./tests/` + `COPY vitest.config.ts ./` to the builder stage, OR accept that tests run only on the host (via `pnpm run test`) and not during Docker build.
 - **Git**: Pending commit
 
+## 2026-06-17T13:56:00Z — Add GitHub Actions test workflow for main branch
+
+- **Task**: Create a GitHub Actions workflow that runs all tests on every push to the `main` branch
+- **Files Created**:
+  - [`.github/workflows/test.yml`](../.github/workflows/test.yml): Workflow triggered on `push` to `main`, running on `ubuntu-latest` with Node.js 22, pnpm (`pnpm/action-setup`), and `pnpm test` (vitest run)
+- **Outcome**: Workflow created and committed. Test command from `package.json` scripts: `"test": "vitest run"`.
+- **Git**: `0ff16a8` — Add GitHub Actions test workflow for main branch
+
 ### Batch 3 (continued) — Fix Docker Build to Include Test Files
 
 - **Task**: Fixed `.dockerignore` and `Dockerfile` so tests are copied into the builder stage and executed during `docker build`
