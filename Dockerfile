@@ -14,6 +14,8 @@ RUN pnpm install --frozen-lockfile --ignore-scripts
 # Copy source and compile
 COPY tsconfig.json tsconfig.build.json ./
 COPY src/ ./src/
+COPY vitest.config.ts ./
+COPY tests/ ./tests/
 RUN pnpm run build
 RUN pnpm run test
 

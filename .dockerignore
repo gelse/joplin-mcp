@@ -2,7 +2,6 @@ node_modules
 .git
 .pnpm-store
 docs
-tests
 tasks
 .env
 **/.env.*
@@ -10,4 +9,3 @@ dist
 .devcontainer
 *.md
 .roo
-vitest.config.ts
