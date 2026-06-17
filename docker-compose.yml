@@ -1,6 +1,7 @@
 services:
   joplin-mcp:
     build: .
+    image: joplin-api-mcp
     container_name: joplin-mcp-server
     ports:
       - '127.0.0.1:${JOPLIN_DATA_API_PORT:-41100}:${JOPLIN_DATA_API_PORT:-41100}'
