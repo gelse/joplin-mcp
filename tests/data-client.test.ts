@@ -678,6 +678,39 @@ describe('JoplinDataClient', () => {
       expect((err as DataApiError).responseBody).toBe('oh no');
     });
 
+    it('429 response throws DataApiError (rate limiting — catch-all branch)', async () => {
+      mockFetch.mockResolvedValueOnce(
+        errorResponse(429, 'Too Many Requests', 'Rate limit exceeded'),
+      );
+
+      const err = await client.listNotes().catch((e: unknown) => e as DataApiError);
+      expect(err).toBeInstanceOf(DataApiError);
+      expect((err as DataApiError).statusCode).toBe(429);
+      expect((err as DataApiError).responseBody).toBe('Rate limit exceeded');
+    });
+
+    it('502 response throws DataApiError with server error message', async () => {
+      mockFetch.mockResolvedValueOnce(errorResponse(502, 'Bad Gateway', 'upstream error'));
+
+      const err = await client.listNotes().catch((e: unknown) => e as DataApiError);
+      expect(err).toBeInstanceOf(DataApiError);
+      expect((err as DataApiError).statusCode).toBe(502);
+      expect((err as DataApiError).message).toContain('Server error');
+      expect((err as DataApiError).responseBody).toBe('upstream error');
+    });
+
+    it('503 response throws DataApiError with server error message', async () => {
+      mockFetch.mockResolvedValueOnce(
+        errorResponse(503, 'Service Unavailable', 'down for maintenance'),
+      );
+
+      const err = await client.listNotes().catch((e: unknown) => e as DataApiError);
+      expect(err).toBeInstanceOf(DataApiError);
+      expect((err as DataApiError).statusCode).toBe(503);
+      expect((err as DataApiError).message).toContain('Server error');
+      expect((err as DataApiError).responseBody).toBe('down for maintenance');
+    });
+
     // =====================================================================
     // Error Message Sanitization (HIGH-006)
     // =====================================================================
@@ -916,6 +949,212 @@ describe('JoplinDataClient', () => {
       expect(url).toContain('/search?');
       expect(url).toContain('query=hello');
       expect(url).toContain('type=note');
+    });
+  });
+
+  // =====================================================================
+  // Edge Cases (LOW-014)
+  // =====================================================================
+  describe('edge cases', () => {
+    // --- Empty / invalid IDs ---
+    it('throws ValidationError for empty string note ID', async () => {
+      await expect(client.getNote('')).rejects.toThrow(ValidationError);
+    });
+
+    it('throws ValidationError for empty string folder ID', async () => {
+      await expect(client.getFolder('')).rejects.toThrow(ValidationError);
+    });
+
+    it('throws ValidationError for empty string tag ID', async () => {
+      await expect(client.getTag('')).rejects.toThrow(ValidationError);
+    });
+
+    // --- Unicode / Emoji ---
+    it('handles unicode and emoji characters in note title and body', async () => {
+      const payload = { title: '📝 Note with emoji', body: 'Hello ☕ world 🌍 🔥 test' };
+      const created = { ...sampleNote, title: payload.title, body: payload.body };
+      mockFetch.mockResolvedValueOnce(okResponse(created));
+
+      const result = await client.createNote(payload);
+      expect(result).toMatchObject({ title: '📝 Note with emoji' });
+
+      const call = mockFetch.mock.calls[0];
+      const sentBody = JSON.parse((call[1] as Record<string, unknown>).body as string);
+      expect(sentBody.title).toBe('📝 Note with emoji');
+      expect(sentBody.body).toBe('Hello ☕ world 🌍 🔥 test');
+    });
+
+    it('handles unicode and emoji characters in search queries', async () => {
+      mockFetch.mockResolvedValueOnce(okResponse([{ id: 'n1', title: 'café', type: 'note' }]));
+
+      const result = await client.search({ query: 'café ☕ emoji 🎉' });
+      expect(result).toHaveLength(1);
+
+      const url = mockFetch.mock.calls[0][0] as string;
+      // URLSearchParams percent-encodes non-ASCII characters
+      // (spaces become '+' instead of '%20', so verify individual chars)
+      expect(url).toContain('caf%C3%A9');
+      expect(url).toContain('%E2%98%95');
+      expect(url).toContain('%F0%9F%8E%89');
+    });
+
+    // --- Large note content ---
+    it('handles very large note content (10K+ characters)', async () => {
+      const largeBody = 'x'.repeat(10_000);
+      const payload = { title: 'Large Note', body: largeBody };
+      const created = { ...sampleNote, title: 'Large Note', body: largeBody };
+      mockFetch.mockResolvedValueOnce(okResponse(created));
+
+      const result = await client.createNote(payload);
+      expect(result).toMatchObject({ title: 'Large Note' });
+
+      const call = mockFetch.mock.calls[0];
+      const sentBody = JSON.parse((call[1] as Record<string, unknown>).body as string);
+      expect(sentBody.body).toHaveLength(10_000);
+    });
+
+    // --- Network timeout simulation ---
+    it('handles network timeout (delayed rejection)', async () => {
+      mockFetch.mockImplementationOnce(
+        () =>
+          new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('network timeout')), 100);
+          }),
+      );
+
+      await expect(client.listNotes()).rejects.toThrow('network timeout');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Concurrency limiter  (MEDIUM-013 — data-client)
+  // ---------------------------------------------------------------------------
+  describe('concurrency limiter', () => {
+    it('queues requests beyond maxConcurrency (2) and drains when active ones finish', async () => {
+      const concurrencyClient = new JoplinDataClient(PORT, mockLogger, 2);
+
+      // A deferred promise that keeps in-flight requests pending
+      let holdResolve: () => void;
+      const holdPromise = new Promise<void>((resolve) => {
+        holdResolve = resolve;
+      });
+
+      // All fetch calls go through the same gate
+      mockFetch.mockImplementation(() => holdPromise.then(() => okResponse({ items: [] })));
+
+      // Fire 4 concurrent requests
+      const results = Promise.all([
+        concurrencyClient.listNotes(),
+        concurrencyClient.listNotes(),
+        concurrencyClient.listNotes(),
+        concurrencyClient.listNotes(),
+      ]);
+
+      // Only 2 should have been initiated (maxConcurrency = 2)
+      await vi.waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+      });
+
+      // Release the gate — both active requests finish, draining the queue
+      holdResolve!();
+
+      // All 4 eventually complete
+      await results;
+      expect(mockFetch).toHaveBeenCalledTimes(4);
+    });
+
+    it('all queued requests resolve successfully after batch completion', async () => {
+      const concurrencyClient = new JoplinDataClient(PORT, mockLogger, 2);
+
+      // Track resolution order
+      const completionOrder: number[] = [];
+
+      // Each call returns distinct data so we can verify identity
+      const responses = [
+        okResponse({ items: ['a'] }),
+        okResponse({ items: ['b'] }),
+        okResponse({ items: ['c'] }),
+        okResponse({ items: ['d'] }),
+      ];
+
+      let holdResolve: () => void;
+      const holdPromise = new Promise<void>((resolve) => {
+        holdResolve = resolve;
+      });
+
+      // First two calls hang; subsequent calls resolve immediately once dequeued
+      mockFetch
+        .mockImplementationOnce(() =>
+          holdPromise.then(() => {
+            completionOrder.push(1);
+            return responses[0];
+          }),
+        )
+        .mockImplementationOnce(() =>
+          holdPromise.then(() => {
+            completionOrder.push(2);
+            return responses[1];
+          }),
+        )
+        .mockImplementationOnce(() => {
+          completionOrder.push(3);
+          return Promise.resolve(responses[2]);
+        })
+        .mockImplementationOnce(() => {
+          completionOrder.push(4);
+          return Promise.resolve(responses[3]);
+        });
+
+      const p1 = concurrencyClient.listNotes();
+      const p2 = concurrencyClient.listNotes();
+      const p3 = concurrencyClient.listNotes();
+      const p4 = concurrencyClient.listNotes();
+
+      // First two are active, last two queued
+      await vi.waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+      });
+
+      // Release the hold
+      holdResolve!();
+
+      const [r1, r2, r3, r4] = await Promise.all([p1, p2, p3, p4]);
+
+      // All four resolved
+      expect(r1).toMatchObject({ items: ['a'] });
+      expect(r2).toMatchObject({ items: ['b'] });
+      expect(r3).toMatchObject({ items: ['c'] });
+      expect(r4).toMatchObject({ items: ['d'] });
+
+      // The queued ones (3, 4) completed after the held ones (1, 2)
+      expect(completionOrder).toEqual([1, 2, 3, 4]);
+      expect(mockFetch).toHaveBeenCalledTimes(4);
+    });
+
+    it('default maxConcurrency (5) allows five concurrent requests', async () => {
+      // Use the default client — maxConcurrency defaults to 5
+      const defaultClient = new JoplinDataClient(PORT, mockLogger);
+
+      let holdResolve: () => void;
+      const holdPromise = new Promise<void>((resolve) => {
+        holdResolve = resolve;
+      });
+
+      mockFetch.mockImplementation(() => holdPromise.then(() => okResponse({ items: [] })));
+
+      // Fire 6 requests — 5 should start, 1 should be queued
+      const results = Promise.all(Array.from({ length: 6 }, () => defaultClient.listNotes()));
+
+      // 5 requests should have been initiated (maxConcurrency = 5)
+      await vi.waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledTimes(5);
+      });
+
+      // Release the hold
+      holdResolve!();
+
+      await results;
+      expect(mockFetch).toHaveBeenCalledTimes(6);
     });
   });
 });

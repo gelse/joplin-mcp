@@ -234,6 +234,76 @@ describe('SyncManager', () => {
     });
   });
 
+  // ── 9. Concurrency ───────────────────────────────────────────────────
+
+  describe('concurrency', () => {
+    it('multiple concurrent triggerSync calls serialize to at most 2 sync executions', async () => {
+      let resolveFirst: () => void;
+      const firstPromise = new Promise<void>((resolve) => {
+        resolveFirst = resolve;
+      });
+
+      mockSync.mockReturnValueOnce(firstPromise).mockResolvedValue(undefined);
+
+      // Fire 4 concurrent triggerSync calls (all before any resolves)
+      const p1 = manager.triggerSync('call-1');
+      const p2 = manager.triggerSync('call-2');
+      const p3 = manager.triggerSync('call-3');
+      const p4 = manager.triggerSync('call-4');
+
+      // Resolve the first (and only) in-flight sync
+      resolveFirst!();
+
+      await Promise.all([p1, p2, p3, p4]);
+
+      // Only 2 syncs: the first + one pending (all extras collapse into one)
+      expect(mockSync).toHaveBeenCalledTimes(2);
+      expect(manager.getSyncStatus()).toBe('idle');
+    });
+
+    it('maintains correct state after concurrent triggerSync calls', async () => {
+      let resolveFirst: () => void;
+      const firstPromise = new Promise<void>((resolve) => {
+        resolveFirst = resolve;
+      });
+
+      mockSync.mockReturnValueOnce(firstPromise).mockResolvedValue(undefined);
+
+      const p1 = manager.triggerSync('batch');
+      const p2 = manager.triggerSync('batch');
+      const p3 = manager.triggerSync('batch');
+
+      resolveFirst!();
+      await Promise.all([p1, p2, p3]);
+
+      expect(manager.getSyncStatus()).toBe('idle');
+      expect(manager.getLastSyncTime()).toBeInstanceOf(Date);
+      expect(manager.getLastError()).toBeNull();
+    });
+
+    it('subsequent triggerSync works normally after concurrent burst', async () => {
+      let resolveFirst: () => void;
+      const firstPromise = new Promise<void>((resolve) => {
+        resolveFirst = resolve;
+      });
+
+      mockSync.mockReturnValueOnce(firstPromise).mockResolvedValue(undefined);
+
+      // Fire a burst of concurrent triggerSync calls
+      const p1 = manager.triggerSync('burst-1');
+      const p2 = manager.triggerSync('burst-2');
+      resolveFirst!();
+      await Promise.all([p1, p2]);
+
+      expect(mockSync).toHaveBeenCalledTimes(2);
+
+      // A follow-up triggerSync should still work correctly
+      await manager.triggerSync('follow-up');
+      expect(mockSync).toHaveBeenCalledTimes(3);
+      expect(manager.getSyncStatus()).toBe('idle');
+    });
+  });
+
   // ── 4. Sync status tracking ─────────────────────────────────────────
 
   describe('status tracking', () => {
