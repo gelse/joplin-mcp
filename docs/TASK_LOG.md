@@ -1,5 +1,10 @@
 # Task Log
 
+## 2026-06-17T09:41:00Z — Docker build and smoke-test
+
+- **Task**: Build, run, and smoke-test the Docker container per README.md instructions
+- **Outcome**: Build succeeded. Container starts but enters a restart loop with placeholder credentials (expected — no real Joplin Server available). Full findings documented below.
+
 ## 2026-06-06T08:56:00Z — Created REQUIREMENTS.md
 
 - **Task**: Create comprehensive REQUIREMENTS.md for the Joplin API MCP Server project
