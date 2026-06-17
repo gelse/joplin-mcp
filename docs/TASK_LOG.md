@@ -445,6 +445,16 @@ All four READ-ONLY curl GET tests passed against `http://localhost:41184`:
 - **Outcome**: Workflow created and committed. Test command from `package.json` scripts: `"test": "vitest run"`.
 - **Git**: `0ff16a8` — Add GitHub Actions test workflow for main branch
 
+## 2026-06-17T15:44:00Z — Fix Dockerfile.tests and refactor CI for self-sufficient test container
+
+- **Task**: Fix `Dockerfile.tests` (tests ran at build time instead of runtime), add test service to `docker-compose.yml`, and rewrite CI workflow to use Docker
+- **Files Changed**:
+  - [`Dockerfile.tests`](../Dockerfile.tests): Replaced multi-stage build + `RUN pnpm run test` with single-stage build using `RUN pnpm run build` + `CMD ["pnpm", "run", "test"]`, switched from `npm install -g pnpm@9` to `corepack enable && corepack prepare pnpm@latest --activate`
+  - [`docker-compose.yml`](../docker-compose.yml): Added `test` service building from `Dockerfile.tests` with image tag `joplin-api-tests:latest`
+  - [`.github/workflows/test.yml`](../.github/workflows/test.yml): Replaced Node.js/pnpm setup actions (5 steps) with Docker-based workflow (2 steps: `docker build -f Dockerfile.tests` + `docker run`); added `pull_request` trigger
+- **Outcome**: `docker run --rm joplin-api-tests` now executes vitest at runtime instead of doing nothing. CI matches local execution exactly.
+- **Git**: Pending commit
+
 ### Batch 3 (continued) — Fix Docker Build to Include Test Files
 
 - **Task**: Fixed `.dockerignore` and `Dockerfile` so tests are copied into the builder stage and executed during `docker build`

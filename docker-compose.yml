@@ -32,5 +32,11 @@ services:
       start_period: 60s
     init: true
 
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.tests
+    image: joplin-api-tests:latest
+
 volumes:
   joplin_data:
