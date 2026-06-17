@@ -59,7 +59,7 @@ describe('Config Parser', () => {
 
     expect(config.joplinServerUrl).toBe('https://joplin.example.com/');
     expect(config.joplinUsername).toBe('test@example.com');
-    expect(config.dataApiPort).toBe(41100);
+    expect(config.dataApiPort).toBe(41184);
     expect(config.logLevel).toBe('info');
     expect(config.syncIntervalSeconds).toBe(300);
   });

@@ -39,7 +39,7 @@ function okResponse(
     statusText: overrides?.statusText ?? 'OK',
     json: () => Promise.resolve(data),
     text: () => Promise.resolve(JSON.stringify(data)),
-    headers: new Headers(),
+    headers: new Headers({ 'content-type': 'application/json' }),
   } as unknown as Response;
 }
 
@@ -377,7 +377,7 @@ describe('JoplinDataClient', () => {
 
       expect(note).toMatchObject({ id: 'note-1', title: 'Test Note' });
       const fetchUrl = mockFetch.mock.calls[0][0] as string;
-      expect(fetchUrl).toBe(`${BASE_URL}/notes/note-1`);
+      expect(fetchUrl).toBe(`${BASE_URL}/notes/note-1?token=test-api-token`);
     });
 
     it('getNote throws NotFoundError on 404', async () => {
@@ -395,7 +395,7 @@ describe('JoplinDataClient', () => {
 
       expect(result).toMatchObject({ title: 'New Note' });
       const call = mockFetch.mock.calls[0];
-      expect(call[0] as string).toBe(`${BASE_URL}/notes`);
+      expect(call[0] as string).toBe(`${BASE_URL}/notes?token=test-api-token`);
       expect((call[1] as Record<string, unknown>).method).toBe('POST');
       expect(JSON.parse((call[1] as Record<string, unknown>).body as string)).toEqual(payload);
     });
@@ -409,7 +409,7 @@ describe('JoplinDataClient', () => {
 
       expect(result).toMatchObject({ title: 'Updated' });
       const call = mockFetch.mock.calls[0];
-      expect(call[0] as string).toBe(`${BASE_URL}/notes/note-1`);
+      expect(call[0] as string).toBe(`${BASE_URL}/notes/note-1?token=test-api-token`);
       expect((call[1] as Record<string, unknown>).method).toBe('PUT');
       expect(JSON.parse((call[1] as Record<string, unknown>).body as string)).toEqual(payload);
     });
@@ -426,7 +426,7 @@ describe('JoplinDataClient', () => {
       await client.deleteNote('note-1');
 
       const call = mockFetch.mock.calls[0];
-      expect(call[0] as string).toBe(`${BASE_URL}/notes/note-1`);
+      expect(call[0] as string).toBe(`${BASE_URL}/notes/note-1?token=test-api-token`);
       expect((call[1] as Record<string, unknown>).method).toBe('DELETE');
     });
 
@@ -468,7 +468,7 @@ describe('JoplinDataClient', () => {
       const folder = await client.getFolder('folder-1');
 
       expect(folder).toMatchObject({ id: 'folder-1', title: 'Test Folder' });
-      expect(mockFetch.mock.calls[0][0] as string).toBe(`${BASE_URL}/folders/folder-1`);
+      expect(mockFetch.mock.calls[0][0] as string).toBe(`${BASE_URL}/folders/folder-1?token=test-api-token`);
     });
 
     it('createFolder POSTs a new folder', async () => {
@@ -491,7 +491,7 @@ describe('JoplinDataClient', () => {
       await client.updateFolder('folder-1', payload);
 
       const call = mockFetch.mock.calls[0];
-      expect(call[0] as string).toBe(`${BASE_URL}/folders/folder-1`);
+      expect(call[0] as string).toBe(`${BASE_URL}/folders/folder-1?token=test-api-token`);
       expect((call[1] as Record<string, unknown>).method).toBe('PUT');
       expect(JSON.parse((call[1] as Record<string, unknown>).body as string)).toEqual(payload);
     });
@@ -502,7 +502,7 @@ describe('JoplinDataClient', () => {
       await client.deleteFolder('folder-1');
 
       const call = mockFetch.mock.calls[0];
-      expect(call[0] as string).toBe(`${BASE_URL}/folders/folder-1`);
+      expect(call[0] as string).toBe(`${BASE_URL}/folders/folder-1?token=test-api-token`);
       expect((call[1] as Record<string, unknown>).method).toBe('DELETE');
     });
 
@@ -541,7 +541,7 @@ describe('JoplinDataClient', () => {
       const tag = await client.getTag('tag-1');
 
       expect(tag).toMatchObject({ id: 'tag-1', title: 'Test Tag' });
-      expect(mockFetch.mock.calls[0][0] as string).toBe(`${BASE_URL}/tags/tag-1`);
+      expect(mockFetch.mock.calls[0][0] as string).toBe(`${BASE_URL}/tags/tag-1?token=test-api-token`);
     });
 
     it('createTag POSTs a new tag', async () => {
@@ -563,7 +563,7 @@ describe('JoplinDataClient', () => {
       await client.deleteTag('tag-1');
 
       const call = mockFetch.mock.calls[0];
-      expect(call[0] as string).toBe(`${BASE_URL}/tags/tag-1`);
+      expect(call[0] as string).toBe(`${BASE_URL}/tags/tag-1?token=test-api-token`);
       expect((call[1] as Record<string, unknown>).method).toBe('DELETE');
     });
 
@@ -574,7 +574,7 @@ describe('JoplinDataClient', () => {
       const result = await client.getNoteTags('note-1');
 
       expect(result).toEqual(tags);
-      expect(mockFetch.mock.calls[0][0] as string).toBe(`${BASE_URL}/notes/note-1/tags`);
+      expect(mockFetch.mock.calls[0][0] as string).toBe(`${BASE_URL}/notes/note-1/tags?token=test-api-token`);
     });
 
     it('tagNote POSTs a note‑tag relationship', async () => {
@@ -595,7 +595,7 @@ describe('JoplinDataClient', () => {
 
       expect(result).toMatchObject({ note_id: 'note-1', tag_id: 'tag-1' });
       const call = mockFetch.mock.calls[0];
-      expect(call[0] as string).toBe(`${BASE_URL}/notes/note-1/tags`);
+      expect(call[0] as string).toBe(`${BASE_URL}/notes/note-1/tags?token=test-api-token`);
       expect((call[1] as Record<string, unknown>).method).toBe('POST');
       expect(JSON.parse((call[1] as Record<string, unknown>).body as string)).toEqual({
         id: 'tag-1',
@@ -608,7 +608,7 @@ describe('JoplinDataClient', () => {
       await client.untagNote('note-1', 'tag-1');
 
       const call = mockFetch.mock.calls[0];
-      expect(call[0] as string).toBe(`${BASE_URL}/notes/note-1/tags/tag-1`);
+      expect(call[0] as string).toBe(`${BASE_URL}/notes/note-1/tags/tag-1?token=test-api-token`);
       expect((call[1] as Record<string, unknown>).method).toBe('DELETE');
     });
 
@@ -870,7 +870,7 @@ describe('JoplinDataClient', () => {
       const result = await client.ping();
 
       expect(result).toEqual({ status: 'ok', version: '3.0' });
-      expect(mockFetch.mock.calls[0][0] as string).toBe(`${BASE_URL}/ping`);
+      expect(mockFetch.mock.calls[0][0] as string).toBe(`${BASE_URL}/ping?token=test-api-token`);
     });
 
     it('listResources returns paginated resources', async () => {

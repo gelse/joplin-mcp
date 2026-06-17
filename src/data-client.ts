@@ -1,5 +1,6 @@
 import type { Logger } from './logger.js';
 import {
+  AuthError,
   ConflictError,
   DataApiError,
   NotFoundError,
@@ -34,6 +35,10 @@ export class JoplinDataClient {
     reject: (reason: unknown) => void;
     fn: () => Promise<unknown>;
   }> = [];
+
+  private authToken: string | null = null;
+  private tokenExpiresAt: number = 0;
+  private pendingAuthPromise: Promise<string> | null = null;
 
   constructor(
     port: number,
@@ -109,71 +114,178 @@ export class JoplinDataClient {
     return `${path}${separator}token=${encodeURIComponent(this.apiToken)}`;
   }
 
+  /**
+   * Authenticate with the Joplin Data API to obtain a session token.
+   * The token is cached internally with a 55-minute expiry.
+   *
+   * @throws {AuthError} If the auth endpoint returns an error or lacks auth_token
+   */
+  private async authenticate(): Promise<string> {
+    const url = `${this.baseUrl}${this.appendToken('/auth')}`;
+    this.logger.debug('Authenticating with Joplin Data API');
+
+    const response = await fetch(url, { method: 'POST' });
+
+    if (!response.ok) {
+      throw new AuthError(
+        `Authentication failed: ${response.status} ${response.statusText}`,
+      );
+    }
+
+    const data = (await response.json()) as { auth_token?: string };
+    if (!data.auth_token) {
+      throw new AuthError('Authentication response missing auth_token');
+    }
+
+    this.authToken = data.auth_token;
+    // Token expires after 55 minutes (3300 seconds)
+    this.tokenExpiresAt = Date.now() + 3300 * 1000;
+    return this.authToken;
+  }
+
+  /**
+   * Build the Authorization header if a cached token is available.
+   * Performs proactive refresh when the token is within 60 seconds of expiry.
+   * Deduplicates concurrent in-flight authentication requests.
+   */
+  private async getAuthHeaders(): Promise<Record<string, string> | null> {
+    // If nothing is cached or in-flight, skip
+    if (!this.authToken && !this.pendingAuthPromise) {
+      return null;
+    }
+
+    const bufferMs = 60 * 1000; // 60-second proactive refresh buffer
+    const now = Date.now();
+
+    // Proactive refresh: if the token is within the buffer window, clear it
+    if (this.authToken && now >= this.tokenExpiresAt - bufferMs) {
+      this.authToken = null;
+    }
+
+    // If we need a token, obtain one (deduplicate concurrent requests)
+    if (!this.authToken) {
+      if (!this.pendingAuthPromise) {
+        this.pendingAuthPromise = this.authenticate().finally(() => {
+          this.pendingAuthPromise = null;
+        });
+      }
+      await this.pendingAuthPromise;
+    }
+
+    if (!this.authToken) {
+      return null;
+    }
+
+    return { Authorization: `Bearer ${this.authToken}` };
+  }
+
+  /**
+   * Discard the cached authentication token.
+   * Next request will trigger a fresh authentication cycle.
+   */
+  clearToken(): void {
+    this.authToken = null;
+    this.tokenExpiresAt = 0;
+  }
+
   private async request<T>(
     method: string,
     path: string,
     body?: unknown,
   ): Promise<T> {
     return this.enqueueRequest(async () => {
-      const url = `${this.baseUrl}${this.appendToken(path)}`;
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-
-      this.logger.debug({ method, path }, 'Data API request');
-
-      const response = await fetch(url, {
-        method,
-        headers,
-        body: body ? JSON.stringify(body) : undefined,
-      });
-
-      if (response.status === 404) {
-        const resourceType = path.split('/').filter(Boolean)[0] || 'resource';
-        this.logger.debug({ status: 404, path }, 'Request failed');
-        throw new NotFoundError(resourceType, resourceType);
-      }
-      if (response.status === 409) {
-        const resourceType = path.split('/').filter(Boolean)[0] || 'resource';
-        this.logger.debug({ status: 409, path }, 'Request failed');
-        throw new ConflictError(resourceType, resourceType);
-      }
-      if (response.status === 400) {
-        const body = await response.text().catch(() => '');
-        this.logger.debug({ status: 400, path, body }, 'Request failed');
-        throw new ValidationError('Bad request');
-      }
-      if (response.status === 403) {
-        const body = await response.text().catch(() => '');
-        this.logger.debug({ status: 403, path, body }, 'Request failed');
-        throw new ValidationError(`Forbidden: ${body}`);
-      }
-      if ([500, 502, 503].includes(response.status)) {
-        const resourceType = path.split('/').filter(Boolean)[0] || 'resource';
-        const body = await response.text().catch(() => '');
-        this.logger.debug({ status: response.status, path }, 'Request failed');
-        throw new DataApiError(
-          `Server error (${response.status}) accessing ${resourceType}`,
-          response.status,
-          body,
-        );
-      }
-      if (!response.ok) {
-        const body = await response.text().catch(() => '');
-        throw new DataApiError(
-          `Joplin Data API error: ${response.status} ${response.statusText}`,
-          response.status,
-          body,
-        );
-      }
-
-      const contentType = response.headers.get('content-type') || '';
-      if (contentType.includes('application/json')) {
-        return response.json() as Promise<T>;
-      }
-      // Non-JSON response (e.g., /ping returns plain text)
-      return response.text() as unknown as T;
+      return this.executeRequest<T>(method, path, body);
     });
+  }
+
+  private async executeRequest<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    isRetry = false,
+  ): Promise<T> {
+    const url = `${this.baseUrl}${this.appendToken(path)}`;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    // Add auth header if available (also triggers proactive refresh)
+    const authHeaders = await this.getAuthHeaders();
+    if (authHeaders) {
+      Object.assign(headers, authHeaders);
+    }
+
+    this.logger.debug({ method, path, isRetry }, 'Data API request');
+
+    const response = await fetch(url, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    // --- 401 handling: token refresh and retry ---
+    if (response.status === 401) {
+      if (isRetry) {
+        // Already refreshed once, give up
+        throw new AuthError('Authentication failed after token refresh');
+      }
+      // Clear the stale token and obtain a fresh one
+      this.clearToken();
+      try {
+        await this.authenticate();
+      } catch (err) {
+        if (err instanceof AuthError) throw err;
+        throw new AuthError('Authentication failed');
+      }
+      // Retry the original request with the new token
+      return this.executeRequest<T>(method, path, body, true);
+    }
+
+    if (response.status === 404) {
+      const resourceType = path.split('/').filter(Boolean)[0] || 'resource';
+      this.logger.debug({ status: 404, path }, 'Request failed');
+      throw new NotFoundError(resourceType, resourceType);
+    }
+    if (response.status === 409) {
+      const resourceType = path.split('/').filter(Boolean)[0] || 'resource';
+      this.logger.debug({ status: 409, path }, 'Request failed');
+      throw new ConflictError(resourceType, resourceType);
+    }
+    if (response.status === 400) {
+      const body = await response.text().catch(() => '');
+      this.logger.debug({ status: 400, path, body }, 'Request failed');
+      throw new ValidationError('Bad request');
+    }
+    if (response.status === 403) {
+      const body = await response.text().catch(() => '');
+      this.logger.debug({ status: 403, path, body }, 'Request failed');
+      throw new ValidationError(`Forbidden: ${body}`);
+    }
+    if ([500, 502, 503].includes(response.status)) {
+      const resourceType = path.split('/').filter(Boolean)[0] || 'resource';
+      const body = await response.text().catch(() => '');
+      this.logger.debug({ status: response.status, path }, 'Request failed');
+      throw new DataApiError(
+        `Server error (${response.status}) accessing ${resourceType}`,
+        response.status,
+        body,
+      );
+    }
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new DataApiError(
+        `Joplin Data API error: ${response.status} ${response.statusText}`,
+        response.status,
+        body,
+      );
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      return response.json() as Promise<T>;
+    }
+    // Non-JSON response (e.g., /ping returns plain text)
+    return response.text() as unknown as T;
   }
 
   // === Ping ===
