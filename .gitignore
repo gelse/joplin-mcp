@@ -5,6 +5,7 @@ dist/
 .joplin/
 .pnpm-store/
 **/.env.*
+!.env.example
 .roo/
 
 # Excluded from public repository (kept locally for development)

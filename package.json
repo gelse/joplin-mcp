@@ -5,6 +5,10 @@
   "license": "MIT",
   "type": "module",
   "main": "dist/server.js",
+  "files": ["dist", "README.md", "LICENSE", "package.json"],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsx watch src/server.ts",
