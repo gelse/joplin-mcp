@@ -142,7 +142,7 @@ describe('JoplinDataClient', () => {
     mockFetch = vi.fn();
     vi.stubGlobal('fetch', mockFetch);
     fetchAllPagesMock = vi.mocked(fetchAllPages);
-    client = new JoplinDataClient(PORT, mockLogger);
+    client = new JoplinDataClient(PORT, 'test-api-token', mockLogger);
   });
 
   // =====================================================================
@@ -1031,7 +1031,7 @@ describe('JoplinDataClient', () => {
   // ---------------------------------------------------------------------------
   describe('concurrency limiter', () => {
     it('queues requests beyond maxConcurrency (2) and drains when active ones finish', async () => {
-      const concurrencyClient = new JoplinDataClient(PORT, mockLogger, 2);
+      const concurrencyClient = new JoplinDataClient(PORT, 'test-api-token', mockLogger, 2);
 
       // A deferred promise that keeps in-flight requests pending
       let holdResolve: () => void;
@@ -1064,7 +1064,7 @@ describe('JoplinDataClient', () => {
     });
 
     it('all queued requests resolve successfully after batch completion', async () => {
-      const concurrencyClient = new JoplinDataClient(PORT, mockLogger, 2);
+      const concurrencyClient = new JoplinDataClient(PORT, 'test-api-token', mockLogger, 2);
 
       // Track resolution order
       const completionOrder: number[] = [];
@@ -1133,7 +1133,7 @@ describe('JoplinDataClient', () => {
 
     it('default maxConcurrency (5) allows five concurrent requests', async () => {
       // Use the default client — maxConcurrency defaults to 5
-      const defaultClient = new JoplinDataClient(PORT, mockLogger);
+      const defaultClient = new JoplinDataClient(PORT, 'test-api-token', mockLogger);
 
       let holdResolve: () => void;
       const holdPromise = new Promise<void>((resolve) => {
