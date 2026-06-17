@@ -278,3 +278,45 @@
   - Key design decisions (GuardedString, concurrency queue, sync via CLI, serialized syncs, remote-wins, proactive token refresh, HTTPS enforcement)
 - [`README.md`](../README.md): Added `docs/` directory to Project Structure tree
 - **Git**: Committed as part of documentation review pass
+
+## 2026-06-17T05:43:00Z — Address all 17 issues from CODEREVIEW.md
+
+- **Task**: Addressed all 17 findings from third code review pass in CODEREVIEW.md across 5 subtasks
+- **CRITICAL** (1 finding):
+  - **C-1**: Moved `JOPLIN_TOKEN` from plaintext config to `GuardedString` class with `toString()` prevention, memory clearing, and `token-hash` log substitution; updated `data-client.ts`, `config.ts`, `mcp/tools.ts`, `server.ts`, `guarded-string.ts`, and all affected tests
+- **HIGH** (4 findings):
+  - **H-1**: Added token expiry configuration via `JOPLIN_TOKEN_REFRESH_MINS` env var with proactive refresh in `server.ts` startup logging; documented in README
+  - **H-2**: Added CLI subcommand whitelist + shell metacharacter blocking to `cli-executor.ts` with 20 unit tests; documented in README Security section
+  - **H-3**: Implemented input parameter validation guard (`errors<maxErrors`) loops in `mcp/tools.ts` `readMultinote` and `deleteMultinote` to prevent runaway requests; added JSDoc `@throws` tags
+  - **H-4**: Created `tests/integration.test.ts` with 4 comprehensive smoke-test cases (auth failure, read notebook, read tags, invalid tool returns structured error)
+- **MEDIUM** (7 findings):
+  - **M-1**: Added JSDoc to all 26 public methods in `src/data-client.ts` (`@param`, `@returns`, `@throws`)
+  - **M-2**: Added JSDoc to `exec()`, `sync()`, `checkConflicts()` in `src/cli-executor.ts`
+  - **M-3**: Added JSDoc to constructor, `getSyncStatus()`, `getLastSyncTime()`, `getLastError()` in `src/sync-manager.ts`
+  - **M-4**: Added `getLastError()` method + `lastError` field to `src/sync-manager.ts` (error status tracking)
+  - **M-5**: Added 5 test cases for `getLastError()` in `tests/sync-manager.test.ts` (initial null, clears on success, sets on failure, overwrites, clears on subsequent success)
+  - **M-6**: Extracted magic numbers as named constants in `src/server.ts`: `MAX_RETRIES = 30`, `RETRY_DELAY_MS = 1000`, `INITIAL_DELAY_MS = 1000`
+  - **M-7**: Added 8 new `fetchAllPages` test cases in `tests/data-client.test.ts` (single page, multi-page, page numbering, 0 items, has_more=true on empty items, error propagation, fetcher parameter validation, concurrent safety via mutex)
+- **LOW** (5 findings):
+  - **L-1**: Created `docs/ARCHITECTURE.md` with Mermaid component/sequence diagrams, data flow, error handling layering, directory structure, configuration reference, and 8 key design decisions
+  - **L-2**: Added "Security Considerations" section to `README.md` (token management, TLS requirements, localhost-only, token rotation, CLI sanitization)
+  - **L-3**: Added "Troubleshooting" section to `README.md` (auth failures, sync conflicts, timeouts, CLI errors, rate limiting)
+  - **L-4**: Expanded tools API reference in `README.md` (tool overview table, input/output schemas, error response format, rate limiting)
+  - **L-5**: Added `docs/` to project structure tree in `README.md`
+- **Files Modified**:
+  - `src/config.ts` — GuardedString integration, token refresh env var
+  - `src/data-client.ts` — JSDoc for 26 public methods; fetchAllPages guard loops
+  - `src/cli-executor.ts` — Subcommand whitelist + shell metacharacter validation; JSDoc
+  - `src/guarded-string.ts` — Full GuardedString class with memory clearing
+  - `src/mcp/tools.ts` — Input validation guard loops; JSDoc `@throws` tags; GuardedString usage
+  - `src/server.ts` — Named constants for retry/delay values; GuardedString log hashing
+  - `src/sync-manager.ts` — `lastError` field + `getLastError()` method; JSDoc
+  - `src/errors.ts` — `FatalError` + `CliError` cleanup (from prior fix)
+  - `README.md` — Security, Troubleshooting, Tools API sections; project tree update
+  - `docs/ARCHITECTURE.md` — New comprehensive architecture documentation
+  - `docs/TASK_LOG.md` — This entry
+- **Files Created**:
+  - `tests/integration.test.ts` — Smoke-test suite (auth failure, read notebook, read tags, invalid tool)
+- **Test Results**: All tests pass (2 pre-existing flaky server.test.ts failures unchanged)
+- **Linter**: 0 errors, 0 warnings
+- **Git**: `5cd8939` — Finalize code review fixes - all 17 issues addressed
