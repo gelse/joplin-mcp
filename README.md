@@ -140,6 +140,8 @@ Error
 
 ## Available MCP Tools
 
+### Tool Overview
+
 | Tool             | Description                     | Writes? |
 | ---------------- | ------------------------------- | ------- |
 | `list_notebooks` | List all notebooks/folders      | No      |
@@ -158,6 +160,179 @@ Error
 | `delete_note`    | Delete a note                   | **Yes** |
 | `delete_folder`  | Delete a folder                 | **Yes** |
 | `sync`           | Manually trigger sync           | No      |
+
+### Input / Output Schemas
+
+All tool input is validated through [Zod](https://zod.dev/) schemas. Below are the expected input fields and return types.
+
+#### Read Tools
+
+| Tool             | Input                                                                  | Output                                            |
+| ---------------- | ---------------------------------------------------------------------- | ------------------------------------------------- |
+| `list_notebooks` | `{}`                                                                   | `Folder[]`                                        |
+| `search_notes`   | `{ query: string (1–1000 chars), type?: "note" \| "folder" \| "tag" }` | `SearchResult[]`                                  |
+| `read_note`      | `{ note_id: string (32-char hex) }`                                    | `Note`                                            |
+| `read_notebook`  | `{ notebook_id: string (32-char hex) }`                                | `Folder`                                          |
+| `read_multinote` | `{ note_ids: string[] (array of 32-char hex IDs) }`                    | `{ notes: Note[], errors: { note_id, error }[] }` |
+| `read_tags`      | `{ note_id: string (32-char hex) }`                                    | `Tag[]`                                           |
+
+#### Write Tools
+
+| Tool            | Input                                                                                              | Output              |
+| --------------- | -------------------------------------------------------------------------------------------------- | ------------------- |
+| `create_note`   | `{ title (1–500 chars), parent_id?, body? (max 1 MB), author?, source_url?, is_todo?, todo_due? }` | `Note`              |
+| `create_folder` | `{ title (1–500 chars), parent_id?, icon? }`                                                       | `Folder`            |
+| `edit_note`     | `{ note_id, title?, parent_id?, body?, author?, source_url?, is_todo?, todo_due? }`                | `Note`              |
+| `edit_folder`   | `{ folder_id, title?, parent_id?, icon? }`                                                         | `Folder`            |
+| `create_tag`    | `{ title (1–200 chars) }`                                                                          | `Tag`               |
+| `tag_note`      | `{ note_id, tag_id }`                                                                              | `NoteTag`           |
+| `untag_note`    | `{ note_id, tag_id }`                                                                              | `{ success: true }` |
+
+#### Delete Tools
+
+| Tool            | Input           | Output              |
+| --------------- | --------------- | ------------------- |
+| `delete_note`   | `{ note_id }`   | `{ success: true }` |
+| `delete_folder` | `{ folder_id }` | `{ success: true }` |
+
+#### Sync Tool
+
+| Tool   | Input | Output                                                                     |
+| ------ | ----- | -------------------------------------------------------------------------- |
+| `sync` | `{}`  | `{ status: "idle" \| "syncing" \| "error", lastSyncTime: string \| null }` |
+
+### Error Response Format
+
+When a tool execution fails, the MCP server returns a response with `isError: true` and a `content` array containing a single text entry:
+
+```json
+{
+  "content": [{ "type": "text", "text": "Error message describing the failure" }],
+  "isError": true
+}
+```
+
+**Validation errors** (Zod schema mismatch) are logged at `warn` level and include the specific field path and reason, for example:
+
+```
+Validation error: note_id: Expected 32-character hex ID
+```
+
+**Execution errors** (API failures, timeouts, etc.) are logged at `error` level and include the tool name and error message. See the [Error Handling](#error-handling) section for the full error class hierarchy.
+
+### Rate Limiting
+
+The internal Joplin Data API HTTP client (`JoplinDataClient`) enforces a configurable concurrency limit to prevent overwhelming the Data API process:
+
+- **Default max concurrency**: 5 concurrent requests
+- **Configurable via**: `maxConcurrency` constructor parameter on `JoplinDataClient`
+- **Behaviour**: When the limit is reached, additional requests are queued and executed as soon as a slot becomes available
+- **Scope**: All Data API calls (list, get, create, update, delete, search) share the same concurrency pool
+- **Per-tool**: Individual tool calls make a single Data API request, so concurrency is only relevant under parallel MCP requests
+
+## Security Considerations
+
+### Token Management
+
+The Joplin Data API uses bearer token authentication. The token is obtained automatically on startup via a `POST /auth` request and is stored in a [`GuardedString`](src/guarded-string.ts) wrapper:
+
+- **`GuardedString`** stores the raw value in a private `#value` field, making it inaccessible through `toString()`, `toJSON()`, or template-literal coercion — all such operations return `'[REDACTED]'`
+- The only way to access the actual value is via the explicit `.value` property
+- This prevents accidental leakage through logging, serialisation, or error messages
+- Tokens are proactively refreshed 60 seconds before expiry and re-fetched automatically on 401 responses
+
+### TLS Requirements for Production
+
+- The Joplin Data API always binds to `127.0.0.1` (localhost-only), so TLS between the server and the Data API is unnecessary — traffic never leaves the machine
+- **The Joplin Server URL (`JOPLIN_SERVER_URL`) must use HTTPS in production** — this is enforced by the config schema (see [`src/config.ts`](src/config.ts#L5)). HTTP is only allowed when `NODE_ENV` is not set to `production`
+- Joplin CLI sync traffic to Joplin Server is plain HTTP by default; ensure your Joplin Server is deployed behind a TLS-terminating reverse proxy
+
+### Localhost-Only Defaults
+
+- The Joplin Data API child process is spawned with `--host 127.0.0.1`, binding exclusively to the loopback interface
+- The MCP server communicates over **stdio transport** — there is no network port exposed for MCP traffic
+- This defence-in-depth approach ensures that even if the container's network is exposed, the Data API is not accessible from external hosts
+
+### Token Rotation Best Practices
+
+- The Joplin Data API issues tokens with a configurable expiry (default ~55 minutes, controlled by the Joplin Data API server)
+- The client automatically refreshes the token before expiry and on 401 responses
+- If a token compromise is suspected, rotate the Joplin Server credentials (`JOPLIN_PASSWORD`) and restart the container — a new token will be issued on the next `POST /auth` call
+
+### CLI Argument Sanitization
+
+All Joplin CLI subcommands executed via [`CliExecutor`](src/cli-executor.ts) are protected by two layers of defence:
+
+1. **Subcommand whitelist** — Only a predefined set of subcommands (sync, config, ls, cat, etc.) is allowed. Unknown subcommands are rejected before execution
+2. **Shell metacharacter blocking** — Arguments containing `;`, `|`, `&`, `$`, `` ` ``, `(`, `)`, `{`, `}`, `<`, `>`, `\n` are rejected
+
+These checks are defence-in-depth on top of Node.js `execFile`, which does not spawn a shell.
+
+## Troubleshooting
+
+### Authentication Failures
+
+**Symptom**: MCP tools return `"Authentication failed"` or `AuthError`.
+
+**Causes and fixes:**
+
+| Cause                               | Fix                                                                                                                                    |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Invalid `JOPLIN_PASSWORD` in `.env` | Verify the password matches your Joplin Server account                                                                                 |
+| Token expired before refresh        | Check that the system clock is synchronised (NTP). The client refreshes tokens proactively, but clock drift can cause premature expiry |
+| Joplin Server unreachable           | Ensure `JOPLIN_SERVER_URL` is correct and the server is running. Verify TLS certificate if using HTTPS                                 |
+| Data API not ready                  | Wait for the "Data API server is ready" log line before sending requests                                                               |
+
+**Diagnostic steps:**
+
+1. Check container logs: `docker compose logs`
+2. Look for entries containing `"Failed to obtain Joplin API token"` or `"AuthError"`
+3. Verify credentials by curling the Joplin Server API directly
+
+### Sync Conflicts
+
+**Symptom**: Logs contain `"Sync conflicts detected — remote version retained"` warnings.
+
+**Behaviour**: The system uses a **remote-wins** conflict resolution strategy. Local changes always yield to remote versions.
+
+**What to do:**
+
+- Conflict notes are flagged in Joplin as conflicted copies. Check for them using the Joplin desktop/client app
+- You can programmatically check conflict count via `CliExecutor.checkConflicts()`
+- To resolve, review the conflicted notes in Joplin and manually merge or delete them
+
+### Timeout Issues
+
+**Symptom**: CLI commands fail with `"joplin CLI timed out after Nms"`.
+
+**Causes and fixes:**
+
+| Cause                                     | Fix                                                                                                             |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Large initial sync (many notes/resources) | Increase `SYNC_INTERVAL_SECONDS` or let the initial sync complete — subsequent syncs are incremental            |
+| Joplin Server slow to respond             | Check Joplin Server performance (CPU, memory, database). Ensure network latency is low                          |
+| CLI command timeout too short             | The default timeout is 60 seconds; for extremely large operations, this can be adjusted in `CliExecutor.exec()` |
+
+### CLI Execution Errors
+
+**Symptom**: `CliError` with exit code, stdout, and stderr details.
+
+**Common causes:**
+
+- **Missing `joplin` binary**: The `joplin` CLI must be installed in the container and available on `PATH`. The Dockerfile handles this, but verify if using a custom setup
+- **Config not set**: The entrypoint script configures `sync.target 10` and server credentials. If skipped, `joplin sync` will fail with a configuration error
+- **Permission errors**: Ensure the Joplin CLI config directory (`~/.config/joplin`) is writable
+
+### Rate Limiting
+
+**Symptom**: Requests are queued or take longer than expected, but no errors are thrown.
+
+**Behaviour**: The `JoplinDataClient` enforces a maximum of 5 concurrent API requests (configurable). Additional requests are queued and processed sequentially as slots open up.
+
+**If you hit concurrency limits:**
+
+- Reduce the number of parallel MCP tool calls from your AI client
+- The concurrency limit is a constructor parameter on `JoplinDataClient` in [`src/data-client.ts`](src/data-client.ts). Increase it if you have a specific need for higher parallelism, but be aware of the Data API's own capacity
 
 ## Development
 
@@ -201,6 +376,9 @@ tests/
 ├── pagination.test.ts     # Pagination helper tests
 ├── server.test.ts         # Server tests
 └── sync-manager.test.ts   # Sync manager tests
+docs/
+├── ARCHITECTURE.md        # Architecture documentation with Mermaid diagrams
+└── TASK_LOG.md             # Workspace action log
 scripts/
 └── smoke-test.sh          # End-to-end Docker container smoke test
 ```

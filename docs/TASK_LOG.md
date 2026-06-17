@@ -236,7 +236,45 @@
 ## 2026-06-17T05:56:00Z — Fix MEDIUM-007 and LOW-008 code review issues
 
 ### Changes Made
+
 - **MEDIUM-007** (`src/sync-manager.ts`): Added `private lastError: Error | null` field, `getLastError(): Error | null` public method, save-on-failure in catch block, and clear-on-success in try block
 - **LOW-008** (`src/server.ts`): Extracted magic numbers `MAX_RETRIES = 30`, `RETRY_DELAY_MS = 1000`, `INITIAL_DELAY_MS = 1000` as named constants in `startDataApiServer()`
 - **Tests** (`tests/sync-manager.test.ts`): Added 5 test cases for `getLastError()` (initial null, null after success, error after failure, overwrites on subsequent failure, clears on subsequent success)
 - **Test Results**: All 24 sync-manager tests pass; 2 pre-existing server.test.ts failures unrelated to changes
+
+## 2026-06-17T05:59:00Z — Documentation-only code review pass (MEDIUM-009, HIGH-015, MEDIUM-016, LOW-017, LOW-010)
+
+### Changes Made
+
+- **MEDIUM-009** — JSDoc for public methods in 3 source files:
+  - [`src/data-client.ts`](../src/data-client.ts): Added JSDoc with `@param`, `@returns`, `@throws` tags to all 26 public methods (`ping`, `listNotes`, `getAllNotes`, `getNote`, `createNote`, `updateNote`, `deleteNote`, `listFolders`, `getAllFolders`, `getFolder`, `createFolder`, `updateFolder`, `deleteFolder`, `listTags`, `getAllTags`, `getTag`, `createTag`, `deleteTag`, `getNoteTags`, `tagNote`, `untagNote`, `listResources`, `getAllResources`, `getResource`, `listEvents`, `search`)
+  - [`src/sync-manager.ts`](../src/sync-manager.ts): Added JSDoc to constructor, `getSyncStatus()`, `getLastSyncTime()`, `getLastError()`
+  - [`src/cli-executor.ts`](../src/cli-executor.ts): Added JSDoc to `exec()`, `sync()`, `checkConflicts()`
+- **HIGH-015** — Added "Security Considerations" section to [`README.md`](../README.md):
+  - Token Management (key rotation, `.env` files, `GuardedString` usage)
+  - TLS Requirements for Production (`NODE_ENV=production` HTTPS enforcement)
+  - Localhost-Only Defaults (no network exposure by default)
+  - Token Rotation Best Practices (pre-expiry refresh, JOPLIN_TOKEN_REFRESH_MINS)
+  - CLI Argument Sanitization (subcommand whitelist, shell metacharacter blocking)
+- **MEDIUM-016** — Added "Troubleshooting" section to [`README.md`](../README.md):
+  - Authentication Failures (token setup, environment detection)
+  - Sync Conflicts (remote-wins resolution, conflict detection via CLI)
+  - Timeout Issues (`JOPLIN_SYNC_TIMEOUT_SECS` configuration)
+  - CLI Execution Errors (binary missing, permission issues, debug logging)
+  - Rate Limiting (`JOPLIN_MAX_CONCURRENCY` adjustment)
+- **LOW-017** — Expanded tools API reference in [`README.md`](../README.md):
+  - Tool Overview table with all 16 tools, descriptions, and handler links
+  - Input/Output schema tables for Read Tools, Write Tools, Delete Tools, Sync Tool
+  - Error Response Format subsection (JSON-RPC error codes for each error type)
+  - Rate Limiting subsection (concurrency queue behavior, default 5, env var config)
+- **LOW-010** — Created [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md):
+  - High-level Mermaid component diagram (MCP Client → MCP Server → Tool Registry → Tools → JoplinDataClient → Joplin Data API, plus SyncManager → CliExecutor → Joplin CLI → Joplin Server)
+  - Mermaid sequence diagrams for read operations and write operations with sync
+  - Detailed component descriptions for all 7 major modules
+  - Data flow documentation with sequence diagrams
+  - Error handling layering explanation (Zod validation → Tool Error Handler → Fatal Error Handler)
+  - Full directory structure with file descriptions
+  - Configuration reference table with all 11 env vars
+  - Key design decisions (GuardedString, concurrency queue, sync via CLI, serialized syncs, remote-wins, proactive token refresh, HTTPS enforcement)
+- [`README.md`](../README.md): Added `docs/` directory to Project Structure tree
+- **Git**: Committed as part of documentation review pass

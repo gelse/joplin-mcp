@@ -260,98 +260,277 @@ export class JoplinDataClient {
   }
 
   // === Ping ===
+
+  /**
+   * Ping the Joplin Data API to verify connectivity.
+   *
+   * @returns A ping response containing `status` and `version` strings
+   * @throws {AuthError} If the token is expired or authentication fails
+   * @throws {DataApiError} On unexpected HTTP errors
+   */
   async ping(): Promise<PingResponse> {
     return this.request<PingResponse>('GET', '/ping');
   }
 
   // === Notes ===
+
+  /**
+   * List notes with optional pagination.
+   *
+   * @param limit - Maximum items per page (clamped to 1–100; defaults to 100)
+   * @param page - Page number (1-based; defaults to 1)
+   * @returns A paginated response containing an array of notes and a `has_more` flag
+   * @throws {AuthError} If the token is expired or authentication fails
+   * @throws {DataApiError} On unexpected HTTP errors
+   */
   async listNotes(limit?: number, page?: number): Promise<PaginatedResponse<Note>> {
     const params = `?limit=${clampLimit(limit)}${buildPageParam(page)}`;
     return this.request<PaginatedResponse<Note>>('GET', `/notes${params}`);
   }
 
+  /**
+   * Fetch all notes by iterating through all pages automatically.
+   *
+   * @returns A complete, flattened array of all notes
+   * @throws {AuthError} If the token is expired or authentication fails
+   * @throws {DataApiError} On unexpected HTTP errors
+   */
   async getAllNotes(): Promise<Note[]> {
     return fetchAllPages((page) => this.listNotes(100, page));
   }
 
+  /**
+   * Read a single note by ID.
+   *
+   * @param id - The 32-character hex note ID
+   * @returns The full note object, including body content
+   * @throws {ValidationError} If the ID contains invalid characters
+   * @throws {NotFoundError} If the note does not exist
+   * @throws {AuthError} If the token is expired or authentication fails
+   */
   async getNote(id: string): Promise<Note> {
     this.validateId(id, 'note_id');
     return this.request<Note>('GET', `/notes/${id}`);
   }
 
+  /**
+   * Create a new note.
+   *
+   * @param payload - The note creation payload (title is required; parent_id, body, and other fields are optional)
+   * @returns The newly created note object
+   * @throws {ValidationError} If the payload is invalid
+   * @throws {AuthError} If the token is expired or authentication fails
+   * @throws {DataApiError} On unexpected HTTP errors
+   */
   async createNote(payload: NoteCreatePayload): Promise<Note> {
     return this.request<Note>('POST', '/notes', payload);
   }
 
+  /**
+   * Update an existing note.
+   *
+   * @param id - The 32-character hex note ID
+   * @param payload - The fields to update (all optional; only provided fields are changed)
+   * @returns The updated note object
+   * @throws {ValidationError} If the ID contains invalid characters
+   * @throws {NotFoundError} If the note does not exist
+   * @throws {ConflictError} If the note was modified since last fetch
+   * @throws {AuthError} If the token is expired or authentication fails
+   */
   async updateNote(id: string, payload: NoteUpdatePayload): Promise<Note> {
     this.validateId(id, 'note_id');
     return this.request<Note>('PUT', `/notes/${id}`, payload);
   }
 
+  /**
+   * Delete a note by ID.
+   *
+   * @param id - The 32-character hex note ID
+   * @throws {ValidationError} If the ID contains invalid characters
+   * @throws {NotFoundError} If the note does not exist
+   * @throws {AuthError} If the token is expired or authentication fails
+   */
   async deleteNote(id: string): Promise<void> {
     this.validateId(id, 'note_id');
     await this.request<never>('DELETE', `/notes/${id}`);
   }
 
   // === Folders (Notebooks) ===
+
+  /**
+   * List folders (notebooks) with optional pagination.
+   *
+   * @param limit - Maximum items per page (clamped to 1–100; defaults to 100)
+   * @param page - Page number (1-based; defaults to 1)
+   * @returns A paginated response containing an array of folders and a `has_more` flag
+   * @throws {AuthError} If the token is expired or authentication fails
+   * @throws {DataApiError} On unexpected HTTP errors
+   */
   async listFolders(limit?: number, page?: number): Promise<PaginatedResponse<Folder>> {
     const params = `?limit=${clampLimit(limit)}${buildPageParam(page)}`;
     return this.request<PaginatedResponse<Folder>>('GET', `/folders${params}`);
   }
 
+  /**
+   * Fetch all folders by iterating through all pages automatically.
+   *
+   * @returns A complete, flattened array of all folders
+   * @throws {AuthError} If the token is expired or authentication fails
+   * @throws {DataApiError} On unexpected HTTP errors
+   */
   async getAllFolders(): Promise<Folder[]> {
     return fetchAllPages((page) => this.listFolders(100, page));
   }
 
+  /**
+   * Read a single folder (notebook) by ID.
+   *
+   * @param id - The 32-character hex folder ID
+   * @returns The folder object
+   * @throws {ValidationError} If the ID contains invalid characters
+   * @throws {NotFoundError} If the folder does not exist
+   * @throws {AuthError} If the token is expired or authentication fails
+   */
   async getFolder(id: string): Promise<Folder> {
     this.validateId(id, 'folder_id');
     return this.request<Folder>('GET', `/folders/${id}`);
   }
 
+  /**
+   * Create a new folder (notebook).
+   *
+   * @param payload - The folder creation payload (title is required; parent_id and icon are optional)
+   * @returns The newly created folder object
+   * @throws {ValidationError} If the payload is invalid
+   * @throws {AuthError} If the token is expired or authentication fails
+   * @throws {DataApiError} On unexpected HTTP errors
+   */
   async createFolder(payload: FolderCreatePayload): Promise<Folder> {
     return this.request<Folder>('POST', '/folders', payload);
   }
 
+  /**
+   * Update an existing folder (notebook).
+   *
+   * @param id - The 32-character hex folder ID
+   * @param payload - The fields to update (all optional; only provided fields are changed)
+   * @returns The updated folder object
+   * @throws {ValidationError} If the ID contains invalid characters
+   * @throws {NotFoundError} If the folder does not exist
+   * @throws {ConflictError} If the folder was modified since last fetch
+   * @throws {AuthError} If the token is expired or authentication fails
+   */
   async updateFolder(id: string, payload: FolderUpdatePayload): Promise<Folder> {
     this.validateId(id, 'folder_id');
     return this.request<Folder>('PUT', `/folders/${id}`, payload);
   }
 
+  /**
+   * Delete a folder (notebook) by ID.
+   *
+   * @param id - The 32-character hex folder ID
+   * @throws {ValidationError} If the ID contains invalid characters
+   * @throws {NotFoundError} If the folder does not exist
+   * @throws {AuthError} If the token is expired or authentication fails
+   */
   async deleteFolder(id: string): Promise<void> {
     this.validateId(id, 'folder_id');
     await this.request<never>('DELETE', `/folders/${id}`);
   }
 
   // === Tags ===
+
+  /**
+   * List tags with optional pagination.
+   *
+   * @param limit - Maximum items per page (clamped to 1–100; defaults to 100)
+   * @param page - Page number (1-based; defaults to 1)
+   * @returns A paginated response containing an array of tags and a `has_more` flag
+   * @throws {AuthError} If the token is expired or authentication fails
+   * @throws {DataApiError} On unexpected HTTP errors
+   */
   async listTags(limit?: number, page?: number): Promise<PaginatedResponse<Tag>> {
     const params = `?limit=${clampLimit(limit)}${buildPageParam(page)}`;
     return this.request<PaginatedResponse<Tag>>('GET', `/tags${params}`);
   }
 
+  /**
+   * Fetch all tags by iterating through all pages automatically.
+   *
+   * @returns A complete, flattened array of all tags
+   * @throws {AuthError} If the token is expired or authentication fails
+   * @throws {DataApiError} On unexpected HTTP errors
+   */
   async getAllTags(): Promise<Tag[]> {
     return fetchAllPages((page) => this.listTags(100, page));
   }
 
+  /**
+   * Read a single tag by ID.
+   *
+   * @param id - The 32-character hex tag ID
+   * @returns The tag object
+   * @throws {ValidationError} If the ID contains invalid characters
+   * @throws {NotFoundError} If the tag does not exist
+   * @throws {AuthError} If the token is expired or authentication fails
+   */
   async getTag(id: string): Promise<Tag> {
     this.validateId(id, 'tag_id');
     return this.request<Tag>('GET', `/tags/${id}`);
   }
 
+  /**
+   * Create a new tag.
+   *
+   * @param payload - The tag creation payload (title is required)
+   * @returns The newly created tag object
+   * @throws {ValidationError} If the payload is invalid
+   * @throws {AuthError} If the token is expired or authentication fails
+   * @throws {DataApiError} On unexpected HTTP errors
+   */
   async createTag(payload: TagCreatePayload): Promise<Tag> {
     return this.request<Tag>('POST', '/tags', payload);
   }
 
+  /**
+   * Delete a tag by ID.
+   *
+   * @param id - The 32-character hex tag ID
+   * @throws {ValidationError} If the ID contains invalid characters
+   * @throws {NotFoundError} If the tag does not exist
+   * @throws {AuthError} If the token is expired or authentication fails
+   */
   async deleteTag(id: string): Promise<void> {
     this.validateId(id, 'tag_id');
     await this.request<never>('DELETE', `/tags/${id}`);
   }
 
   // === Note-Tag relationships ===
+
+  /**
+   * Get all tags associated with a note.
+   *
+   * @param noteId - The 32-character hex note ID
+   * @returns An array of tags attached to the note
+   * @throws {ValidationError} If the note ID contains invalid characters
+   * @throws {NotFoundError} If the note does not exist
+   * @throws {AuthError} If the token is expired or authentication fails
+   */
   async getNoteTags(noteId: string): Promise<Tag[]> {
     this.validateId(noteId, 'note_id');
     return this.request<Tag[]>('GET', `/notes/${noteId}/tags`);
   }
 
+  /**
+   * Apply a tag to a note.
+   *
+   * @param noteId - The 32-character hex note ID
+   * @param tagId - The 32-character hex tag ID
+   * @returns The created note-tag relationship object
+   * @throws {ValidationError} If either ID contains invalid characters
+   * @throws {NotFoundError} If the note or tag does not exist
+   * @throws {AuthError} If the token is expired or authentication fails
+   */
   async tagNote(noteId: string, tagId: string): Promise<NoteTag> {
     this.validateId(noteId, 'note_id');
     this.validateId(tagId, 'tag_id');
@@ -360,6 +539,15 @@ export class JoplinDataClient {
     });
   }
 
+  /**
+   * Remove a tag from a note.
+   *
+   * @param noteId - The 32-character hex note ID
+   * @param tagId - The 32-character hex tag ID
+   * @throws {ValidationError} If either ID contains invalid characters
+   * @throws {NotFoundError} If the note, tag, or note-tag relationship does not exist
+   * @throws {AuthError} If the token is expired or authentication fails
+   */
   async untagNote(noteId: string, tagId: string): Promise<void> {
     this.validateId(noteId, 'note_id');
     this.validateId(tagId, 'tag_id');
@@ -367,27 +555,73 @@ export class JoplinDataClient {
   }
 
   // === Resources ===
+
+  /**
+   * List resources with optional pagination.
+   *
+   * @param limit - Maximum items per page (clamped to 1–100; defaults to 100)
+   * @param page - Page number (1-based; defaults to 1)
+   * @returns A paginated response containing an array of resources and a `has_more` flag
+   * @throws {AuthError} If the token is expired or authentication fails
+   * @throws {DataApiError} On unexpected HTTP errors
+   */
   async listResources(limit?: number, page?: number): Promise<PaginatedResponse<Resource>> {
     const params = `?limit=${clampLimit(limit)}${buildPageParam(page)}`;
     return this.request<PaginatedResponse<Resource>>('GET', `/resources${params}`);
   }
 
+  /**
+   * Fetch all resources by iterating through all pages automatically.
+   *
+   * @returns A complete, flattened array of all resources
+   * @throws {AuthError} If the token is expired or authentication fails
+   * @throws {DataApiError} On unexpected HTTP errors
+   */
   async getAllResources(): Promise<Resource[]> {
     return fetchAllPages((page) => this.listResources(100, page));
   }
 
+  /**
+   * Read a single resource by ID.
+   *
+   * @param id - The 32-character hex resource ID
+   * @returns The resource object
+   * @throws {ValidationError} If the ID contains invalid characters
+   * @throws {NotFoundError} If the resource does not exist
+   * @throws {AuthError} If the token is expired or authentication fails
+   */
   async getResource(id: string): Promise<Resource> {
     this.validateId(id, 'resource_id');
     return this.request<Resource>('GET', `/resources/${id}`);
   }
 
   // === Events ===
+
+  /**
+   * List events with optional pagination.
+   *
+   * @param limit - Maximum items per page (clamped to 1–100; defaults to 100)
+   * @param page - Page number (1-based; defaults to 1)
+   * @returns A paginated response containing an array of events and a `has_more` flag
+   * @throws {AuthError} If the token is expired or authentication fails
+   * @throws {DataApiError} On unexpected HTTP errors
+   */
   async listEvents(limit?: number, page?: number): Promise<PaginatedResponse<Event>> {
     const params = `?limit=${clampLimit(limit)}${buildPageParam(page)}`;
     return this.request<PaginatedResponse<Event>>('GET', `/events${params}`);
   }
 
   // === Search ===
+
+  /**
+   * Search for notes, folders, and tags by a query string.
+   *
+   * @param query - The search query including the text and an optional type filter
+   * @returns An array of search results matching the query
+   * @throws {ValidationError} If the query is invalid
+   * @throws {AuthError} If the token is expired or authentication fails
+   * @throws {DataApiError} On unexpected HTTP errors
+   */
   async search(query: SearchQuery): Promise<SearchResult[]> {
     const params = new URLSearchParams();
     params.set('query', query.query);

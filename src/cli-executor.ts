@@ -87,6 +87,19 @@ export class CliExecutor {
     }
   }
 
+  /**
+   * Execute a Joplin CLI subcommand with argument validation.
+   *
+   * Validates arguments against the allowed-subcommand whitelist and blocks shell
+   * metacharacters before executing via `execFile`. Throws a `CliError` on non-zero
+   * exit codes or timeouts.
+   *
+   * @param args - CLI arguments; the first element must be an allowed subcommand (e.g. `['sync']`)
+   * @param timeoutMs - Timeout in milliseconds (default: 60,000)
+   * @returns A `CliResult` containing trimmed stdout, stderr, and exit code
+   * @throws {CliError} If the subcommand is not in the allowed list, arguments contain
+   *                    shell metacharacters, the process times out, or the exit code is non-zero
+   */
   async exec(args: string[], timeoutMs: number = 60_000): Promise<CliResult> {
     this.validateArgs(args);
 
@@ -139,6 +152,14 @@ export class CliExecutor {
     }
   }
 
+  /**
+   * Run `joplin sync` to synchronise with Joplin Server.
+   *
+   * Delegates to `exec(['sync'])` and logs a warning if the stderr output contains
+   * conflict markers (remote-wins resolution).
+   *
+   * @throws {CliError} If the sync subprocess fails or times out
+   */
   async sync(): Promise<void> {
     this.logger.info('Starting sync with Joplin Server');
     const result = await this.exec(['sync']);
@@ -150,6 +171,12 @@ export class CliExecutor {
     }
   }
 
+  /**
+   * Check for conflict notes by running `joplin ls --conflict`.
+   *
+   * @returns The number of conflict notes currently present
+   * @throws {CliError} If the conflict-check subprocess fails or times out
+   */
   async checkConflicts(): Promise<number> {
     const result = await this.exec(['ls', '--conflict']);
     const lines = result.stdout.split('\n').filter((l) => l.trim());

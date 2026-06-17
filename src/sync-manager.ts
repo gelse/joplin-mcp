@@ -13,6 +13,12 @@ export class SyncManager {
   private lastError: Error | null = null;
   private readonly cli: CliExecutor;
 
+  /**
+   * Creates a SyncManager instance.
+   *
+   * @param config - Application configuration (includes sync interval, Joplin Server URL, etc.)
+   * @param logger - Pino structured logger instance
+   */
   constructor(
     private readonly config: Config,
     private readonly logger: Logger,
@@ -20,14 +26,29 @@ export class SyncManager {
     this.cli = new CliExecutor(logger);
   }
 
+  /**
+   * Returns the current sync status.
+   *
+   * @returns The current status: `'idle'`, `'syncing'`, or `'error'`
+   */
   getSyncStatus(): SyncStatus {
     return this.status;
   }
 
+  /**
+   * Returns the timestamp of the last successful sync.
+   *
+   * @returns A Date object if a sync has completed, or `null` if no sync has run yet
+   */
   getLastSyncTime(): Date | null {
     return this.lastSyncTime;
   }
 
+  /**
+   * Returns the last sync error, if any.
+   *
+   * @returns The last error encountered during sync, or `null` if the last sync succeeded
+   */
   getLastError(): Error | null {
     return this.lastError;
   }
