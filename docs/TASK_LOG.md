@@ -1,5 +1,15 @@
 # Task Log
 
+## 2026-06-17T18:19:00Z — Add JUnit test reporting for CI
+
+- **Task**: Added JUnit XML test result reporting using Vitest's built-in JUnit reporter
+- **Changes made**:
+  - `vitest.config.ts`: Added `reporters: ['default', 'junit']` and `outputFile: { junit: './reports/junit.xml' }` to test config, preserving all existing settings (globals, environment, include, coverage thresholds)
+  - `Dockerfile.tests`: Added `RUN mkdir -p /app/reports` to ensure the reports directory exists in the test image
+  - `docker-compose.yml`: Added `volumes: - ./reports:/app/reports` to the test service so JUnit XML is accessible on the host
+  - `.github/workflows/test.yml`: Updated `docker run` to mount `reports/` volume; added `actions/upload-artifact@v4` step to upload `reports/junit.xml`; added `dorny/test-reporter@v1` step to publish test results in CI (both with `if: always()`)
+  - `.gitignore`: Added `reports/` to prevent generated test reports from being committed
+- **Outcome**: Success. No new dependencies needed (Vitest has built-in JUnit support). All existing configuration preserved.
 
 ## 2026-06-17T17:40:00Z — Fix 42 failing tests in data-client.test.ts and config.test.ts
 
