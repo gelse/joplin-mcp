@@ -12,3 +12,13 @@ dist/
 .devcontainer/
 docs/
 tests/TODO.md
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

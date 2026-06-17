@@ -3,6 +3,16 @@
   "version": "0.1.0",
   "description": "MCP server for Joplin, synced via Joplin Server backend",
   "license": "MIT",
+  "author": "",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YOUR_USERNAME/joplin-api.git"
+  },
+  "bugs": {
+    "url": "https://github.com/YOUR_USERNAME/joplin-api/issues"
+  },
+  "homepage": "https://github.com/YOUR_USERNAME/joplin-api#readme",
+  "keywords": ["joplin", "api", "mcp", "model-context-protocol", "notes", "data-api"],
   "type": "module",
   "main": "dist/server.js",
   "files": ["dist", "README.md", "LICENSE", "package.json"],
