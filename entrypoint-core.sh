@@ -122,13 +122,24 @@ export JOPLIN_API_TOKEN
 export LOG_LEVEL
 
 # -----------------------------------------------------------------------------
-# Start Joplin Data API with retry loop
+# Start Joplin Data API with retry loop + socat TCP proxy
 # -----------------------------------------------------------------------------
-log "INFO" "Starting Joplin Data API on 0.0.0.0:${JOPLIN_DATA_API_PORT}..."
+# The Joplin CLI hardcodes 127.0.0.1 in ClipperServer.ts — it cannot bind to
+# 0.0.0.0 via any configuration flag. We work around this by:
+#   1. Binding the Data API to 127.0.0.1 on an INTERNAL port (41185)
+#   2. Running socat to proxy 0.0.0.0:${JOPLIN_DATA_API_PORT} → 127.0.0.1:41185
+# This allows Container B to reach the Data API over the Docker bridge network.
+# -----------------------------------------------------------------------------
 
-# Start Joplin Data API in the background
-# Bind to 0.0.0.0 so Container B can reach it on the Docker network
-nohup joplin server start --host 0.0.0.0 --port "${JOPLIN_DATA_API_PORT}" \
+# Use a fixed internal port distinct from the exposed port so socat can bind
+# 0.0.0.0:41184 without conflicting with the Joplin server on 127.0.0.1:41185.
+JOPLIN_INTERNAL_PORT="$((JOPLIN_DATA_API_PORT + 1))"
+
+log "INFO" "Configuring Joplin Data API to listen on 127.0.0.1:${JOPLIN_INTERNAL_PORT} (internal)..."
+joplin config api.port "${JOPLIN_INTERNAL_PORT}"
+
+log "INFO" "Starting Joplin Data API (internal: 127.0.0.1:${JOPLIN_INTERNAL_PORT})..."
+nohup joplin server start \
     > "${LOG_DIR}/joplin-server-stdout.log" 2> "${LOG_DIR}/joplin-server-stderr.log" &
 JOPLIN_SERVER_PID=$!
 
@@ -137,7 +148,7 @@ log "INFO" "Joplin Data API process started (PID: ${JOPLIN_SERVER_PID})"
 # --- Retry loop: wait for Data API to become healthy ---
 MAX_RETRIES=30
 RETRY_DELAY=2
-HEALTH_CHECK_URL="http://127.0.0.1:${JOPLIN_DATA_API_PORT}/ping"
+HEALTH_CHECK_URL="http://127.0.0.1:${JOPLIN_INTERNAL_PORT}/ping"
 
 log "INFO" "Waiting for Data API to become healthy (max ${MAX_RETRIES} attempts, ${RETRY_DELAY}s apart)..."
 
@@ -162,7 +173,25 @@ for i in $(seq 1 ${MAX_RETRIES}); do
     sleep "${RETRY_DELAY}"
 done
 
-log "INFO" "Joplin Data API is running and healthy on 0.0.0.0:${JOPLIN_DATA_API_PORT}"
+log "INFO" "Joplin Data API is running and healthy on 127.0.0.1:${JOPLIN_INTERNAL_PORT}"
+
+# --- Start socat TCP proxy: 0.0.0.0:41184 → 127.0.0.1:41185 ---
+log "INFO" "Starting socat TCP proxy: 0.0.0.0:${JOPLIN_DATA_API_PORT} → 127.0.0.1:${JOPLIN_INTERNAL_PORT}..."
+nohup socat TCP-LISTEN:"${JOPLIN_DATA_API_PORT}",bind=0.0.0.0,fork,reuseaddr \
+    TCP:127.0.0.1:"${JOPLIN_INTERNAL_PORT}" \
+    > "${LOG_DIR}/socat-stdout.log" 2> "${LOG_DIR}/socat-stderr.log" &
+SOCAT_PID=$!
+
+log "INFO" "socat proxy started (PID: ${SOCAT_PID})"
+
+# Verify the proxy is working
+sleep 1
+if curl -s -f "http://127.0.0.1:${JOPLIN_DATA_API_PORT}/ping" > /dev/null 2>&1; then
+    log "INFO" "socat proxy verified — Data API reachable on 0.0.0.0:${JOPLIN_DATA_API_PORT}"
+else
+    log "ERROR" "socat proxy verification failed — Data API not reachable on 0.0.0.0:${JOPLIN_DATA_API_PORT}"
+    exit 1
+fi
 
 # -----------------------------------------------------------------------------
 # Periodic sync loop

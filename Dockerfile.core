@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsecret-1-0 \
     ca-certificates \
     curl \
+    socat \
     && rm -rf /var/lib/apt/lists/*
 
 ARG JOPLIN_CLI_VERSION=3.6.2
