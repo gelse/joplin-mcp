@@ -1,5 +1,12 @@
 # Task Log
 
+## 2026-06-18T06:10:00Z — Fix Mermaid diagram edge label quoting
+
+- **Task**: Fixed a Mermaid flowchart parsing error in `README.md` caused by parentheses inside unquoted edge labels
+- **Changes made**:
+  - `README.md` (line 7-17): Wrapped all 8 Mermaid edge labels in double quotes (e.g., `|HTTP fetch() + Bearer Token|` → `|"HTTP fetch() + Bearer Token"|`) to prevent GitHub's Mermaid parser from misinterpreting special characters like `()` as syntax tokens
+- **Outcome**: Success. All edge labels in the diagram block are now safely quoted. Commit `a12dd4e`.
+
 ## 2026-06-17T18:19:00Z — Add JUnit test reporting for CI
 
 - **Task**: Added JUnit XML test result reporting using Vitest's built-in JUnit reporter
