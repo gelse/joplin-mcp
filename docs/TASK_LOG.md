@@ -1,5 +1,24 @@
 # Task Log
 
+## 2026-06-18T11:55:00Z — Split monolithic container into joplin-core and joplin-mcp
+
+- **Task**: Split the monolithic Docker container into two separate containers — `joplin-core` (Container A: Joplin CLI + Data API + bash sync scheduler) and `joplin-mcp` (Container B: stateless MCP HTTP server only). Original files preserved for backward compatibility. Commits `4cead08`, `ea1de91`, `d27b11c`, `ab5867d`, `38d8987`, `a3f111f`, `19acdf2`, `e7af9a6`.
+- **Changes made**:
+  - Created [`Dockerfile.core`](Dockerfile.core): Multi-stage build for Container A — installs Joplin CLI v3.6.2, system deps, healthcheck on port 41184, runs as `joplin` user
+  - Created [`Dockerfile.mcp`](Dockerfile.mcp): Lightweight multi-stage build for Container B — no Joplin CLI, no libsecret, healthcheck on port 3000, runs as `mcp` user
+  - Created [`entrypoint-core.sh`](entrypoint-core.sh): Bash sync scheduler with extensive logging (timestamped, sync PASS/FAIL, retry loop max 30 attempts, periodic sync `while true` loop, graceful shutdown)
+  - Created [`entrypoint-mcp.sh`](entrypoint-mcp.sh): Container B entrypoint — validates `JOPLIN_API_TOKEN` and `JOPLIN_CORE_URL`, starts `node dist/mcp/entry.js`
+  - Created [`src/mcp/entry.ts`](src/mcp/entry.ts): Standalone MCP HTTP server entrypoint — creates DataClient pointing to Container A, builds ToolContext without SyncManager, starts HTTP server with `/health` and `/mcp` endpoints
+  - Modified [`src/config.ts`](src/config.ts): Made `joplinServerUrl`, `joplinUsername`, `joplinPassword` optional; added optional `joplinCoreUrl` field for Container B
+  - Modified [`src/data-client.ts`](src/data-client.ts): Constructor `port: number` → `portOrUrl: number | string` for backward-compatible URL support
+  - Modified [`src/mcp/server.ts`](src/mcp/server.ts): Added `startMCPHttpServer()` using `StreamableHTTPServerTransport` with `sessionIdGenerator: undefined` for stateless mode; exported `toolErrorHandler`
+  - Modified [`src/mcp/tools.ts`](src/mcp/tools.ts): Made `syncManager` optional in `ToolContext`; guarded all 10 sync call sites with `if (ctx.syncManager)`
+  - Rewritten [`docker-compose.yml`](docker-compose.yml): Two services (`joplin-core`, `joplin-mcp`) with healthchecks, dependency ordering, internal Docker networking
+  - Rewritten [`.env.example`](.env.example): Added `JOPLIN_CORE_URL`, `MCP_PORT`, `JOPLIN_API_TOKEN` with per-container annotations
+  - Updated [`README.md`](README.md): Two-container architecture documentation — tl;dr, architecture diagram (Mermaid), Docker section, environment variables table with per-container assignments, project structure tree, startup/shutdown pipeline split, updated key design decisions
+  - Preserved original files untouched: [`Dockerfile`](Dockerfile), [`entrypoint.sh`](entrypoint.sh), [`src/server.ts`](src/server.ts)
+- **Outcome**: Success. TypeScript compilation passes with 0 errors via `npx tsc --noEmit`. All 12 todo items completed: Container A build (Dockerfile.core + entrypoint-core.sh), Container B build (Dockerfile.mcp + entrypoint-mcp.sh + entry.ts), config/client/server/tools modifications, docker-compose.yml rewrite, .env.example update, README.md and TASK_LOG.md documentation.
+
 ## 2026-06-18T06:46:00Z — Add Docker testing section to README
 
 - **Task**: Added `#### Testing with Docker` sub-subsection to the `### Docker` section in README.md. Commit `249ed2e`.
