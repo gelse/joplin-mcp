@@ -212,6 +212,25 @@ Same variables as in the [Direct Installation configuration](#configuration) abo
 
 > **Note:** The `deploy.resources` block in [`docker-compose.yml`](docker-compose.yml) (CPU/memory limits) is only enforced by Docker Swarm. When using `docker compose up`, these limits are silently ignored. For local resource constraints, use `--cpus` and `--memory` flags or set resource limits in your container runtime (e.g., Docker Desktop settings).
 
+#### Testing with Docker
+
+A dedicated [`Dockerfile.tests`](Dockerfile.tests) and `test` service in [`docker-compose.yml`](docker-compose.yml) allow running the test suite in a container:
+
+```bash
+# Build the test image
+docker build -f Dockerfile.tests -t joplin-api-tests .
+
+# Run tests
+docker run --rm joplin-api-tests
+
+# Or via docker compose
+docker compose run --rm tests
+```
+
+Tests use [Vitest](https://vitest.dev/) with v8 coverage (thresholds: 70% statements, 60% branches, 70% functions, 70% lines) and output JUnit XML reports to `./reports/`. When running via docker compose, the `./reports` directory is mounted into the container so reports persist on the host.
+
+The test suite does not require a running Joplin instance — unit tests use mocks, and integration tests are skipped when the Joplin Data API is unavailable.
+
 ---
 
 ## Architecture
