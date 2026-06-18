@@ -572,3 +572,10 @@ All four READ-ONLY curl GET tests passed against `http://localhost:41184`:
 
 - **Task**: Restructure README.md — reorganized layout (one-sentence description → tl;dr quick start → detailed how-to → technical overview), fixed 3 discrepancies (ping timeout 30s→5min, token freshness 5min→60s buffer, sync status removed "error"), added 2 omissions (is_todo boolean|number type, CODEREVIEW.md/PROMPT.md in project structure), added tool constraint details (author max 200, source_url URL, icon max 100)
 - **Outcome**: Success. Commit `b0c5bf3`.
+
+## 2026-06-18T08:24:00Z — Create SBOM.md
+
+- **Task**: Create comprehensive Software Bill of Materials for the joplin-api project at [`SBOM.md`](../SBOM.md).
+- **Scope**: Documented all 4 direct runtime dependencies (MCP SDK, pino, pino-pretty, zod) with full transitive trees (~97 unique packages), all 9 direct dev dependencies with transitive trees (~100+ packages), Docker base images (node:22-bookworm-slim), system packages (libsecret-1-0, ca-certificates, curl, socat), global npm tools (pnpm 9, Joplin CLI 3.6.2), CI GitHub Actions (actions/checkout@v4, actions/upload-artifact@v4, dorny/test-reporter@v1).
+- **Also included**: Privacy/security risk classification (🟢🟡🔴⚠️) for every dependency, data flow analysis, license summary (all permissive — MIT, ISC, BSD, Apache-2.0, BlueOak-1.0.0), build artifact documentation, and dependency update cadence recommendations.
+- **Outcome**: Success. 623-line SBOM.md written to project root.
