@@ -93,3 +93,16 @@
 - `src/sync-manager.ts` confirmed NOT obsolete — actively used by Container B tools for write-through sync triggers
 
 **Outcome**: All 5 obsolete files removed, all references updated, TypeScript compiles cleanly.
+
+## 2026-06-18T16:15:00Z — Update README.md for list_notes tool and 16→17 tool count
+
+**Description**: Updated README.md to reflect the new `list_notes` tool and updated all tool counts from 16 to 17.
+
+### Changes
+- Line 3: "16 tools" → "17 tools" in intro description
+- Tool Overview table: Added `list_notes` row (after `list_notebooks`)
+- Read Tools I/O Schemas table: Added `list_notes` row with input/output schema
+- Project Structure comments: `schemas.ts` and `tools.ts` counts updated to 17
+- Startup pipeline: "16 MCP tool handlers" → "17 MCP tool handlers"
+
+**Outcome**: README.md now accurately reflects 17 tools with `list_notes` documented.

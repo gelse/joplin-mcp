@@ -1,6 +1,6 @@
 # Joplin API MCP Server
 
-An MCP (Model Context Protocol) server that exposes Joplin's note-taking functionality — notes, folders, tags, search, and sync — to AI assistants via 16 tools.
+An MCP (Model Context Protocol) server that exposes Joplin's note-taking functionality — notes, folders, tags, search, and sync — to AI assistants via 17 tools.
 
 ## tl;dr / Quick Start
 
@@ -272,10 +272,11 @@ graph TD
 
 ### Tool Overview
 
-| Tool             | Description                     | Writes? |
-| ---------------- | ------------------------------- | ------- |
-| `list_notebooks` | List all notebooks/folders      | No      |
-| `search_notes`   | Search notes, folders, and tags | No      |
+| Tool             | Description                                       | Writes? |
+| ---------------- | ------------------------------------------------- | ------- |
+| `list_notebooks` | List all notebooks/folders                        | No      |
+| `list_notes`     | List notes with pagination and metadata fields    | No      |
+| `search_notes`   | Search notes, folders, and tags                   | No      |
 | `read_note`      | Read a single note by ID        | No      |
 | `read_notebook`  | Read a single notebook by ID    | No      |
 | `read_multinote` | Read multiple notes by IDs      | No      |
@@ -300,6 +301,7 @@ All tool input is validated through [Zod](https://zod.dev/) schemas. Below are t
 | Tool             | Input                                                                  | Output                                            |
 | ---------------- | ---------------------------------------------------------------------- | ------------------------------------------------- |
 | `list_notebooks` | `{}`                                                                   | `Folder[]`                                        |
+| `list_notes`     | `{ limit?: number (1–100), page?: number (≥1) }`                       | `{ items: Note[], has_more: boolean }`            |
 | `search_notes`   | `{ query: string (1–1000 chars), type?: "note" \| "folder" \| "tag" }` | `SearchResult[]`                                  |
 | `read_note`      | `{ note_id: string (32-char hex) }`                                    | `Note`                                            |
 | `read_notebook`  | `{ notebook_id: string (32-char hex) }`                                | `Folder`                                          |
@@ -525,8 +527,8 @@ src/
 └── mcp/
     ├── entry.ts           # Container B entrypoint: standalone MCP HTTP server
     ├── server.ts          # MCP server setup (stdio + StreamableHTTP transport)
-    ├── schemas.ts         # Zod validation schemas for all 16 tools
-    ├── tools.ts           # 16 tool handler implementations
+    ├── schemas.ts         # Zod validation schemas for all 17 tools
+    ├── tools.ts           # 17 tool handler implementations
     └── tool-registry.ts   # Tool registration and dispatch
 tests/
 ├── cli-executor.test.ts   # CLI executor tests
@@ -581,7 +583,7 @@ Root-level deployment files:
 3. **Parse config** — Zod schema validates env vars with defaults
 4. **Initialize logger** — Pino structured logger at configured level
 5. **Connect to joplin-core** — Pings `JOPLIN_CORE_URL/ping` to verify connectivity
-6. **Initialize tool registry** — Registers all 16 MCP tool handlers (no SyncManager)
+6. **Initialize tool registry** — Registers all 17 MCP tool handlers (no SyncManager)
 7. **Start MCP HTTP server** — Listens on `MCP_PORT` (default 3000), serves `/health` and `/mcp` endpoints
 8. **Handle signals** — On `SIGTERM`/`SIGINT`: close HTTP server, exit
 
