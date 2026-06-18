@@ -257,7 +257,7 @@ describe('readNote', () => {
 
     const result = await readNote({ note_id: 'note1' }, context);
 
-    expect(context.client.getNote).toHaveBeenCalledWith('note1');
+    expect(context.client.getNote).toHaveBeenCalledWith('note1', expect.any(Array));
     expect(result).toEqual(sampleNote);
   });
 
@@ -316,8 +316,8 @@ describe('readMultinote', () => {
     const result: ReadMultinoteResult = await readMultinote({ note_ids: ['a', 'b'] }, context);
 
     expect(context.client.getNote).toHaveBeenCalledTimes(2);
-    expect(context.client.getNote).toHaveBeenCalledWith('a');
-    expect(context.client.getNote).toHaveBeenCalledWith('b');
+    expect(context.client.getNote).toHaveBeenCalledWith('a', expect.any(Array));
+    expect(context.client.getNote).toHaveBeenCalledWith('b', expect.any(Array));
     expect(result).toEqual({ notes: [noteA, noteB], errors: [] });
   });
 

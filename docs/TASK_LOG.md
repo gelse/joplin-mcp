@@ -9,6 +9,33 @@
 3. **socat proxy direction (lines 380-381)**: Corrected backwards proxy description and removed obsolete monolithic deployment reference.
 4. **Startup pipeline step 4 (line 570)**: Replaced `joplin server start --host 0.0.0.0 --port` with accurate multi-step socat proxy setup description.
 
+## 2026-06-18T16:05:00Z — Build, debug, and verify MCP component with list_notes tool returning creation dates
+
+**Description**: Built the full two-container Docker stack, debugged multiple issues preventing the MCP server from functioning, added a `list_notes` tool with timestamp support, and verified end-to-end that notes are returned with `created_time` and `updated_time` fields.
+
+**Issues encountered and fixed**:
+
+1. **`@hono/node-server` ESM import failure**: Transitive dependency of `@modelcontextprotocol/sdk` not accessible via ESM imports in Docker's `--prod` pnpm install. Fixed by adding `@hono/node-server` (^1.19.0) and `hono` (^4.12.0) as direct dependencies in [`package.json`](package.json:31).
+
+2. **`ERR_PNPM_OUTDATED_LOCKFILE`**: Changed `--frozen-lockfile` to `--no-frozen-lockfile` in [`Dockerfile.mcp`](Dockerfile.mcp) and [`Dockerfile.tests`](Dockerfile.tests) to allow pnpm to update the lockfile after dependency changes.
+
+3. **Stateless transport single-use**: [`StreamableHTTPServerTransport`](src/mcp/server.ts:143) with `sessionIdGenerator: undefined` rejected all requests after the first one. Fixed by refactoring [`startMCPHttpServer()`](src/mcp/server.ts:124) to create a fresh `McpServer` + `StreamableHTTPServerTransport` per request.
+
+4. **Missing timestamps in Joplin Data API responses**: The Joplin Data API only returns `created_time`/`updated_time` when the `?fields=` query parameter explicitly requests them. Added `fields` parameter to [`listNotes()`](src/data-client.ts:323) and [`getNote()`](src/data-client.ts:349).
+
+5. **Duplicate `NOTE_FIELDS_READ` declaration**: Two separate `apply_diff` operations created duplicate constant definitions. Removed the duplicate, kept the original.
+
+6. **Test failures (4 tests)**: Updated [`tools.test.ts`](tests/mcp/tools.test.ts) to expect `fields` array parameter on `getNote` calls, and [`tool-registry.test.ts`](tests/mcp/tool-registry.test.ts) tool count from 16 to 17.
+
+**New tool added**:
+- `list_notes` — registered in [`tool-registry.ts`](src/mcp/tool-registry.ts), schema in [`schemas.ts`](src/mcp/schemas.ts) (`ListNotesSchema`), handler in [`tools.ts`](src/mcp/tools.ts) using `NOTE_FIELDS_PAGE` constant. Returns paginated notes with `created_time`, `updated_time`, and other metadata.
+
+**End-to-end verification**:
+- `initialize` → MCP handshake succeeded, server identified as `joplin-api-mcp v0.1.0`
+- `tools/list` → 17 tools registered (including `list_notes` as first tool)
+- `tools/call list_notes` → returned 5 notes, each with `created_time`, `updated_time`, `id`, `title`, `body`, `parent_id`, `is_todo`, `todo_due`, `todo_completed`, `source_url`. Pagination confirmed with `has_more: true`.
+- All 391 tests pass (0 failures, 14 skipped).
+
 ## 2026-06-18T14:40:00Z — Fix Data API network binding with socat TCP proxy, full stack verified
 
 **Description**: The Joplin CLI Data API (ClipperServer.ts) hardcodes binding to `127.0.0.1`, making it unreachable from Container B (joplin-mcp) over the Docker bridge network. The `joplin server start` command has no `--host` flag to override this. Worked around this by shifting the Data API to an internal port (41185) and proxying `0.0.0.0:41184` → `127.0.0.1:41185` via `socat`.

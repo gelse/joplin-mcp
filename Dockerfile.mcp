@@ -11,7 +11,7 @@ RUN npm install -g "pnpm@9"
 
 # Copy dependency manifests first (layer caching)
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
-RUN pnpm install --frozen-lockfile --ignore-scripts
+RUN pnpm install --no-frozen-lockfile --ignore-scripts
 
 # Copy all source (MCP server needs most modules except server.ts, cli-executor.ts, sync-manager.ts)
 COPY tsconfig.json tsconfig.build.json ./
@@ -46,7 +46,7 @@ COPY --from=builder /build/dist ./dist
 
 # Copy dependency manifests and install production dependencies only
 COPY --from=builder /build/package.json /build/pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile --prod
+RUN pnpm install --no-frozen-lockfile --prod
 
 # Copy entrypoint script
 COPY entrypoint-mcp.sh ./

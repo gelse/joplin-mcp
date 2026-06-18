@@ -320,8 +320,9 @@ export class JoplinDataClient {
    * @throws {AuthError} If the token is expired or authentication fails
    * @throws {DataApiError} On unexpected HTTP errors
    */
-  async listNotes(limit?: number, page?: number): Promise<PaginatedResponse<Note>> {
-    const params = `?limit=${clampLimit(limit)}${buildPageParam(page)}`;
+  async listNotes(limit?: number, page?: number, fields?: string[]): Promise<PaginatedResponse<Note>> {
+    const fieldsParam = fields && fields.length > 0 ? `&fields=${fields.join(',')}` : '';
+    const params = `?limit=${clampLimit(limit)}${buildPageParam(page)}${fieldsParam}`;
     return this.request<PaginatedResponse<Note>>('GET', `/notes${params}`);
   }
 
@@ -345,9 +346,10 @@ export class JoplinDataClient {
    * @throws {NotFoundError} If the note does not exist
    * @throws {AuthError} If the token is expired or authentication fails
    */
-  async getNote(id: string): Promise<Note> {
+  async getNote(id: string, fields?: string[]): Promise<Note> {
     this.validateId(id, 'note_id');
-    return this.request<Note>('GET', `/notes/${id}`);
+    const fieldsParam = fields && fields.length > 0 ? `?fields=${fields.join(',')}` : '';
+    return this.request<Note>('GET', `/notes/${id}${fieldsParam}`);
   }
 
   /**

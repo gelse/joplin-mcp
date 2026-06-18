@@ -15,14 +15,14 @@ describe('ToolRegistry', () => {
   // Tool listing
   // =========================================================================
 
-  it('getAllTools returns all 16 registered tools', () => {
+  it('getAllTools returns all 17 registered tools', () => {
     const tools = registry.getAllTools();
-    expect(tools).toHaveLength(16);
+    expect(tools).toHaveLength(17);
   });
 
-  it('getToolNames returns all 16 tool names', () => {
+  it('getToolNames returns all 17 tool names', () => {
     const names = registry.getToolNames();
-    expect(names).toHaveLength(16);
+    expect(names).toHaveLength(17);
     expect(names).toContain('list_notebooks');
     expect(names).toContain('search_notes');
     expect(names).toContain('read_note');

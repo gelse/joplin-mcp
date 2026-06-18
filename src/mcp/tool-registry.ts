@@ -1,5 +1,6 @@
 import type { ZodTypeAny } from "zod";
 import {
+  ListNotesSchema,
   ListNotebooksSchema,
   SearchNotesSchema,
   ReadNoteSchema,
@@ -18,6 +19,7 @@ import {
   SyncSchema,
 } from "./schemas.js";
 import {
+  listNotes,
   listNotebooks,
   searchNotes,
   readNote,
@@ -46,6 +48,12 @@ export interface RegisteredTool {
 }
 
 const TOOLS: Record<string, RegisteredTool> = {
+  list_notes: {
+    name: "list_notes",
+    description: "List notes with optional pagination. Returns id, title, body, created_time, updated_time, parent_id, and todo fields for each note.",
+    schema: ListNotesSchema,
+    handler: listNotes,
+  },
   list_notebooks: {
     name: "list_notebooks",
     description: "List all notebooks/folders in Joplin",

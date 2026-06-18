@@ -6,6 +6,12 @@ const joplinId = z.string().regex(/^[0-9a-f]{32}$/, 'Expected 32-character hex I
 // Helper: Joplin CLI uses 0/1 for booleans, but we accept both
 const booleanNum = z.union([z.boolean(), z.number().transform((n) => n !== 0)]).optional();
 
+// === list_notes ===
+export const ListNotesSchema = z.object({
+  limit: z.number().int().min(1).max(100).optional().describe('Maximum number of notes to return (1-100)'),
+  page: z.number().int().min(1).optional().describe('Page number for pagination'),
+});
+
 // === list_notebooks ===
 export const ListNotebooksSchema = z.object({});
 

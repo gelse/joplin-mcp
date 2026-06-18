@@ -31,6 +31,17 @@ export type ToolHandler<TInput = unknown, TOutput = unknown> = (
 // Read Tools
 // =============================================================================
 
+const NOTE_FIELDS_PAGE = ['id', 'title', 'body', 'created_time', 'updated_time', 'parent_id', 'is_todo', 'todo_due', 'todo_completed', 'source_url'];
+
+export const listNotes: ToolHandler<
+  { limit?: number; page?: number },
+  { items: Note[]; has_more: boolean }
+> = async (input, ctx) => {
+  return ctx.client.listNotes(input.limit, input.page, NOTE_FIELDS_PAGE);
+};
+
+const NOTE_FIELDS_READ = ['id', 'title', 'body', 'created_time', 'updated_time', 'parent_id', 'is_todo', 'todo_due', 'todo_completed', 'source_url'];
+
 export const listNotebooks: ToolHandler<object, Folder[]> = async (_input, ctx) => {
   return ctx.client.getAllFolders();
 };
@@ -49,7 +60,7 @@ export const searchNotes: ToolHandler<{ query: string; type?: string }, SearchRe
 };
 
 export const readNote: ToolHandler<{ note_id: string }, Note> = async (input, ctx) => {
-  return ctx.client.getNote(input.note_id);
+  return ctx.client.getNote(input.note_id, NOTE_FIELDS_READ);
 };
 
 export const readNotebook: ToolHandler<{ notebook_id: string }, Folder> = async (input, ctx) => {
@@ -60,7 +71,7 @@ export const readMultinote: ToolHandler<{ note_ids: string[] }, ReadMultinoteRes
   input,
   ctx,
 ) => {
-  const results = await Promise.allSettled(input.note_ids.map((id) => ctx.client.getNote(id)));
+  const results = await Promise.allSettled(input.note_ids.map((id) => ctx.client.getNote(id, NOTE_FIELDS_READ)));
 
   const notes: Note[] = [];
   const errors: { note_id: string; error: string }[] = [];

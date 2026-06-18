@@ -114,6 +114,9 @@ export async function startMCPServer(
  * for stateless operation — each request is handled independently, with no
  * session state persisted between calls.
  *
+ * Because stateless transports are single-use (rejecting subsequent requests),
+ * a new McpServer + transport pair is created for each incoming MCP request.
+ *
  * Adds a /health endpoint that returns { status: 'ok' } for Docker healthchecks.
  *
  * @returns The raw Node.js http.Server instance for graceful shutdown handling.
@@ -124,16 +127,6 @@ export async function startMCPHttpServer(
   logger: Logger,
   port: number = 3000,
 ): Promise<ReturnType<typeof createServer>> {
-  const server = await createMCPServer(registry, ctx, logger);
-
-  // Stateless transport: no session tracking between requests
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
-  });
-
-  await server.connect(transport);
-  logger.info('MCP server connected to stateless HTTP transport');
-
   // Create raw Node.js HTTP server
   const httpServer = createServer(async (req, res) => {
     // Health check endpoint for Docker healthcheck
@@ -143,7 +136,15 @@ export async function startMCPHttpServer(
       return;
     }
 
+    // Stateless mode: create a fresh server + transport per request.
+    // Stateless transports reject subsequent requests after the first one,
+    // so we must not reuse them across requests.
     try {
+      const server = await createMCPServer(registry, ctx, logger);
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+      });
+      await server.connect(transport);
       await transport.handleRequest(req, res);
     } catch (error) {
       logger.error({ err: error, url: req.url }, 'Error handling MCP request');
