@@ -1,5 +1,14 @@
 # Task Log
 
+## 2026-06-18T14:45:00Z — Fix README.md inaccuracies after socat proxy architecture change
+
+**Description**: Reviewed and corrected the README.md to accurately reflect the socat proxy architecture. Four inaccuracies fixed:
+
+1. **Multi-stage builds claim (line 217)**: Updated to reflect that only `Dockerfile.mcp` uses multi-stage builds; `Dockerfile.core` is single-stage Debian-based.
+2. **Architecture step 4 (line 266)**: Replaced non-existent `--host 0.0.0.0` flag reference with accurate socat proxy description (Data API on `127.0.0.1:41185`, socat exposes `0.0.0.0:41184`).
+3. **socat proxy direction (lines 380-381)**: Corrected backwards proxy description and removed obsolete monolithic deployment reference.
+4. **Startup pipeline step 4 (line 570)**: Replaced `joplin server start --host 0.0.0.0 --port` with accurate multi-step socat proxy setup description.
+
 ## 2026-06-18T14:40:00Z — Fix Data API network binding with socat TCP proxy, full stack verified
 
 **Description**: The Joplin CLI Data API (ClipperServer.ts) hardcodes binding to `127.0.0.1`, making it unreachable from Container B (joplin-mcp) over the Docker bridge network. The `joplin server start` command has no `--host` flag to override this. Worked around this by shifting the Data API to an internal port (41185) and proxying `0.0.0.0:41184` → `127.0.0.1:41185` via `socat`.

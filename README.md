@@ -214,7 +214,7 @@ The `joplin-mcp` container exposes an **HTTP endpoint** (not stdio). Configure y
 #### How It Works
 
 - **Two containers**: `joplin-core` (stateful, runs Joplin CLI + Data API + bash sync scheduler) and `joplin-mcp` (stateless, Node.js MCP HTTP server only)
-- **Multi-stage builds**: Both [`Dockerfile.core`](Dockerfile.core) and [`Dockerfile.mcp`](Dockerfile.mcp) use `node:22-bookworm-slim` with separate build and production stages
+- **Multi-stage builds**: [`Dockerfile.mcp`](Dockerfile.mcp) uses `node:22-bookworm-slim` with separate build and production stages; [`Dockerfile.core`](Dockerfile.core) is a single-stage Debian-based image
 - **Non-root users**: `joplin` user in joplin-core, `mcp` user in joplin-mcp
 - **Persistent volume**: `joplin_data` volume mounted at `/home/joplin/.config/joplin` stores the Joplin profile and SQLite database
 - **Internal networking**: joplin-mcp communicates with joplin-core via the Docker internal network using the service name `joplin-core`
@@ -263,7 +263,7 @@ graph TD
 1. **AI Client** connects to **joplin-mcp** via HTTP on port 3000 (MCP StreamableHTTP transport)
 2. **joplin-mcp** is a **stateless** Node.js server — no Joplin CLI, no sync logic, no local DB
 3. **JoplinDataClient** in joplin-mcp issues HTTP requests to **joplin-core** on the internal Docker network
-4. **joplin-core** runs the **Joplin Data API** on port 41184 (`--host 0.0.0.0`) backed by a persistent SQLite volume
+4. **joplin-core** runs the **Joplin Data API** internally on `127.0.0.1:41185`, with a **socat TCP proxy** exposing `0.0.0.0:41184` to the Docker network, backed by a persistent SQLite volume
 5. **Bash sync scheduler** in joplin-core handles periodic sync via the Joplin CLI against Joplin Server
 6. Write operations from the MCP server trigger sync via the Data API; bash scheduler provides periodic backup sync
 7. Both containers use **healthchecks** — joplin-mcp waits for joplin-core to be healthy before starting
@@ -377,8 +377,8 @@ The Joplin Data API uses bearer token authentication. The token is obtained auto
 
 ### Localhost-Only Defaults
 
-- The Joplin ClipperServer hardcodes binding to `127.0.0.1`, making it unreachable from outside the container directly. A socat TCP proxy inside the container forwards the proxy port (`JOPLIN_DATA_API_PORT + 1`) to `127.0.0.1:JOPLIN_DATA_API_PORT`, started after ClipperServer readiness
-- **Monolithic deployment**: The MCP server communicates over **stdio transport** — there is no network port exposed for MCP traffic
+- The Joplin ClipperServer hardcodes binding to `127.0.0.1`, making it unreachable from outside the container directly. To work around this, the Data API is shifted to an internal port (`JOPLIN_DATA_API_PORT + 1`, e.g. `41185`) via `joplin config api.port`, and a **socat TCP proxy** forwards `0.0.0.0:JOPLIN_DATA_API_PORT` → `127.0.0.1:(JOPLIN_DATA_API_PORT + 1)`, providing network-accessible Data API on the standard port
+- In the two-container Docker deployment, the **joplin-mcp** container connects to **joplin-core** via the internal Docker network (service name `joplin-core`), not localhost
 - **Docker deployment**: The **joplin-mcp** container exposes an **HTTP endpoint on port 3000** (MCP StreamableHTTP transport) mapped to the host. The Data API communication between joplin-mcp and joplin-core stays on the internal Docker network and is never exposed to the host
 - The `docker-compose.yml` maps `MCP_PORT` (default `3000`) to the host for MCP client access, and optionally maps `JOPLIN_DATA_API_PORT` (default `41184`) for direct Data API access on the host. Both bind to `127.0.0.1` on the host side
 - If you do not need host-side access to the Data API, remove the `ports:` block for `joplin-core` from `docker-compose.yml` to keep the Data API container-internal only
@@ -567,7 +567,7 @@ Root-level deployment files:
 1. **Validate environment variables** — [`entrypoint-core.sh`](entrypoint-core.sh) checks `JOPLIN_SERVER_URL`, `JOPLIN_USERNAME`, `JOPLIN_PASSWORD`
 2. **Configure Joplin CLI** — Sets `sync.target 10` and server credentials in Joplin CLI config
 3. **Extract API token** — Retrieves `api.token` from Joplin config for the Data API
-4. **Start Joplin Data API** — `joplin server start --host 0.0.0.0 --port ${JOPLIN_DATA_API_PORT:-41184}` logs to `/var/log/joplin/`
+4. **Start Joplin Data API with socat proxy** — Shifts Data API to internal port (`JOPLIN_DATA_API_PORT + 1`) via `joplin config api.port`, starts `joplin server start` (binds `127.0.0.1` only), then starts a `socat` TCP proxy from `0.0.0.0:JOPLIN_DATA_API_PORT` → `127.0.0.1:(JOPLIN_DATA_API_PORT + 1)`. All logs go to `/var/log/joplin/`
 5. **Wait for readiness** — Polls `/ping` endpoint (up to 30 retries, 2s intervals)
 6. **Perform initial sync** — `joplin sync` with retry loop (max 30 attempts)
 7. **Start periodic sync** — Bash `while true` loop with configurable `SYNC_INTERVAL_SECONDS`
