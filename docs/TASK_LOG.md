@@ -1,5 +1,9 @@
 # Task Log
 
+## 2026-06-18T17:59:00Z — Exclude test container from default `docker compose up`
+
+**Description**: Added `profiles: ["test"]` to the test service in [`docker-compose.yml`](docker-compose.yml:75). Running `docker compose up` no longer starts the test container; it starts only `joplin-core` and `joplin-mcp`. To include the test container, use `docker compose --profile test up`.
+
 ## 2026-06-18T14:45:00Z — Fix README.md inaccuracies after socat proxy architecture change
 
 **Description**: Reviewed and corrected the README.md to accurately reflect the socat proxy architecture. Four inaccuracies fixed:
