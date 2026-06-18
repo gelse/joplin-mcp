@@ -579,3 +579,13 @@ All four READ-ONLY curl GET tests passed against `http://localhost:41184`:
 - **Scope**: Documented all 4 direct runtime dependencies (MCP SDK, pino, pino-pretty, zod) with full transitive trees (~97 unique packages), all 9 direct dev dependencies with transitive trees (~100+ packages), Docker base images (node:22-bookworm-slim), system packages (libsecret-1-0, ca-certificates, curl, socat), global npm tools (pnpm 9, Joplin CLI 3.6.2), CI GitHub Actions (actions/checkout@v4, actions/upload-artifact@v4, dorny/test-reporter@v1).
 - **Also included**: Privacy/security risk classification (🟢🟡🔴⚠️) for every dependency, data flow analysis, license summary (all permissive — MIT, ISC, BSD, Apache-2.0, BlueOak-1.0.0), build artifact documentation, and dependency update cadence recommendations.
 - **Outcome**: Success. 623-line SBOM.md written to project root.
+
+## 2026-06-18T10:59:00Z — Correct SBOM.md after Dockerfile re-investigation
+
+- **Task**: Correct [`SBOM.md`](../SBOM.md) based on thorough re-investigation of the Dockerfile and entrypoint.sh. Four corrections applied:
+  1. **External Runtime Components** — Restructured section to clearly state supergateway is NOT a project dependency (does not appear in Dockerfile, package.json, or any source), is injected externally by MCP client configs, the supermachine.ai banner is informational text from the npm package (no network call), and using stdio transport eliminates supergateway entirely.
+  2. **Section 4.2 (apt packages)** — Updated `curl` purpose from "Healthcheck endpoint probing" to "Health checks and potential network operations", and `socat` from "Port forwarding (41185→41184) for healthcheck" to "Socket relay utility".
+  3. **Section 4.3 (Global npm Packages)** — Split into Build Stage (`pnpm@9`) and Production Stage (`pnpm@9`, `joplin@3.6.2`) subsections. Confirmed no supergateway in either stage.
+  4. **Section 4.4 (Entrypoint)** — Updated to show `node dist/server.js` (compiled TypeScript MCP server via stdio).
+  5. **Discrepancy note** — Added: "The checked-in Dockerfile does not include supergateway. If your local copy differs, you may have a modified version."
+- **Outcome**: Success. All corrections applied; rest of SBOM verified — no other inaccuracies found.

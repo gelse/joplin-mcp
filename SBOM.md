@@ -436,15 +436,23 @@ No transitive dependencies (self-contained).
 |---------|---------|-------------|
 | `libsecret-1-0` | Joplin CLI credential storage (Linux keychain) | Stores auth tokens in OS keyring; no network |
 | `ca-certificates` | TLS certificate validation for Joplin Server HTTPS | Required for secure connections; no telemetry |
-| `curl` | Healthcheck endpoint probing (localhost) | Localhost-only; no telemetry |
-| `socat` | Port forwarding (41185→41184) for healthcheck | Localhost-only; no telemetry |
+| `curl` | Health checks and potential network operations | Localhost; no telemetry |
+| `socat` | Socket relay utility | Localhost; no telemetry |
 
 ### 4.3 Global npm Packages
 
+#### Build Stage
+
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `pnpm` | 9.x | Package manager |
-| `joplin` (CLI) | 3.6.2 | Joplin CLI for Data API + ClipperServer |
+| `pnpm` | 9.x | Package manager (dependency installation) |
+
+#### Production Stage
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `pnpm` | 9.x | Package manager (available for potential runtime needs) |
+| `joplin` (CLI) | 3.6.2 | Joplin CLI — core data access layer; all API calls go through the `joplin` command |
 
 ### 4.4 Container Configuration
 
@@ -454,21 +462,21 @@ No transitive dependencies (self-contained).
 | Healthcheck | `curl -f http://localhost:41185/ping` every 30s |
 | Resource limits | CPU: 1.0, Memory: 512M |
 | Exposed port | None (stdio-only MCP transport) |
-| Entrypoint | [`./entrypoint.sh`](entrypoint.sh) |
+| Entrypoint | [`./entrypoint.sh`](entrypoint.sh) → `node dist/server.js` (compiled TypeScript MCP server via stdio) |
 
 ---
 
 ## External Runtime Components
 
-### supergateway
+### supergateway (External — Not a Project Dependency)
 
-[`supergateway`](https://www.npmjs.com/package/supergateway) is an npm package maintained by Supermachine AI that wraps stdio-based MCP servers and exposes them over HTTP (Streamable HTTP transport) on a local port. It spawns the MCP server as a child process over stdio, then bridges the communication to HTTP.
+**supergateway is NOT a dependency of this project.** It does not appear in [`package.json`](package.json), [`pnpm-lock.yaml`](pnpm-lock.yaml), [`Dockerfile`](Dockerfile), [`docker-compose.yml`](docker-compose.yml), [`entrypoint.sh`](entrypoint.sh), or any source file. There are zero references to it in the codebase.
 
-**Relationship to this project**: supergateway is **NOT a dependency** of this project. It does not appear in [`package.json`](package.json), [`pnpm-lock.yaml`](pnpm-lock.yaml), [`Dockerfile`](Dockerfile), [`docker-compose.yml`](docker-compose.yml), [`entrypoint.sh`](entrypoint.sh), or any source file. There are zero references to it in the codebase.
+**What it is:** [`supergateway`](https://www.npmjs.com/package/supergateway) is an npm package maintained by Supermachine AI that wraps stdio-based MCP servers and exposes them over HTTP (Streamable HTTP transport) on a local port. It spawns the MCP server as a child process over stdio, then bridges the communication to HTTP.
 
-**Why it appears in logs**: supergateway is injected by the user's MCP client configuration (e.g., VS Code `mcp.json`, Claude Desktop config) when the client is configured to connect over HTTP (`streamableHttp` transport) instead of stdio. The MCP client installs and runs supergateway externally, which then spawns this project's stdio server — entirely outside the control of this project.
+**How it gets involved:** supergateway is injected externally by the user's MCP client configuration (e.g., VS Code `mcp.json`, Claude Desktop config) when the client is configured to connect over HTTP (`streamableHttp` transport) instead of stdio. The MCP client installs and runs supergateway, which then spawns this project's stdio server — entirely outside the control of this project.
 
-**Typical log output**:
+**Typical log output:**
 ```
 [supergateway] Starting...
 [supergateway] Supergateway is supported by Supermachine (hosted MCPs) - https://supermachine.ai
@@ -478,7 +486,7 @@ No transitive dependencies (self-contained).
 [supergateway]   - stdio: node dist/server.js
 ```
 
-- The `supermachine.ai` banner is informational text — it does **not** establish any network connection.
+- The `supermachine.ai` banner is informational text from the supergateway npm package — it does **not** establish any network connection from this project.
 - supergateway opens a **local-only** HTTP listener on port 8080.
 - This project itself makes **zero outbound connections** to supermachine.ai or any third party.
 
@@ -517,6 +525,8 @@ Configure the MCP client to use `stdio` transport directly instead of `streamabl
 ```
 
 When connecting over stdio, the MCP client communicates directly with [`server.ts`](src/mcp/server.ts) via stdin/stdout JSON-RPC — no supergateway, no HTTP layer, no third-party wrapper.
+
+> **Note:** The checked-in [`Dockerfile`](Dockerfile) does not include `supergateway`. If your local copy differs, you may have a modified version.
 
 ---
 
