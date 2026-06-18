@@ -1,5 +1,19 @@
 # Task Log
 
+## 2026-06-18T06:22:00Z — Restructure README with layout reorganization and discrepancy fixes
+
+- **Task**: Comprehensive rewrite of `README.md` per detailed specification
+- **Changes made**:
+  - Reorganized layout: Title → Description → tl;dr → Detailed How-To → Technical Overview
+  - **Fix 1**: Corrected ping readiness timeout from "up to 30s" to "up to 5 minutes (300 retries at 1s intervals)" per `src/server.ts:79-80`
+  - **Fix 2**: Corrected token freshness from "5-minute freshness check" to "60-second proactive refresh buffer before 55-minute expiry" per `src/data-client.ts:157`
+  - **Fix 3**: Corrected sync status values from listing "error" to `"idle" | "syncing"` per analysis of `src/sync-manager.ts`
+  - **Omission 1**: Added `is_todo` field type documentation (`boolean | number 0/1`) per `src/mcp/schemas.ts:7`
+  - **Omission 2**: Added `CODEREVIEW.md` and `PROMPT.md` to docs/ in project structure
+  - **Improvements**: Added tool constraints (author max 200, source_url validated URL, icon max 100) to write tools table
+  - Removed duplicate sections and section duplication; kept Mermaid diagram with quoted edge labels
+- **Outcome**: Success. All 3 discrepancies fixed, both omissions addressed, new layout applied. Mermaid verified. Commit `b0c5bf3`.
+
 ## 2026-06-18T06:10:00Z — Fix Mermaid diagram edge label quoting
 
 - **Task**: Fixed a Mermaid flowchart parsing error in `README.md` caused by parentheses inside unquoted edge labels
@@ -532,3 +546,8 @@ All four READ-ONLY curl GET tests passed against `http://localhost:41184`:
 - Added `test` service to docker-compose.yml for `docker compose run --rm test`
 - Rewrote .github/workflows/test.yml from 5-step Node.js/pnpm setup to 2-step Docker-based workflow
 - CI now executes exact same `docker build -f Dockerfile.tests` + `docker run --rm` as local development
+
+## 2026-06-18T06:24:00Z — Restructure README.md
+
+- **Task**: Restructure README.md — reorganized layout (one-sentence description → tl;dr quick start → detailed how-to → technical overview), fixed 3 discrepancies (ping timeout 30s→5min, token freshness 5min→60s buffer, sync status removed "error"), added 2 omissions (is_todo boolean|number type, CODEREVIEW.md/PROMPT.md in project structure), added tool constraint details (author max 200, source_url URL, icon max 100)
+- **Outcome**: Success. Commit `b0c5bf3`.
