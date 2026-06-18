@@ -99,6 +99,13 @@
 **Description**: Updated README.md to reflect the new `list_notes` tool and updated all tool counts from 16 to 17.
 
 ### Changes
+
+## 2026-06-18T17:29:00Z — Push all 13 commits to GitHub via SSH
+
+**Description**: HTTPS push failed due to missing credentials (`could not read Username for 'https://github.com'`). SSH key was already configured and verified (`ssh -T git@github.com` returned `Hi gelse!`). Switched remote origin from `https://github.com/gelse/joplin-mcp.git` to `git@github.com:gelse/joplin-mcp.git` and pushed successfully.
+
+- **Commits pushed**: 13 (e494046..d1e19a0)
+- **Remote**: `git@github.com:gelse/joplin-mcp.git`
 - Line 3: "16 tools" → "17 tools" in intro description
 - Tool Overview table: Added `list_notes` row (after `list_notebooks`)
 - Read Tools I/O Schemas table: Added `list_notes` row with input/output schema
