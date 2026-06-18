@@ -1,0 +1,75 @@
+# =============================================================================
+# Container A: joplin-core — Joplin CLI headless + Data API + sync scheduler
+# =============================================================================
+# Stage 1: Build TypeScript application (infrastructure consistency)
+FROM node:22-bookworm-slim AS builder
+
+WORKDIR /build
+
+# Install pnpm
+RUN npm install -g "pnpm@9"
+
+# Copy dependency manifests first (layer caching)
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+RUN pnpm install --frozen-lockfile --ignore-scripts
+
+# Copy source (excluding MCP — Container A doesn't serve MCP)
+COPY tsconfig.json tsconfig.build.json ./
+COPY src/config.ts src/guarded-string.ts src/errors.ts src/logger.ts \
+     src/api-types.ts src/data-client.ts src/pagination.ts \
+     src/cli-executor.ts src/sync-manager.ts src/server.ts \
+     ./src/
+RUN mkdir -p src/mcp && touch src/mcp/.gitkeep
+COPY vitest.config.ts ./
+COPY tests/ ./tests/
+RUN pnpm run build
+
+# Stage 2: Production runtime
+FROM node:22-bookworm-slim
+
+# Install system dependencies required by Joplin CLI
+# libsecret-1-0: for credential storage (keychain integration)
+# ca-certificates: for HTTPS connections to Joplin Server
+# curl: for healthcheck
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libsecret-1-0 \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG JOPLIN_CLI_VERSION=3.6.2
+
+# Install pnpm and Joplin CLI globally
+RUN npm install -g "pnpm@9" "joplin@${JOPLIN_CLI_VERSION}"
+
+# Create non-root user for security
+RUN useradd --create-home --shell /bin/bash joplin
+
+# Set up application directory
+WORKDIR /app
+
+# Copy built application from builder stage
+COPY --from=builder /build/dist ./dist
+
+# Copy dependency manifests and install production dependencies only
+COPY --from=builder /build/package.json /build/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile --prod
+
+# Copy entrypoint script
+COPY entrypoint-core.sh ./
+RUN chmod +x entrypoint-core.sh
+
+# Create log directory for Joplin CLI output
+RUN mkdir -p /var/log/joplin && chown -R joplin:joplin /var/log/joplin
+
+# Create data directory for Joplin profile
+RUN mkdir -p /home/joplin/.config/joplin && chown -R joplin:joplin /home/joplin /app /var/log/joplin
+
+# Switch to non-root user
+USER joplin
+
+# Health check: Data API binds 0.0.0.0:41184, no socat proxy needed
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=60s \
+    CMD curl -f http://localhost:41184/ping || exit 1
+
+ENTRYPOINT ["./entrypoint-core.sh"]

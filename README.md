@@ -394,9 +394,10 @@ The Joplin Data API uses bearer token authentication. The token is obtained auto
 ### Localhost-Only Defaults
 
 - The Joplin ClipperServer hardcodes binding to `127.0.0.1`, making it unreachable from outside the container directly. A socat TCP proxy inside the container forwards the proxy port (`JOPLIN_DATA_API_PORT + 1`) to `127.0.0.1:JOPLIN_DATA_API_PORT`, started after ClipperServer readiness
-- The MCP server communicates over **stdio transport** — there is no network port exposed for MCP traffic
-- The `docker-compose.yml` maps the host port (`JOPLIN_DATA_API_PORT`, default `41184`) to the container's proxy port (`JOPLIN_DATA_API_PORT + 1`, i.e., `41185`). This makes the Data API accessible at `http://localhost:41184` on the **host machine**, but not from other network hosts (bound to `127.0.0.1`)
-- If you do not need host-side access to the Data API, remove the `ports:` block from `docker-compose.yml` to keep the port container-internal only
+- **Monolithic deployment**: The MCP server communicates over **stdio transport** — there is no network port exposed for MCP traffic
+- **Docker deployment**: The **joplin-mcp** container exposes an **HTTP endpoint on port 3000** (MCP StreamableHTTP transport) mapped to the host. The Data API communication between joplin-mcp and joplin-core stays on the internal Docker network and is never exposed to the host
+- The `docker-compose.yml` maps `MCP_PORT` (default `3000`) to the host for MCP client access, and optionally maps `JOPLIN_DATA_API_PORT` (default `41184`) for direct Data API access on the host. Both bind to `127.0.0.1` on the host side
+- If you do not need host-side access to the Data API, remove the `ports:` block for `joplin-core` from `docker-compose.yml` to keep the Data API container-internal only
 
 ### Token Rotation Best Practices
 
@@ -558,13 +559,7 @@ tests/
     ├── server.test.ts      # MCP server lifecycle tests
     ├── tool-registry.test.ts # Tool registration & dispatch tests
     └── tools.test.ts       # Tool handler tests
-docs/
-├── ARCHITECTURE.md        # Architecture documentation with Mermaid diagrams
-├── CODEREVIEW.md          # Code review notes and findings
-├── PROMPT.md              # AI prompt documentation
-├── TASK_LOG.md            # Workspace action log
-├── INSTALLATION_LOG.md    # Installation and setup log
-└── SBOM.md                # Software Bill of Materials
+docs/                      # Project documentation (see root SBOM.md for dependency inventory)
 scripts/
 └── smoke-test.sh          # Docker container smoke test (checks container up + Data API /ping)
 ```

@@ -3,35 +3,49 @@
 **Project**: `joplin-api` — Joplin MCP Server  
 **Version**: 1.0.0  
 **Generated**: 2026-06-18T08:24:13Z  
+**Updated**: 2026-06-18T12:05:00Z (two-container architecture)  
 **Package Manager**: pnpm 9 (lockfile v9.0)  
-**Runtime**: Node.js 22 (bookworm-slim)  
+**Runtime**: Node.js 22 (bookworm-slim)
 
 ---
 
 ## 1. Project Overview
 
-This is an MCP (Model Context Protocol) server that wraps the Joplin Data API, exposing 16 tools for note management. It runs as a Docker container, launching a Joplin CLI subprocess that provides the REST-based ClipperServer, then proxying it via `socat` with token-based authentication against any Joplin Sync target (Joplin Server, Nextcloud, etc.).
+This project provides an MCP (Model Context Protocol) server that wraps the Joplin Data API, exposing 16 tools for note management. As of June 2026, it uses a **two-container architecture** for Docker deployments:
+
+- **Container A (`joplin-core`)**: Stateful backend — runs Joplin CLI headless with the Data API (ClipperServer) on port 41184, backed by a persistent SQLite volume. A bash-based sync scheduler handles periodic sync against any Joplin Sync target (Joplin Server, Nextcloud, etc.).
+- **Container B (`joplin-mcp`)**: Stateless MCP HTTP server — exposes the 16 MCP tools via StreamableHTTP transport on port 3000. Connects to joplin-core over the internal Docker network using `JOPLIN_CORE_URL`.
+
+The original monolithic [`Dockerfile`](Dockerfile) and [`entrypoint.sh`](entrypoint.sh) are preserved for backward compatibility.
 
 ### 1.1 Architecture Summary
 
 ```
 ┌─────────────────────────────────────────────────┐
 │ MCP Client (Claude Desktop / VS Code)            │
-│   stdin/stdout (JSON-RPC)                       │
+│   HTTP (StreamableHTTP) → port 3000              │
 └──────────────┬──────────────────────────────────┘
                │
 ┌──────────────▼──────────────────────────────────┐
-│ server.ts → createMCPServer()                   │
-│   ToolRegistry (16 tools)                       │
+│ Container B: joplin-mcp (stateless)             │
+│   entrypoint: entrypoint-mcp.sh                 │
+│   entry point: src/mcp/entry.ts                 │
+│   server.ts → createMCPServer()                 │
+│     ToolRegistry (16 tools)                     │
+│       ↓                                         │
+│   data-client.ts → JoplinDataClient             │
+│     HTTP requests to joplin-core (internal net) │
+└──────────────┬──────────────────────────────────┘
+               │ HTTP + Bearer Token
+┌──────────────▼──────────────────────────────────┐
+│ Container A: joplin-core (stateful)             │
+│   entrypoint: entrypoint-core.sh                │
+│   Joplin Data API (port 41184)                  │
 │     ↓                                           │
-│ data-client.ts → JoplinDataClient               │
-│   HTTP requests to localhost (Joplin CLI API)    │
+│   Joplin CLI (joplin v3.6.2)                   │
 │     ↓                                           │
-│ cli-executor.ts → CliExecutor                   │
-│   spawns: joplin profile create / sync          │
-│     ↓                                           │
-│ sync-manager.ts → SyncManager                   │
-│   periodic sync via CliExecutor                 │
+│   SQLite DB (persistent volume)                 │
+│   Bash Sync Scheduler (periodic joplin sync)    │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -39,11 +53,13 @@ This is an MCP (Model Context Protocol) server that wraps the Joplin Data API, e
 
 ## 2. Runtime Dependencies
 
+Both containers share the same npm dependency tree. Container A uses it for the Joplin CLI and Data API infrastructure; Container B uses it for the MCP HTTP server.
+
 ### 2.1 Direct Runtime Dependencies
 
 | Package | Version | License | Purpose |
 |---------|---------|---------|---------|
-| [`@modelcontextprotocol/sdk`](https://www.npmjs.com/package/@modelcontextprotocol/sdk) | 1.29.0 | MIT | MCP protocol implementation (stdio transport, tool registration) |
+| [`@modelcontextprotocol/sdk`](https://www.npmjs.com/package/@modelcontextprotocol/sdk) | 1.29.0 | MIT | MCP protocol implementation (stdio + StreamableHTTP transport, tool registration) |
 | [`pino`](https://www.npmjs.com/package/pino) | 9.14.0 | MIT | Structured JSON logging |
 | [`pino-pretty`](https://www.npmjs.com/package/pino-pretty) | 11.3.0 | MIT | Human-readable log formatting for development |
 | [`zod`](https://www.npmjs.com/package/zod) | 3.25.76 | MIT | Runtime schema validation for all MCP tool inputs |
@@ -423,14 +439,21 @@ No transitive dependencies (self-contained).
 
 ### 4.1 Docker Base Images
 
-| Image | Stage | Digest/Version | Purpose |
-|-------|-------|---------------|---------|
-| `node:22-bookworm-slim` | Builder | Node.js 22 LTS | Compile TypeScript, run tests |
-| `node:22-bookworm-slim` | Production | Node.js 22 LTS | Runtime execution |
+| Image | Container | Digest/Version | Purpose |
+|-------|-----------|---------------|---------|
+| `node:22-bookworm-slim` | Both (builder) | Node.js 22 LTS | Compile TypeScript, run tests |
+| `node:22-bookworm-slim` | joplin-core (prod) | Node.js 22 LTS | Runtime execution — Joplin CLI + Data API |
+| `node:22-bookworm-slim` | joplin-mcp (prod) | Node.js 22 LTS | Runtime execution — MCP HTTP server |
 
 **Base OS**: Debian 12 "Bookworm" (slim variant — minimal footprint)
 
-### 4.2 System Packages (apt-get)
+### 4.2 Container A: joplin-core
+
+**Dockerfile**: [`Dockerfile.core`](Dockerfile.core)  
+**Entrypoint**: [`entrypoint-core.sh`](entrypoint-core.sh)  
+**Role**: Stateful backend — Joplin CLI headless, Data API, bash sync scheduler
+
+#### System Packages (apt-get)
 
 | Package | Purpose | Privacy Note |
 |---------|---------|-------------|
@@ -439,30 +462,61 @@ No transitive dependencies (self-contained).
 | `curl` | Health checks and potential network operations | Localhost; no telemetry |
 | `socat` | Socket relay utility | Localhost; no telemetry |
 
-### 4.3 Global npm Packages
-
-#### Build Stage
+#### Global npm Packages
 
 | Package | Version | Purpose |
 |---------|---------|---------|
 | `pnpm` | 9.x | Package manager (dependency installation) |
-
-#### Production Stage
-
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `pnpm` | 9.x | Package manager (available for potential runtime needs) |
 | `joplin` (CLI) | 3.6.2 | Joplin CLI — core data access layer; all API calls go through the `joplin` command |
 
-### 4.4 Container Configuration
+#### npm Dependencies from package.json
+
+All production npm dependencies from [`package.json`](package.json) (see Section 2) are installed in the builder stage and compiled. The production stage copies the built `dist/` and installs production-only dependencies.
+
+#### Container Configuration
 
 | Setting | Value |
 |---------|-------|
 | Runtime user | `joplin` (non-root, UID/GID via `useradd`) |
 | Healthcheck | `curl -f http://localhost:41185/ping` every 30s |
 | Resource limits | CPU: 1.0, Memory: 512M |
-| Exposed port | None (stdio-only MCP transport) |
-| Entrypoint | [`./entrypoint.sh`](entrypoint.sh) → `node dist/server.js` (compiled TypeScript MCP server via stdio) |
+| Exposed port | 41184 (Data API, internal Docker network) |
+| Entrypoint | [`entrypoint-core.sh`](entrypoint-core.sh) → starts Joplin Data API + bash sync scheduler |
+| Persistent volume | `joplin_data` at `/home/joplin/.config/joplin` (SQLite database) |
+
+### 4.3 Container B: joplin-mcp
+
+**Dockerfile**: [`Dockerfile.mcp`](Dockerfile.mcp)  
+**Entrypoint**: [`entrypoint-mcp.sh`](entrypoint-mcp.sh)  
+**Entry point**: [`src/mcp/entry.ts`](src/mcp/entry.ts) (compiled to `dist/mcp/entry.js`)  
+**Role**: Stateless MCP HTTP server — exposes 16 tools via StreamableHTTP transport
+
+#### System Packages (apt-get)
+
+| Package | Purpose | Privacy Note |
+|---------|---------|-------------|
+| `ca-certificates` | TLS certificate validation for HTTPS connections to joplin-core | Local network only |
+| `curl` | Health checks | Localhost; no telemetry |
+
+#### Global npm Packages
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `pnpm` | 9.x | Package manager (production dependency installation) |
+
+#### npm Dependencies from package.json
+
+All production npm dependencies from [`package.json`](package.json) (see Section 2) are installed. The MCP server uses `@modelcontextprotocol/sdk` for StreamableHTTP transport, `pino` for logging, and `zod` for input validation.
+
+#### Container Configuration
+
+| Setting | Value |
+|---------|-------|
+| Runtime user | `mcp` (non-root, UID/GID via `useradd`) |
+| Healthcheck | `curl -f http://localhost:3000/health` every 30s |
+| Resource limits | CPU: 1.0, Memory: 512M |
+| Exposed port | 3000 (MCP HTTP, mapped to host) |
+| Entrypoint | [`entrypoint-mcp.sh`](entrypoint-mcp.sh) → `node dist/mcp/entry.js` (compiled TypeScript MCP HTTP server) |
 
 ---
 
@@ -470,11 +524,13 @@ No transitive dependencies (self-contained).
 
 ### supergateway (External — Not a Project Dependency)
 
-**supergateway is NOT a dependency of this project.** It does not appear in [`package.json`](package.json), [`pnpm-lock.yaml`](pnpm-lock.yaml), [`Dockerfile`](Dockerfile), [`docker-compose.yml`](docker-compose.yml), [`entrypoint.sh`](entrypoint.sh), or any source file. There are zero references to it in the codebase.
+**supergateway is NOT a dependency of this project.** It does not appear in [`package.json`](package.json), [`pnpm-lock.yaml`](pnpm-lock.yaml), any Dockerfile, [`docker-compose.yml`](docker-compose.yml), or any source file. There are zero references to it in the codebase.
 
 **What it is:** [`supergateway`](https://www.npmjs.com/package/supergateway) is an npm package maintained by Supermachine AI that wraps stdio-based MCP servers and exposes them over HTTP (Streamable HTTP transport) on a local port. It spawns the MCP server as a child process over stdio, then bridges the communication to HTTP.
 
 **How it gets involved:** supergateway is injected externally by the user's MCP client configuration (e.g., VS Code `mcp.json`, Claude Desktop config) when the client is configured to connect over HTTP (`streamableHttp` transport) instead of stdio. The MCP client installs and runs supergateway, which then spawns this project's stdio server — entirely outside the control of this project.
+
+> **Note:** With the two-container architecture, the recommended deployment uses joplin-mcp's native StreamableHTTP transport (port 3000), which eliminates the need for supergateway entirely. The monolithic mode (stdio) may still involve supergateway if the client uses HTTP transport.
 
 **Typical log output:**
 ```
@@ -500,13 +556,16 @@ No transitive dependencies (self-contained).
 | Data exposure | 🟢 No data sent to third parties by this project |
 
 > ⚠️ **Privacy recommendation**: The `supergateway` package is closed-source and maintained by a third party (Supermachine AI). While the banner text is informational and only a local HTTP listener is opened, the package itself has not been independently audited. Privacy-conscious users should:
-> - **Connect over stdio directly** — bypasses supergateway entirely (see below)
+> - **Use the two-container deployment** — joplin-mcp provides native StreamableHTTP, bypassing supergateway entirely
+> - **Or connect over stdio directly** — bypasses supergateway as well (see below)
 > - **Or audit the package independently** — review the `supergateway` code before use
 > - This project sends **zero data** to supermachine.ai or any third party regardless of transport
 
 #### How to Eliminate supergateway
 
-Configure the MCP client to use `stdio` transport directly instead of `streamableHttp`. This removes supergateway from the equation entirely.
+**Option 1: Two-container deployment (recommended)** — joplin-mcp exposes a native HTTP endpoint on port 3000; no supergateway needed.
+
+**Option 2: Stdio transport** — Configure the MCP client to use `stdio` transport directly instead of `streamableHttp`. This removes supergateway from the equation entirely.
 
 **VS Code `mcp.json` example (stdio)**:
 ```json
@@ -524,9 +583,7 @@ Configure the MCP client to use `stdio` transport directly instead of `streamabl
 }
 ```
 
-When connecting over stdio, the MCP client communicates directly with [`server.ts`](src/mcp/server.ts) via stdin/stdout JSON-RPC — no supergateway, no HTTP layer, no third-party wrapper.
-
-> **Note:** The checked-in [`Dockerfile`](Dockerfile) does not include `supergateway`. If your local copy differs, you may have a modified version.
+When connecting over stdio, the MCP client communicates directly with the server via stdin/stdout JSON-RPC — no supergateway, no HTTP layer, no third-party wrapper.
 
 ---
 
@@ -536,11 +593,13 @@ When connecting over stdio, the MCP client communicates directly with [`server.t
 
 | Component | Network Scope | Details |
 |-----------|--------------|---------|
-| MCP Server (server.ts) | **Local only** | stdin/stdout JSON-RPC; no TCP sockets |
-| JoplinDataClient (data-client.ts) | **Local only** | HTTP to `127.0.0.1:JOPLIN_DATA_API_PORT` |
-| CliExecutor (cli-executor.ts) | **Local process** | Spawns `joplin` CLI child process; no network |
-| SyncManager (sync-manager.ts) | **Indirect** | Triggers `joplin sync` which connects to configured Joplin Sync target; not initiated by this codebase directly |
-| Healthcheck | **Local only** | `curl localhost:41185/ping` |
+| joplin-mcp (entry.ts) | **Local only** | HTTP server on port 3000; internal Docker network communication to joplin-core |
+| JoplinDataClient (data-client.ts) | **Local only** | HTTP to `JOPLIN_CORE_URL` (internal Docker network) |
+| Joplin Data API (joplin-core) | **Internal only** | HTTP on port 41184; bound to `0.0.0.0` within Docker network |
+| Joplin CLI (joplin-core) | **Local process** | Spawned as child process; no network |
+| Bash Sync Scheduler (joplin-core) | **Indirect** | Triggers `joplin sync` which connects to configured Joplin Sync target; not initiated by this codebase directly |
+| Healthcheck (joplin-core) | **Local only** | `curl localhost:41185/ping` |
+| Healthcheck (joplin-mcp) | **Local only** | `curl localhost:3000/health` |
 
 ### 5.2 Dependency Privacy Risk Classification
 
@@ -553,13 +612,13 @@ When connecting over stdio, the MCP client communicates directly with [`server.t
 
 | Dependency | Risk | Notes |
 |------------|------|-------|
-| `@modelcontextprotocol/sdk` | 🟢 | stdio-only in this configuration; no telemetry |
+| `@modelcontextprotocol/sdk` | 🟡 | StreamableHTTP transport in joplin-mcp; bound to localhost/Docker network; stdio-only in monolithic mode; no telemetry |
 | `pino` / `pino-pretty` | 🟢 | Writes to stdout/stderr only; configurable redaction via `@pinojs/redact` |
 | `zod` | 🟢 | Pure validation; no I/O |
-| `express` (transitive) | 🟡 | Used internally by MCP SDK for HTTP server; bound to localhost only |
+| `express` (transitive) | 🟡 | Used internally by MCP SDK for HTTP server; bound to localhost/Docker network only |
 | `jose` (transitive) | 🟢 | Cryptographic operations only; no network |
 | `cross-spawn` (transitive) | 🟢 | Child process management; no network |
-| `eventsource` (transitive) | 🔴 | SSE client capable of outbound connections; not actively used in this stdio configuration |
+| `eventsource` (transitive) | 🔴 | SSE client capable of outbound connections; not actively used in this configuration |
 | `ajv` (transitive) | 🟢 | JSON Schema validation; no I/O |
 | All other transitive deps | 🟢 | Pure utility/processing libraries |
 
@@ -578,24 +637,26 @@ When connecting over stdio, the MCP client communicates directly with [`server.t
 
 | Data Type | Storage | Transmission | Protection |
 |-----------|---------|-------------|------------|
-| Joplin API Token | Environment variable (`JOPLIN_API_TOKEN`) | HTTP `Authorization: Bearer` header | [`GuardedString`](src/guarded-string.ts) class masks value in logs; token auto-refreshed by `entrypoint.sh` |
-| Joplin Server URL | Environment variable | Used for API calls | Validated by Zod schema; must use HTTPS in production |
-| Note Content | In-memory during MCP tool execution | Returned to MCP client via stdio | Not persisted by this application; Joplin CLI manages storage |
-| Log Output | stdout/stderr | Configurable log level | Sensitive data masked by `GuardedString.toString()` |
+| Joplin API Token | Environment variable (`JOPLIN_API_TOKEN`) | HTTP `Authorization: Bearer` header (joplin-mcp → joplin-core) | [`GuardedString`](src/guarded-string.ts) class masks value in logs; token auto-extracted by `entrypoint-core.sh` |
+| Joplin Server URL | Environment variable | Used for Joplin CLI sync | Validated by config schema; must use HTTPS in production |
+| Note Content | In-memory during MCP tool execution | Returned to MCP client via HTTP (joplin-mcp) or stdio (monolithic) | Not persisted by this application; Joplin CLI manages storage in SQLite volume |
+| Log Output | stdout/stderr (both containers) | Configurable log level | Sensitive data masked by `GuardedString.toString()` |
 
 ### 5.4 Security Best Practices
 
 | Practice | Implementation |
 |----------|---------------|
-| Non-root user | Container runs as `joplin` user (uid != 0) |
+| Non-root users | Container A runs as `joplin` user; Container B runs as `mcp` user (both uid != 0) |
 | Minimal base image | `node:22-bookworm-slim` — reduced attack surface |
-| No exposed ports | stdio-only MCP transport; `socat` proxy bound to localhost |
+| No exposed ports (joplin-core) | Data API on internal Docker network only; not mapped to host by default |
+| Exposed port (joplin-mcp) | Port 3000 mapped to host for MCP client access |
 | Input validation | All 16 MCP tools use Zod schemas for input validation |
 | ID sanitization | [`validateId()`](src/data-client.ts:59) rejects non-alphanumeric IDs |
 | CLI argument sanitization | [`validateArgs()`](src/cli-executor.ts:65) blocks shell metacharacters (`;`, `|`, `&`, `$`, `` ` ``, `(`, `)`) |
-| Token management | Auto-extraction from Joplin CLI; auto-refresh on expiry |
+| Token management | Auto-extraction from Joplin CLI in entrypoint-core.sh; auto-refresh on expiry |
 | Rate limiting | Serial request queue in `JoplinDataClient` prevents API overload |
-| Frozen lockfile | `pnpm install --frozen-lockfile` ensures reproducible builds |
+| Frozen lockfile | `pnpm install --frozen-lockfile` ensures reproducible builds in both containers |
+| Container isolation | Separate containers for stateful backend and stateless frontend; independent healthchecks |
 
 ---
 
@@ -679,7 +740,7 @@ This SBOM was generated by:
 
 1. Extracting direct dependencies from [`package.json`](package.json)
 2. Resolving the full transitive tree from [`pnpm-lock.yaml`](pnpm-lock.yaml) (v9.0 lockfile, 3,398 lines)
-3. Cataloging system packages from [`Dockerfile`](Dockerfile)
+3. Cataloging system packages from [`Dockerfile.core`](Dockerfile.core) and [`Dockerfile.mcp`](Dockerfile.mcp)
 4. Identifying CI dependencies from [`.github/workflows/test.yml`](.github/workflows/test.yml)
 5. Reviewing all source files in [`src/`](src/) for runtime imports and data flow
 

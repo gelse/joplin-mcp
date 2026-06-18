@@ -1,5 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { Logger } from '../logger.js';
 import { ToolRegistry } from './tool-registry.js';
 import type { ToolContext } from './tools.js';
@@ -11,7 +13,7 @@ import { extractSchemaShape } from './schemas.js';
  * Logs ZodError at warn level (client error) and everything else at error level.
  * Always returns an MCP error response with { content, isError: true }.
  */
-function toolErrorHandler(
+export function toolErrorHandler(
   toolName: string,
   error: unknown,
   logger: Logger,
@@ -103,4 +105,63 @@ export async function startMCPServer(
   await server.connect(transport);
 
   logger.info('MCP server started on stdio transport');
+}
+
+/**
+ * Start the MCP server as a stateless HTTP server.
+ *
+ * Uses StreamableHTTPServerTransport with sessionIdGenerator set to undefined
+ * for stateless operation — each request is handled independently, with no
+ * session state persisted between calls.
+ *
+ * Adds a /health endpoint that returns { status: 'ok' } for Docker healthchecks.
+ *
+ * @returns The raw Node.js http.Server instance for graceful shutdown handling.
+ */
+export async function startMCPHttpServer(
+  registry: ToolRegistry,
+  ctx: ToolContext,
+  logger: Logger,
+  port: number = 3000,
+): Promise<ReturnType<typeof createServer>> {
+  const server = await createMCPServer(registry, ctx, logger);
+
+  // Stateless transport: no session tracking between requests
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
+  });
+
+  await server.connect(transport);
+  logger.info('MCP server connected to stateless HTTP transport');
+
+  // Create raw Node.js HTTP server
+  const httpServer = createServer(async (req, res) => {
+    // Health check endpoint for Docker healthcheck
+    if (req.url === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok' }));
+      return;
+    }
+
+    try {
+      await transport.handleRequest(req, res);
+    } catch (error) {
+      logger.error({ err: error, url: req.url }, 'Error handling MCP request');
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Internal server error' }));
+      }
+    }
+  });
+
+  return new Promise((resolve, reject) => {
+    httpServer.listen(port, () => {
+      logger.info({ port }, 'MCP HTTP server started');
+      resolve(httpServer);
+    });
+    httpServer.on('error', (err) => {
+      logger.error({ err }, 'HTTP server error');
+      reject(err);
+    });
+  });
 }

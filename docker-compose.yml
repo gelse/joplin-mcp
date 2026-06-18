@@ -1,13 +1,13 @@
 services:
-  joplin-mcp:
-    build: .
-    image: joplin-api-mcp
-    container_name: joplin-mcp-server
-    ports:
-      # Host port 41184 → container proxy port 41185 (socat 0.0.0.0:41185 → 127.0.0.1:41184)
-      - '127.0.0.1:${JOPLIN_DATA_API_PORT:-41184}:41185'
-    expose:
-      - '41185'
+  # ===========================================================================
+  # Container A — joplin-core: Joplin CLI + Data API + periodic sync
+  # ===========================================================================
+  joplin-core:
+    build:
+      context: .
+      dockerfile: Dockerfile.core
+    image: joplin-api-core
+    container_name: joplin-core
     env_file:
       - .env
     environment:
@@ -25,13 +25,54 @@ services:
           memory: 256M
     restart: unless-stopped
     healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:41185/ping']
+      test: ['CMD', 'curl', '-f', 'http://localhost:41184/ping']
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
     init: true
 
+  # ===========================================================================
+  # Container B — joplin-mcp: Stateless MCP HTTP server
+  # ===========================================================================
+  joplin-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
+    image: joplin-api-mcp
+    container_name: joplin-mcp-server
+    ports:
+      # Expose MCP HTTP server on localhost only
+      - '127.0.0.1:${MCP_PORT:-3000}:3000'
+    env_file:
+      - .env
+    environment:
+      - JOPLIN_CORE_URL=http://joplin-core:41184
+      - JOPLIN_API_TOKEN=${JOPLIN_API_TOKEN}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      joplin-core:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:3000/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    init: true
+
+  # ===========================================================================
+  # Test runner (unchanged)
+  # ===========================================================================
   test:
     build:
       context: .

@@ -6,22 +6,15 @@ const configSchema = z.object({
   joplinServerUrl: z
     .string()
     .url()
-    .describe('JOPLIN_SERVER_URL')
-    .refine(
-      (url) => {
-        if (process.env['NODE_ENV'] === 'production') {
-          return url.startsWith('https://');
-        }
-        return true;
-      },
-      { message: 'In production, JOPLIN_SERVER_URL must use HTTPS' },
-    ),
-  joplinUsername: z.string().min(1).describe('JOPLIN_USERNAME'),
+    .optional()
+    .describe('JOPLIN_SERVER_URL'),
+  joplinUsername: z.string().min(1).optional().describe('JOPLIN_USERNAME'),
   joplinPassword: z
     .string()
     .min(1)
+    .optional()
     .describe('JOPLIN_PASSWORD')
-    .transform((val) => new GuardedString(val)),
+    .transform((val) => (val ? new GuardedString(val) : undefined)),
   dataApiPort: z.coerce
     .number()
     .int()
@@ -33,6 +26,11 @@ const configSchema = z.object({
     .string()
     .min(1)
     .describe('JOPLIN_API_TOKEN'),
+  joplinCoreUrl: z
+    .string()
+    .url()
+    .optional()
+    .describe('JOPLIN_CORE_URL — URL of the joplin-core container Data API (Container B only)'),
   logLevel: z
     .enum(['debug', 'info', 'warn', 'error', 'silent'])
     .default('info')
@@ -54,6 +52,7 @@ export function parseConfig(): Config {
     joplinPassword: process.env['JOPLIN_PASSWORD'],
     dataApiPort: process.env['JOPLIN_DATA_API_PORT'],
     joplinApiToken: process.env['JOPLIN_API_TOKEN'],
+    joplinCoreUrl: process.env['JOPLIN_CORE_URL'],
     logLevel: process.env['LOG_LEVEL'],
     syncIntervalSeconds: process.env['SYNC_INTERVAL_SECONDS'],
   };
@@ -67,10 +66,11 @@ export function parseConfig(): Config {
     throw new ConfigError(
       `Configuration validation failed:\n${errors}\n\n` +
         `Ensure the following environment variables are set:\n` +
-        `  JOPLIN_SERVER_URL (required)\n` +
-        `  JOPLIN_USERNAME (required)\n` +
-        `  JOPLIN_PASSWORD (required)\n` +
-        `  JOPLIN_API_TOKEN (required — run "joplin config api.token" to get it)\n` +
+        `  JOPLIN_SERVER_URL (required for monolithic/Container A)\n` +
+        `  JOPLIN_USERNAME (required for monolithic/Container A)\n` +
+        `  JOPLIN_PASSWORD (required for monolithic/Container A)\n` +
+        `  JOPLIN_API_TOKEN (required)\n` +
+        `  JOPLIN_CORE_URL (required for Container B MCP server)\n` +
         `  JOPLIN_DATA_API_PORT (optional, default: 41184)\n` +
         `  LOG_LEVEL (optional, default: "info")\n` +
         `  SYNC_INTERVAL_SECONDS (optional, default: 300)`,

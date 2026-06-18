@@ -18,7 +18,7 @@ export interface ReadMultinoteResult {
 
 export interface ToolContext {
   client: JoplinDataClient;
-  syncManager: SyncManager;
+  syncManager?: SyncManager;
   logger: Logger;
 }
 
@@ -109,7 +109,7 @@ export const createNote: ToolHandler<
     is_todo: typeof input.is_todo === 'boolean' ? (input.is_todo ? 1 : 0) : input.is_todo,
     todo_due: input.todo_due,
   });
-  await ctx.syncManager.triggerSync('create_note');
+  if (ctx.syncManager) await ctx.syncManager.triggerSync('create_note');
   return note;
 };
 
@@ -122,7 +122,7 @@ export const createFolder: ToolHandler<
     parent_id: input.parent_id,
     icon: input.icon,
   });
-  await ctx.syncManager.triggerSync('create_folder');
+  if (ctx.syncManager) await ctx.syncManager.triggerSync('create_folder');
   return folder;
 };
 
@@ -144,7 +144,7 @@ export const editNote: ToolHandler<
     ...rest,
     is_todo: typeof rest.is_todo === 'boolean' ? (rest.is_todo ? 1 : 0) : rest.is_todo,
   });
-  await ctx.syncManager.triggerSync('edit_note');
+  if (ctx.syncManager) await ctx.syncManager.triggerSync('edit_note');
   return note;
 };
 
@@ -154,13 +154,13 @@ export const editFolder: ToolHandler<
 > = async (input, ctx) => {
   const { folder_id, ...rest } = input;
   const folder = await ctx.client.updateFolder(folder_id, rest);
-  await ctx.syncManager.triggerSync('edit_folder');
+  if (ctx.syncManager) await ctx.syncManager.triggerSync('edit_folder');
   return folder;
 };
 
 export const createTag: ToolHandler<{ title: string }, Tag> = async (input, ctx) => {
   const tag = await ctx.client.createTag({ title: input.title });
-  await ctx.syncManager.triggerSync('create_tag');
+  if (ctx.syncManager) await ctx.syncManager.triggerSync('create_tag');
   return tag;
 };
 
@@ -169,7 +169,7 @@ export const tagNote: ToolHandler<
   { id: string; note_id: string; tag_id: string }
 > = async (input, ctx) => {
   const result = await ctx.client.tagNote(input.note_id, input.tag_id);
-  await ctx.syncManager.triggerSync('tag_note');
+  if (ctx.syncManager) await ctx.syncManager.triggerSync('tag_note');
   return result;
 };
 
@@ -178,7 +178,7 @@ export const untagNote: ToolHandler<
   { success: boolean }
 > = async (input, ctx) => {
   await ctx.client.untagNote(input.note_id, input.tag_id);
-  await ctx.syncManager.triggerSync('untag_note');
+  if (ctx.syncManager) await ctx.syncManager.triggerSync('untag_note');
   return { success: true };
 };
 
@@ -191,7 +191,7 @@ export const deleteNote: ToolHandler<{ note_id: string }, { success: boolean }> 
   ctx,
 ) => {
   await ctx.client.deleteNote(input.note_id);
-  await ctx.syncManager.triggerSync('delete_note');
+  if (ctx.syncManager) await ctx.syncManager.triggerSync('delete_note');
   return { success: true };
 };
 
@@ -200,7 +200,7 @@ export const deleteFolder: ToolHandler<{ folder_id: string }, { success: boolean
   ctx,
 ) => {
   await ctx.client.deleteFolder(input.folder_id);
-  await ctx.syncManager.triggerSync('delete_folder');
+  if (ctx.syncManager) await ctx.syncManager.triggerSync('delete_folder');
   return { success: true };
 };
 
@@ -212,9 +212,15 @@ export const sync: ToolHandler<object, { status: string; lastSyncTime: string | 
   _input,
   ctx,
 ) => {
-  await ctx.syncManager.triggerSync('manual');
+  if (ctx.syncManager) {
+    await ctx.syncManager.triggerSync('manual');
+    return {
+      status: ctx.syncManager.getSyncStatus(),
+      lastSyncTime: ctx.syncManager.getLastSyncTime()?.toISOString() ?? null,
+    };
+  }
   return {
-    status: ctx.syncManager.getSyncStatus(),
-    lastSyncTime: ctx.syncManager.getLastSyncTime()?.toISOString() ?? null,
+    status: 'Sync is managed by the core container on a schedule',
+    lastSyncTime: null,
   };
 };

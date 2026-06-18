@@ -1,0 +1,65 @@
+# =============================================================================
+# Container B: joplin-mcp — MCP HTTP server only (stateless)
+# =============================================================================
+# Stage 1: Build TypeScript application
+FROM node:22-bookworm-slim AS builder
+
+WORKDIR /build
+
+# Install pnpm
+RUN npm install -g "pnpm@9"
+
+# Copy dependency manifests first (layer caching)
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+RUN pnpm install --frozen-lockfile --ignore-scripts
+
+# Copy all source (MCP server needs most modules except server.ts, cli-executor.ts, sync-manager.ts)
+COPY tsconfig.json tsconfig.build.json ./
+COPY src/ ./src/
+COPY vitest.config.ts ./
+COPY tests/ ./tests/
+RUN pnpm run build
+RUN pnpm run test
+
+# Stage 2: Production runtime
+FROM node:22-bookworm-slim
+
+# Install system dependencies
+# ca-certificates: for HTTPS connections to Joplin Core
+# curl: for healthcheck
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install pnpm
+RUN npm install -g "pnpm@9"
+
+# Create non-root user for security
+RUN useradd --create-home --shell /bin/bash mcp
+
+# Set up application directory
+WORKDIR /app
+
+# Copy built application from builder stage
+COPY --from=builder /build/dist ./dist
+
+# Copy dependency manifests and install production dependencies only
+COPY --from=builder /build/package.json /build/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile --prod
+
+# Copy entrypoint script
+COPY entrypoint-mcp.sh ./
+RUN chmod +x entrypoint-mcp.sh
+
+# Set ownership
+RUN chown -R mcp:mcp /app
+
+# Switch to non-root user
+USER mcp
+
+# Health check on MCP HTTP port
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=10s \
+    CMD curl -f http://localhost:3000/health || exit 1
+
+ENTRYPOINT ["./entrypoint-mcp.sh"]

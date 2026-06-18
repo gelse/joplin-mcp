@@ -41,12 +41,15 @@ export class JoplinDataClient {
   private pendingAuthPromise: Promise<string> | null = null;
 
   constructor(
-    port: number,
+    portOrUrl: number | string,
     apiToken: string,
     private readonly logger: Logger,
     maxConcurrency: number = 5,
   ) {
-    this.baseUrl = `http://127.0.0.1:${port}`;
+    this.baseUrl =
+      typeof portOrUrl === 'number'
+        ? `http://127.0.0.1:${portOrUrl}`
+        : portOrUrl;
     this.apiToken = apiToken;
     this.maxConcurrency = maxConcurrency;
   }
