@@ -106,3 +106,16 @@
 - Startup pipeline: "16 MCP tool handlers" → "17 MCP tool handlers"
 
 **Outcome**: README.md now accurately reflects 17 tools with `list_notes` documented.
+
+## 2026-06-18T16:32:00Z — Update PROMPT.md for list_notes tool, dependency changes, and 16→17 counts
+
+**Description**: Updated PROMPT.md to reflect the new `list_notes` tool, added `@hono/node-server` and `hono` to the dependencies listing, and updated all tool counts from 16 to 17.
+
+### Changes
+- Line 5: "16 tools" → "17 tools" in Purpose
+- Source File Map: `tool-registry.ts` (16→17), `tools.ts` (16→17), `schemas.ts` (16→17)
+- Section header: "16 MCP Tools" → "17 MCP Tools"
+- Read tools: "Read (6)" → "Read (7)", added `list_notes` row
+- Dependencies JSON: Added `@hono/node-server` (^1.19.0) and `hono` (^4.12.0)
+
+**Outcome**: PROMPT.md accurately reflects 17 tools, correct dependencies, and the new `list_notes` handler.
