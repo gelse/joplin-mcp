@@ -458,6 +458,68 @@ No transitive dependencies (self-contained).
 
 ---
 
+## External Runtime Components
+
+### supergateway
+
+[`supergateway`](https://www.npmjs.com/package/supergateway) is an npm package maintained by Supermachine AI that wraps stdio-based MCP servers and exposes them over HTTP (Streamable HTTP transport) on a local port. It spawns the MCP server as a child process over stdio, then bridges the communication to HTTP.
+
+**Relationship to this project**: supergateway is **NOT a dependency** of this project. It does not appear in [`package.json`](package.json), [`pnpm-lock.yaml`](pnpm-lock.yaml), [`Dockerfile`](Dockerfile), [`docker-compose.yml`](docker-compose.yml), [`entrypoint.sh`](entrypoint.sh), or any source file. There are zero references to it in the codebase.
+
+**Why it appears in logs**: supergateway is injected by the user's MCP client configuration (e.g., VS Code `mcp.json`, Claude Desktop config) when the client is configured to connect over HTTP (`streamableHttp` transport) instead of stdio. The MCP client installs and runs supergateway externally, which then spawns this project's stdio server — entirely outside the control of this project.
+
+**Typical log output**:
+```
+[supergateway] Starting...
+[supergateway] Supergateway is supported by Supermachine (hosted MCPs) - https://supermachine.ai
+[supergateway]   - outputTransport: streamableHttp
+[supergateway] Running stateless server
+[supergateway]   - port: 8080
+[supergateway]   - stdio: node dist/server.js
+```
+
+- The `supermachine.ai` banner is informational text — it does **not** establish any network connection.
+- supergateway opens a **local-only** HTTP listener on port 8080.
+- This project itself makes **zero outbound connections** to supermachine.ai or any third party.
+
+#### Privacy & Security Assessment
+
+| Aspect | Assessment |
+|--------|------------|
+| Network scope | 🟡 Local only — HTTP listener bound to localhost:8080 |
+| Outbound connections | 🟢 None — this project initiates no connections to supermachine.ai |
+| Package auditability | ⚠️ **Review needed** — `supergateway` is closed-source and has not been independently audited |
+| Data exposure | 🟢 No data sent to third parties by this project |
+
+> ⚠️ **Privacy recommendation**: The `supergateway` package is closed-source and maintained by a third party (Supermachine AI). While the banner text is informational and only a local HTTP listener is opened, the package itself has not been independently audited. Privacy-conscious users should:
+> - **Connect over stdio directly** — bypasses supergateway entirely (see below)
+> - **Or audit the package independently** — review the `supergateway` code before use
+> - This project sends **zero data** to supermachine.ai or any third party regardless of transport
+
+#### How to Eliminate supergateway
+
+Configure the MCP client to use `stdio` transport directly instead of `streamableHttp`. This removes supergateway from the equation entirely.
+
+**VS Code `mcp.json` example (stdio)**:
+```json
+{
+  "servers": {
+    "joplin-api": {
+      "command": "node",
+      "args": ["dist/server.js"],
+      "env": {
+        "JOPLIN_API_TOKEN": "...",
+        "JOPLIN_SERVER_URL": "..."
+      }
+    }
+  }
+}
+```
+
+When connecting over stdio, the MCP client communicates directly with [`server.ts`](src/mcp/server.ts) via stdin/stdout JSON-RPC — no supergateway, no HTTP layer, no third-party wrapper.
+
+---
+
 ## 5. Privacy & Security Assessment
 
 ### 5.1 Network Communication Analysis
