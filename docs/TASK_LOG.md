@@ -1,5 +1,10 @@
 # Task Log
 
+## 2026-06-18T06:46:00Z — Add Docker testing section to README
+
+- **Task**: Added `#### Testing with Docker` sub-subsection to the `### Docker` section in README.md. Commit `249ed2e`.
+- **Outcome**: Success. New subsection covers `Dockerfile.tests`, `docker build` / `docker run` commands, docker compose `test` service, Vitest with v8 coverage, JUnit XML reports, and note that no running Joplin instance is required.
+
 ## 2026-06-18T06:36:00Z — Split README Quick Start and Detailed How-To sections into Direct Installation and Docker subsections
 
 - **Task**: Split README Quick Start and Detailed How-To sections into Direct Installation and Docker subsections. Commit `713010f`.
