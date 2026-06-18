@@ -232,8 +232,8 @@ docker build -f Dockerfile.tests -t joplin-api-tests .
 # Run tests
 docker run --rm joplin-api-tests
 
-# Or via docker compose
-docker compose run --rm tests
+# Or via docker compose (requires --profile test since the test service uses profiles)
+docker compose --profile test run --rm tests
 ```
 
 Tests use [Vitest](https://vitest.dev/) with v8 coverage (thresholds: 70% statements, 60% branches, 70% functions, 70% lines) and output JUnit XML reports to `./reports/`. When running via docker compose, the `./reports` directory is mounted into the container so reports persist on the host.
