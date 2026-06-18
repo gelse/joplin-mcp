@@ -6,14 +6,14 @@ MCP (Model Context Protocol) server for [Joplin](https://joplinapp.org/), synced
 
 ```mermaid
 graph TD
-    A[AI Client] -->|MCP stdio| B[TypeScript MCP Server]
-    B -->|TypeScript method calls| C[JoplinDataClient]
-    C -->|HTTP fetch() + Bearer Token| D[Joplin Data API]
-    D -->|Child Process| E[Joplin SQLite DB]
-    B -->|SyncManager| F[Joplin CLI sync]
-    F -->|sync.target 10| G[Joplin Server]
-    G -->|HTTPS| F
-    B -->|SIGTERM cleanup| D
+    A[AI Client] -->|"MCP stdio"| B[TypeScript MCP Server]
+    B -->|"TypeScript method calls"| C[JoplinDataClient]
+    C -->|"HTTP fetch() + Bearer Token"| D[Joplin Data API]
+    D -->|"Child Process"| E[Joplin SQLite DB]
+    B -->|"SyncManager"| F[Joplin CLI sync]
+    F -->|"sync.target 10"| G[Joplin Server]
+    G -->|"HTTPS"| F
+    B -->|"SIGTERM cleanup"| D
 ```
 
 **Layered architecture:**
