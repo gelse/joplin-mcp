@@ -74,6 +74,8 @@ services:
   # Test runner (unchanged)
   # ===========================================================================
   test:
+    profiles:
+      - test
     build:
       context: .
       dockerfile: Dockerfile.tests
