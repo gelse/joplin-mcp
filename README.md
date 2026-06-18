@@ -27,30 +27,24 @@ Add this to your MCP client config:
 
 > `joplin-mcp` exposes an HTTP endpoint on port 3000 (not stdio). See [MCP Client Configuration](#mcp-client-configuration) for other setups.
 
-### Direct Installation (monolithic)
+### Native Installation
 
-For local development or without Docker, the monolithic [`src/server.ts`](src/server.ts) spawns the Joplin Data API as a child process and listens on stdio:
+For local development or without Docker, the MCP HTTP server ([`src/mcp/entry.ts`](src/mcp/entry.ts)) connects to a running Joplin Data API:
 
 ```bash
 git clone <repo-url> && cd joplin-api
-cp .env.example .env   # fill in JOPLIN_SERVER_URL, JOPLIN_USERNAME, JOPLIN_PASSWORD
+cp .env.example .env   # fill in JOPLIN_API_TOKEN and JOPLIN_CORE_URL
 pnpm install
 pnpm build && pnpm start
 ```
 
-MCP client config (stdio):
+MCP client config (HTTP):
 
 ```json
 {
   "mcpServers": {
     "joplin": {
-      "command": "node",
-      "args": ["/path/to/joplin-api/dist/server.js"],
-      "env": {
-        "JOPLIN_SERVER_URL": "https://joplin.example.com/",
-        "JOPLIN_USERNAME": "your-email@example.com",
-        "JOPLIN_PASSWORD": "your-password"
-      }
+      "url": "http://localhost:3000/mcp"
     }
   }
 }
@@ -100,7 +94,7 @@ All configuration is done via environment variables:
 | `SYNC_INTERVAL_SECONDS` | No       | `300`   | Periodic sync interval in seconds                            |
 | `NODE_ENV`              | No       | —       | Set to `production` to enforce HTTPS for `JOPLIN_SERVER_URL` |
 
-> **Note:** `JOPLIN_API_TOKEN` is not a user-facing variable. The [entrypoint script](entrypoint.sh) automatically extracts it from Joplin's config (`joplin config api.token`) and exports it for the server. If running natively without the entrypoint, you must set `JOPLIN_API_TOKEN` manually (run `joplin config api.token` in your terminal to get it).
+> **Note:** `JOPLIN_API_TOKEN` is not a user-facing variable. The [core entrypoint script](entrypoint-core.sh) automatically extracts it from Joplin's config (`joplin config api.token`) and exports it for the server. If running natively without the entrypoint, you must set `JOPLIN_API_TOKEN` manually (run `joplin config api.token` in your terminal to get it).
 
 #### Running the Server
 
@@ -112,22 +106,17 @@ pnpm build && pnpm start
 pnpm dev
 ```
 
-The server starts the Joplin Data API as a child process, waits for readiness (polling `/ping`), performs an initial sync, then begins listening on stdio for MCP requests.
+The MCP HTTP server connects to a running Joplin Data API (via `JOPLIN_CORE_URL`), validates connectivity, then begins serving MCP requests over HTTP on port 3000 (configurable via `MCP_PORT`).
 
 #### MCP Client Configuration (Native / Node.js)
+
+The MCP HTTP server exposes an **HTTP endpoint** (not stdio). Configure your MCP client to connect via URL:
 
 ```json
 {
   "mcpServers": {
     "joplin": {
-      "command": "node",
-      "args": ["/path/to/joplin-api/dist/server.js"],
-      "env": {
-        "JOPLIN_SERVER_URL": "https://joplin.example.com/",
-        "JOPLIN_USERNAME": "your-email@example.com",
-        "JOPLIN_PASSWORD": "your-password",
-        "JOPLIN_API_TOKEN": "<from joplin config api.token>"
-      }
+      "url": "http://localhost:3000/mcp"
     }
   }
 }
@@ -158,7 +147,7 @@ Tests use [Vitest](https://vitest.dev/) and cover all modules: config parsing, C
 - **Docker** and **Docker Compose** installed on your system
 - The [`.env.example`](.env.example) file copied to `.env` and configured with your Joplin Server credentials
 
-The deployment uses two Dockerfiles ([`Dockerfile.core`](Dockerfile.core) and [`Dockerfile.mcp`](Dockerfile.mcp)) orchestrated via [`docker-compose.yml`](docker-compose.yml). The original monolithic [`Dockerfile`](Dockerfile) is kept for backward compatibility.
+The deployment uses two Dockerfiles ([`Dockerfile.core`](Dockerfile.core) and [`Dockerfile.mcp`](Dockerfile.mcp)) orchestrated via [`docker-compose.yml`](docker-compose.yml).
 
 #### Building
 
@@ -231,7 +220,6 @@ The `joplin-mcp` container exposes an **HTTP endpoint** (not stdio). Configure y
 - **Internal networking**: joplin-mcp communicates with joplin-core via the Docker internal network using the service name `joplin-core`
 - **Healthchecks**: joplin-core healthchecks `/ping` on port 41184; joplin-mcp waits for joplin-core to be healthy before starting
 - **Sync scheduler**: A bash `while true` loop in [`entrypoint-core.sh`](entrypoint-core.sh) handles periodic sync with extensive logging to `/var/log/joplin/`
-- **Original Dockerfile preserved**: The monolithic [`Dockerfile`](Dockerfile) and [`entrypoint.sh`](entrypoint.sh) remain unchanged for backward compatibility
 
 #### Testing with Docker
 
@@ -279,10 +267,6 @@ graph TD
 5. **Bash sync scheduler** in joplin-core handles periodic sync via the Joplin CLI against Joplin Server
 6. Write operations from the MCP server trigger sync via the Data API; bash scheduler provides periodic backup sync
 7. Both containers use **healthchecks** — joplin-mcp waits for joplin-core to be healthy before starting
-
-### Monolithic (Direct Installation)
-
-For the legacy single-process approach, see the [Detailed How-To](#detailed-how-to) below — it uses [`src/server.ts`](src/server.ts) which spawns both the Data API and MCP server in one process.
 
 ## Available MCP Tools
 
@@ -517,7 +501,7 @@ The internal Joplin Data API HTTP client (`JoplinDataClient`) enforces a configu
 pnpm install          # Install dependencies
 pnpm dev              # Run in development mode with hot reload (tsx watch)
 pnpm build            # Compile TypeScript (tsc)
-pnpm start            # Run compiled server (node dist/server.js)
+pnpm start            # Run compiled server (node dist/mcp/entry.js)
 pnpm test             # Run tests (vitest)
 pnpm test:watch       # Run tests in watch mode
 pnpm lint             # Lint source code (eslint)
@@ -528,11 +512,11 @@ pnpm format           # Format source code (prettier --write)
 
 ```
 src/
-├── server.ts              # Monolithic entry point (stdio, spawns Data API child process)
+├── server.ts              # (obsolete — replaced by mcp/entry.ts in two-container architecture)
 ├── config.ts              # Zod-based environment config parsing
 ├── logger.ts              # Pino structured logger
 ├── cli-executor.ts        # Joplin CLI subprocess wrapper
-├── sync-manager.ts        # Serialized sync queue orchestrator (monolithic only)
+├── sync-manager.ts        # Serialized sync queue orchestrator (used by Container B for write-through sync triggers)
 ├── data-client.ts         # Joplin Data API HTTP client (26 methods, token auth)
 ├── api-types.ts           # TypeScript type definitions for Joplin API
 ├── errors.ts              # Typed error class hierarchy
@@ -552,7 +536,6 @@ tests/
 ├── integration.test.ts    # Integration tests against live Joplin Data API
 ├── logger.test.ts         # Logger tests
 ├── pagination.test.ts     # Pagination helper tests
-├── server.test.ts         # Server tests
 ├── sync-manager.test.ts   # Sync manager tests
 └── mcp/
     ├── schemas.test.ts     # Zod schema validation tests
@@ -568,11 +551,9 @@ Root-level deployment files:
 
 | File | Purpose |
 | ---- | ------- |
-| [`Dockerfile`](Dockerfile) | Original monolithic container (backward compat) |
 | [`Dockerfile.core`](Dockerfile.core) | Container A: Joplin CLI + Data API + bash sync scheduler |
 | [`Dockerfile.mcp`](Dockerfile.mcp) | Container B: stateless MCP HTTP server |
 | [`Dockerfile.tests`](Dockerfile.tests) | Test runner container |
-| [`entrypoint.sh`](entrypoint.sh) | Original monolithic entrypoint (backward compat) |
 | [`entrypoint-core.sh`](entrypoint-core.sh) | Container A entrypoint: bash sync scheduler with extensive logging |
 | [`entrypoint-mcp.sh`](entrypoint-mcp.sh) | Container B entrypoint: validates env vars and starts MCP HTTP server |
 | [`docker-compose.yml`](docker-compose.yml) | Two-service orchestration with healthchecks and dependency ordering |
@@ -603,10 +584,6 @@ Root-level deployment files:
 6. **Initialize tool registry** — Registers all 16 MCP tool handlers (no SyncManager)
 7. **Start MCP HTTP server** — Listens on `MCP_PORT` (default 3000), serves `/health` and `/mcp` endpoints
 8. **Handle signals** — On `SIGTERM`/`SIGINT`: close HTTP server, exit
-
-### Monolithic (Direct Installation)
-
-The original [`src/server.ts`](src/server.ts) follows steps 1–13 from the Pipeline section above (validate → configure → start Data API → wait → sync → periodic sync → tool registry → MCP stdio → signal handling). See the [legacy entrypoint](entrypoint.sh) for details.
 
 ## Key Design Decisions
 

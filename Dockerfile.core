@@ -17,7 +17,7 @@ RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY tsconfig.json tsconfig.build.json ./
 COPY src/config.ts src/guarded-string.ts src/errors.ts src/logger.ts \
      src/api-types.ts src/data-client.ts src/pagination.ts \
-     src/cli-executor.ts src/sync-manager.ts src/server.ts \
+     src/cli-executor.ts src/sync-manager.ts \
      ./src/
 RUN mkdir -p src/mcp && touch src/mcp/.gitkeep
 COPY vitest.config.ts ./

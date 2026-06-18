@@ -16,7 +16,6 @@ This project provides an MCP (Model Context Protocol) server that wraps the Jopl
 - **Container A (`joplin-core`)**: Stateful backend — runs Joplin CLI headless with the Data API (ClipperServer) on port 41184, backed by a persistent SQLite volume. A bash-based sync scheduler handles periodic sync against any Joplin Sync target (Joplin Server, Nextcloud, etc.).
 - **Container B (`joplin-mcp`)**: Stateless MCP HTTP server — exposes the 16 MCP tools via StreamableHTTP transport on port 3000. Connects to joplin-core over the internal Docker network using `JOPLIN_CORE_URL`.
 
-The original monolithic [`Dockerfile`](Dockerfile) and [`entrypoint.sh`](entrypoint.sh) are preserved for backward compatibility.
 
 ### 1.1 Architecture Summary
 
@@ -530,7 +529,7 @@ All production npm dependencies from [`package.json`](package.json) (see Section
 
 **How it gets involved:** supergateway is injected externally by the user's MCP client configuration (e.g., VS Code `mcp.json`, Claude Desktop config) when the client is configured to connect over HTTP (`streamableHttp` transport) instead of stdio. The MCP client installs and runs supergateway, which then spawns this project's stdio server — entirely outside the control of this project.
 
-> **Note:** With the two-container architecture, the recommended deployment uses joplin-mcp's native StreamableHTTP transport (port 3000), which eliminates the need for supergateway entirely. The monolithic mode (stdio) may still involve supergateway if the client uses HTTP transport.
+> **Note:** With the two-container architecture, the recommended deployment uses joplin-mcp's native StreamableHTTP transport (port 3000), which eliminates the need for supergateway entirely.
 
 **Typical log output:**
 ```
@@ -539,7 +538,7 @@ All production npm dependencies from [`package.json`](package.json) (see Section
 [supergateway]   - outputTransport: streamableHttp
 [supergateway] Running stateless server
 [supergateway]   - port: 8080
-[supergateway]   - stdio: node dist/server.js
+[supergateway]   - stdio: node dist/mcp/entry.js
 ```
 
 - The `supermachine.ai` banner is informational text from the supergateway npm package — it does **not** establish any network connection from this project.
@@ -573,10 +572,10 @@ All production npm dependencies from [`package.json`](package.json) (see Section
   "servers": {
     "joplin-api": {
       "command": "node",
-      "args": ["dist/server.js"],
+      "args": ["dist/mcp/entry.js"],
       "env": {
         "JOPLIN_API_TOKEN": "...",
-        "JOPLIN_SERVER_URL": "..."
+        "JOPLIN_CORE_URL": "http://localhost:41184"
       }
     }
   }

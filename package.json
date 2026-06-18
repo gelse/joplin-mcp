@@ -14,15 +14,15 @@
   "homepage": "https://github.com/YOUR_USERNAME/joplin-api#readme",
   "keywords": ["joplin", "api", "mcp", "model-context-protocol", "notes", "data-api"],
   "type": "module",
-  "main": "dist/server.js",
+  "main": "dist/mcp/entry.js",
   "files": ["dist", "README.md", "LICENSE", "package.json"],
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "dev": "tsx watch src/server.ts",
-    "start": "node dist/server.js",
+    "dev": "tsx watch src/mcp/entry.ts",
+    "start": "node dist/mcp/entry.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint src/ --ext .ts",
