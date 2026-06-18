@@ -1,5 +1,21 @@
 # Task Log
 
+## 2026-06-18T06:36:00Z — Split README Quick Start and Detailed How-To sections into Direct Installation and Docker subsections
+
+- **Task**: Split README Quick Start and Detailed How-To sections into Direct Installation and Docker subsections. Commit `713010f`.
+- **Outcome**: Success. Both sections now have `### Direct Installation` and `### Docker` subsections with consistent heading levels.
+
+## 2026-06-18T06:34:00Z — Split Quick Start and How-To into Direct and Docker sections
+
+- **Task**: Restructured `README.md` to split both Quick Start and Detailed How-To into Direct Installation and Docker subsections
+- **Changes made**:
+  - **Quick Start**: Added `### Direct Installation` (existing clone/install/build/start + MCP config) and `### Docker` (docker compose up -d, .env note)
+  - **Detailed How-To**: Reorganized into `### Direct Installation` (prerequisites, installation, configuration, running, MCP client config native, testing) and `### Docker` (prerequisites, building, running, viewing logs, stopping, environment variables table, MCP client config, how it works)
+  - Removed "Docker and Docker Compose (optional)" from Direct Installation prerequisites (now covered in Docker subsection)
+  - Existing Docker content (docker-compose.yml, Dockerfile, socat proxy, healthcheck, deploy.resources note) moved into Docker subsection under "How It Works"
+  - No content lost or duplicated; Architecture section onwards untouched
+- **Outcome**: Success. Commit `713010f`.
+
 ## 2026-06-18T06:22:00Z — Restructure README with layout reorganization and discrepancy fixes
 
 - **Task**: Comprehensive rewrite of `README.md` per detailed specification
