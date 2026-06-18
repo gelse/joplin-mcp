@@ -4,6 +4,8 @@ An MCP (Model Context Protocol) server that exposes Joplin's note-taking functio
 
 ## tl;dr / Quick Start
 
+### Direct Installation
+
 **Prerequisites:** Node.js 20+, [pnpm](https://pnpm.io/) 9+, a running [Joplin](https://joplinapp.org/) desktop app with the Data API enabled (Web Clipper → Options → Enable Clipper Server), and optionally [Joplin Server](https://github.com/laurent22/joplin/blob/dev/packages/server/README.md) for sync.
 
 ```bash
@@ -33,11 +35,22 @@ Add this to your MCP client config (Claude Desktop, VS Code, etc.):
 
 > See [MCP Client Configuration](#mcp-client-configuration) below for Docker-based and other client setups.
 
+### Docker
+
+```bash
+cp .env.example .env   # fill in required variables
+docker compose up -d   # or `docker-compose up -d`
+```
+
+The `.env` file is automatically picked up by [`docker-compose.yml`](docker-compose.yml). The server starts in the background and listens on stdio for MCP requests.
+
 ---
 
 ## Detailed How-To
 
-### Prerequisites
+### Direct Installation
+
+#### Prerequisites
 
 - **Node.js** 20 or later (the project's [`package.json`](package.json) `engines` field requires `>=22.0.0`)
 - **[pnpm](https://pnpm.io/)** 9 or later (for package management)
@@ -45,9 +58,8 @@ Add this to your MCP client config (Claude Desktop, VS Code, etc.):
   - In Joplin: *Web Clipper → Options → Enable Clipper Server*
   - The server binds to `127.0.0.1:41184` by default and ignores `--host`/`--port` flags
 - **Joplin Server** (optional but recommended) — a sync target for multi-device synchronisation. Without it, write-through sync will fail and notes remain local-only
-- **Docker and Docker Compose** (optional) — for containerised deployment instead of running natively
 
-### Installation
+#### Installation
 
 ```bash
 git clone <repo-url>
@@ -56,7 +68,7 @@ pnpm install
 pnpm build
 ```
 
-### Configuration
+#### Configuration
 
 Copy the environment template and fill in your values:
 
@@ -78,7 +90,7 @@ All configuration is done via environment variables:
 
 > **Note:** `JOPLIN_API_TOKEN` is not a user-facing variable. The [entrypoint script](entrypoint.sh) automatically extracts it from Joplin's config (`joplin config api.token`) and exports it for the server. If running natively without the entrypoint, you must set `JOPLIN_API_TOKEN` manually (run `joplin config api.token` in your terminal to get it).
 
-### Running the Server
+#### Running the Server
 
 ```bash
 # Production (compiled)
@@ -90,9 +102,7 @@ pnpm dev
 
 The server starts the Joplin Data API as a child process, waits for readiness (polling `/ping`), performs an initial sync, then begins listening on stdio for MCP requests.
 
-### MCP Client Configuration
-
-#### Native (Node.js)
+#### MCP Client Configuration (Native / Node.js)
 
 ```json
 {
@@ -111,46 +121,7 @@ The server starts the Joplin Data API as a child process, waits for readiness (p
 }
 ```
 
-#### Docker
-
-```json
-{
-  "mcpServers": {
-    "joplin": {
-      "command": "docker",
-      "args": ["run", "-i", "--rm", "--env-file", "/path/to/.env", "joplin-api-mcp"]
-    }
-  }
-}
-```
-
-### Docker
-
-A [`docker-compose.yml`](docker-compose.yml) and [`Dockerfile`](Dockerfile) are included for containerised deployment.
-
-```bash
-# Build and start
-docker compose up -d
-
-# Check logs
-docker compose logs -f
-
-# Stop
-docker compose down
-```
-
-The Docker setup:
-
-- Builds from `node:22-bookworm-slim` via a multi-stage [`Dockerfile`](Dockerfile) (build stage compiles TypeScript and runs tests; production stage contains only `dist/` and production dependencies)
-- Runs as non-root `joplin` user
-- Stores Joplin profile data in a named volume (`joplin_data`)
-- Uses a [`socat`](https://linux.die.net/man/1/socat) proxy to expose the Data API externally (ClipperServer hardcodes `127.0.0.1:41184`; socat proxies `0.0.0.0:41185` → `127.0.0.1:41184`)
-- The host port `41184` maps to container proxy port `41185` (restricted to `127.0.0.1` on the host)
-- Healthcheck polls `/ping` on the proxy port every 30s
-
-> **Note:** The `deploy.resources` block in [`docker-compose.yml`](docker-compose.yml) (CPU/memory limits) is only enforced by Docker Swarm. When using `docker compose up`, these limits are silently ignored. For local resource constraints, use `--cpus` and `--memory` flags or set resource limits in your container runtime (e.g., Docker Desktop settings).
-
-### Testing
+#### Testing
 
 ```bash
 # Run all tests
@@ -167,6 +138,79 @@ pnpm format
 ```
 
 Tests use [Vitest](https://vitest.dev/) and cover all modules: config parsing, CLI executor, data client, error classes, sync manager, pagination, MCP schemas, tool handlers, and integration tests against a live Joplin Data API.
+
+### Docker
+
+#### Prerequisites
+
+- **Docker** and **Docker Compose** installed on your system
+- The [`.env.example`](.env.example) file copied to `.env` and configured with your Joplin Server credentials
+
+A [`docker-compose.yml`](docker-compose.yml) and [`Dockerfile`](Dockerfile) are included in the repository for containerised deployment.
+
+#### Building
+
+```bash
+docker compose build
+```
+
+#### Running
+
+```bash
+docker compose up -d
+```
+
+#### Viewing Logs
+
+```bash
+docker compose logs -f
+```
+
+#### Stopping
+
+```bash
+docker compose down
+```
+
+#### Environment Variables
+
+Same variables as in the [Direct Installation configuration](#configuration) above. Place them in the `.env` file (which is automatically picked up by [`docker-compose.yml`](docker-compose.yml)) or directly in the `environment:` section of `docker-compose.yml`.
+
+| Variable                | Required | Default | Description                                                  |
+| ----------------------- | -------- | ------- | ------------------------------------------------------------ |
+| `JOPLIN_SERVER_URL`     | **Yes**  | —       | Joplin Server URL (e.g., `https://joplin.example.com/`)      |
+| `JOPLIN_USERNAME`       | **Yes**  | —       | Joplin Server username/email                                 |
+| `JOPLIN_PASSWORD`       | **Yes**  | —       | Joplin Server password                                       |
+| `JOPLIN_DATA_API_PORT`  | No       | `41184` | Internal Data API listen port (Joplin ClipperServer hardcoded default) |
+| `LOG_LEVEL`             | No       | `info`  | Log level: `debug`, `info`, `warn`, `error`, `silent`        |
+| `SYNC_INTERVAL_SECONDS` | No       | `300`   | Periodic sync interval in seconds                            |
+| `NODE_ENV`              | No       | —       | Set to `production` to enforce HTTPS for `JOPLIN_SERVER_URL` |
+
+> **Note:** `JOPLIN_API_TOKEN` is not a user-facing variable. The [entrypoint script](entrypoint.sh) automatically extracts it from Joplin's config (`joplin config api.token`) and exports it for the server.
+
+#### MCP Client Configuration (Docker)
+
+```json
+{
+  "mcpServers": {
+    "joplin": {
+      "command": "docker",
+      "args": ["run", "-i", "--rm", "--env-file", "/path/to/.env", "joplin-api-mcp"]
+    }
+  }
+}
+```
+
+#### How It Works
+
+- Builds from `node:22-bookworm-slim` via a multi-stage [`Dockerfile`](Dockerfile) (build stage compiles TypeScript and runs tests; production stage contains only `dist/` and production dependencies)
+- Runs as non-root `joplin` user
+- Stores Joplin profile data in a named volume (`joplin_data`)
+- Uses a [`socat`](https://linux.die.net/man/1/socat) proxy to expose the Data API externally (ClipperServer hardcodes `127.0.0.1:41184`; socat proxies `0.0.0.0:41185` → `127.0.0.1:41184`)
+- The host port `41184` maps to container proxy port `41185` (restricted to `127.0.0.1` on the host)
+- Healthcheck polls `/ping` on the proxy port every 30s
+
+> **Note:** The `deploy.resources` block in [`docker-compose.yml`](docker-compose.yml) (CPU/memory limits) is only enforced by Docker Swarm. When using `docker compose up`, these limits are silently ignored. For local resource constraints, use `--cpus` and `--memory` flags or set resource limits in your container runtime (e.g., Docker Desktop settings).
 
 ---
 
