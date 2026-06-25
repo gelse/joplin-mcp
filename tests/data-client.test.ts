@@ -468,7 +468,9 @@ describe('JoplinDataClient', () => {
       const folder = await client.getFolder('folder-1');
 
       expect(folder).toMatchObject({ id: 'folder-1', title: 'Test Folder' });
-      expect(mockFetch.mock.calls[0][0] as string).toBe(`${BASE_URL}/folders/folder-1?token=test-api-token`);
+      expect(mockFetch.mock.calls[0][0] as string).toBe(
+        `${BASE_URL}/folders/folder-1?token=test-api-token`,
+      );
     });
 
     it('createFolder POSTs a new folder', async () => {
@@ -541,7 +543,9 @@ describe('JoplinDataClient', () => {
       const tag = await client.getTag('tag-1');
 
       expect(tag).toMatchObject({ id: 'tag-1', title: 'Test Tag' });
-      expect(mockFetch.mock.calls[0][0] as string).toBe(`${BASE_URL}/tags/tag-1?token=test-api-token`);
+      expect(mockFetch.mock.calls[0][0] as string).toBe(
+        `${BASE_URL}/tags/tag-1?token=test-api-token`,
+      );
     });
 
     it('createTag POSTs a new tag', async () => {
@@ -574,7 +578,9 @@ describe('JoplinDataClient', () => {
       const result = await client.getNoteTags('note-1');
 
       expect(result).toEqual(tags);
-      expect(mockFetch.mock.calls[0][0] as string).toBe(`${BASE_URL}/notes/note-1/tags?token=test-api-token`);
+      expect(mockFetch.mock.calls[0][0] as string).toBe(
+        `${BASE_URL}/notes/note-1/tags?token=test-api-token`,
+      );
     });
 
     it('tagNote POSTs a note‑tag relationship', async () => {
@@ -660,12 +666,10 @@ describe('JoplinDataClient', () => {
       await expect(client.getNote('x')).rejects.toThrow(AuthError);
     });
 
-    it('403 response throws DataApiError (falls through to catch‑all)', async () => {
+    it('403 response throws AuthError', async () => {
       mockFetch.mockResolvedValueOnce(errorResponse(403, 'Forbidden'));
 
-      await expect(client.listNotes()).rejects.toThrow(DataApiError);
-      // Should NOT be AuthError since the code only handles 401 specially
-      await expect(client.listNotes()).rejects.not.toThrow(AuthError);
+      await expect(client.listNotes()).rejects.toThrow(AuthError);
     });
 
     it('500 response throws DataApiError', async () => {
@@ -715,7 +719,7 @@ describe('JoplinDataClient', () => {
     // Error Message Sanitization (HIGH-006)
     // =====================================================================
     describe('error message sanitization', () => {
-      it('404 error message does NOT contain the full URL path', async () => {
+      it('404 error message includes resource type and ID for transparency', async () => {
         mockFetch.mockResolvedValueOnce(errorResponse(404, 'Not Found'));
 
         try {
@@ -724,14 +728,13 @@ describe('JoplinDataClient', () => {
         } catch (e: unknown) {
           const err = e as NotFoundError;
           expect(err).toBeInstanceOf(NotFoundError);
-          // Message should contain the resource type, not the full path
+          // Message should contain resource type and the actual ID for error transparency
           expect(err.message).toContain('notes');
-          expect(err.message).not.toContain('/notes/secret-note-123');
-          expect(err.message).not.toContain('secret-note-123');
+          expect(err.message).toContain('secret-note-123');
         }
       });
 
-      it('409 error message does NOT contain the full URL path', async () => {
+      it('409 error message includes resource type and ID for transparency', async () => {
         mockFetch.mockResolvedValueOnce(errorResponse(409, 'Conflict'));
 
         try {
@@ -740,14 +743,13 @@ describe('JoplinDataClient', () => {
         } catch (e: unknown) {
           const err = e as ConflictError;
           expect(err).toBeInstanceOf(ConflictError);
-          // Message should contain the resource type, not the full path
+          // Message should contain resource type and the actual ID for error transparency
           expect(err.message).toContain('notes');
-          expect(err.message).not.toContain('/notes/conflicted-id-456');
-          expect(err.message).not.toContain('conflicted-id-456');
+          expect(err.message).toContain('conflicted-id-456');
         }
       });
 
-      it('400 error message does NOT contain path or response body', async () => {
+      it('400 error message passes API response body for transparency', async () => {
         mockFetch.mockResolvedValueOnce(
           errorResponse(400, 'Bad Request', 'internal: invalid field "password"'),
         );
@@ -758,13 +760,8 @@ describe('JoplinDataClient', () => {
         } catch (e: unknown) {
           const err = e as ValidationError;
           expect(err).toBeInstanceOf(ValidationError);
-          expect(err.message).toBe('Bad request');
-          // Should not leak internal details
-          expect(err.message).not.toContain('/notes');
-          expect(err.message).not.toContain('invalid field');
-          expect(err.message).not.toContain('password');
-          // The raw body is NOT exposed as responseBody for sanitized 400 errors
-          expect(err.responseBody).toBeUndefined();
+          // Message should pass through the API's actual error body verbatim for transparency
+          expect(err.message).toBe('internal: invalid field "password"');
         }
       });
 

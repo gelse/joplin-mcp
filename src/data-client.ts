@@ -46,10 +46,7 @@ export class JoplinDataClient {
     private readonly logger: Logger,
     maxConcurrency: number = 5,
   ) {
-    this.baseUrl =
-      typeof portOrUrl === 'number'
-        ? `http://127.0.0.1:${portOrUrl}`
-        : portOrUrl;
+    this.baseUrl = typeof portOrUrl === 'number' ? `http://127.0.0.1:${portOrUrl}` : portOrUrl;
     this.apiToken = apiToken;
     this.maxConcurrency = maxConcurrency;
   }
@@ -130,9 +127,7 @@ export class JoplinDataClient {
     const response = await fetch(url, { method: 'POST' });
 
     if (!response.ok) {
-      throw new AuthError(
-        `Authentication failed: ${response.status} ${response.statusText}`,
-      );
+      throw new AuthError(`Authentication failed: ${response.status} ${response.statusText}`);
     }
 
     const data = (await response.json()) as { auth_token?: string };
@@ -191,11 +186,7 @@ export class JoplinDataClient {
     this.tokenExpiresAt = 0;
   }
 
-  private async request<T>(
-    method: string,
-    path: string,
-    body?: unknown,
-  ): Promise<T> {
+  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     return this.enqueueRequest(async () => {
       return this.executeRequest<T>(method, path, body);
     });
@@ -245,24 +236,28 @@ export class JoplinDataClient {
     }
 
     if (response.status === 404) {
-      const resourceType = path.split('/').filter(Boolean)[0] || 'resource';
+      const segments = path.split('/').filter(Boolean);
+      const resourceType = segments[0] || 'resource';
+      const id = segments[1] || 'unknown';
       this.logger.debug({ status: 404, path }, 'Request failed');
-      throw new NotFoundError(resourceType, resourceType);
+      throw new NotFoundError(resourceType, id);
     }
     if (response.status === 409) {
-      const resourceType = path.split('/').filter(Boolean)[0] || 'resource';
+      const segments = path.split('/').filter(Boolean);
+      const resourceType = segments[0] || 'resource';
+      const id = segments[1] || 'unknown';
       this.logger.debug({ status: 409, path }, 'Request failed');
-      throw new ConflictError(resourceType, resourceType);
+      throw new ConflictError(resourceType, id);
     }
     if (response.status === 400) {
       const body = await response.text().catch(() => '');
       this.logger.debug({ status: 400, path, body }, 'Request failed');
-      throw new ValidationError('Bad request');
+      throw new ValidationError(body || `Bad request: ${path}`);
     }
     if (response.status === 403) {
       const body = await response.text().catch(() => '');
       this.logger.debug({ status: 403, path, body }, 'Request failed');
-      throw new ValidationError(`Forbidden: ${body}`);
+      throw new AuthError(`Forbidden: ${body || path}`);
     }
     if ([500, 502, 503].includes(response.status)) {
       const resourceType = path.split('/').filter(Boolean)[0] || 'resource';
@@ -320,7 +315,11 @@ export class JoplinDataClient {
    * @throws {AuthError} If the token is expired or authentication fails
    * @throws {DataApiError} On unexpected HTTP errors
    */
-  async listNotes(limit?: number, page?: number, fields?: string[]): Promise<PaginatedResponse<Note>> {
+  async listNotes(
+    limit?: number,
+    page?: number,
+    fields?: string[],
+  ): Promise<PaginatedResponse<Note>> {
     const fieldsParam = fields && fields.length > 0 ? `&fields=${fields.join(',')}` : '';
     const params = `?limit=${clampLimit(limit)}${buildPageParam(page)}${fieldsParam}`;
     return this.request<PaginatedResponse<Note>>('GET', `/notes${params}`);

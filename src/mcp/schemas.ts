@@ -8,7 +8,13 @@ const booleanNum = z.union([z.boolean(), z.number().transform((n) => n !== 0)]).
 
 // === list_notes ===
 export const ListNotesSchema = z.object({
-  limit: z.number().int().min(1).max(100).optional().describe('Maximum number of notes to return (1-100)'),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .optional()
+    .describe('Maximum number of notes to return (1-100)'),
   page: z.number().int().min(1).optional().describe('Page number for pagination'),
 });
 
@@ -44,7 +50,7 @@ export const ReadTagsSchema = z.object({
 // === create_note ===
 export const CreateNoteSchema = z.object({
   title: z.string().min(1).max(500).describe('Note title'),
-  parent_id: joplinId.optional().describe('Parent notebook/folder ID'),
+  parent_id: joplinId.describe('Parent notebook/folder ID'),
   body: z.string().max(1_000_000).optional().describe('Note body content (markdown)'),
   author: z.string().max(200).optional(),
   source_url: z.string().url().optional(),

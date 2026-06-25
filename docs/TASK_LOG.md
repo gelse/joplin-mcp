@@ -32,9 +32,11 @@
 6. **Test failures (4 tests)**: Updated [`tools.test.ts`](tests/mcp/tools.test.ts) to expect `fields` array parameter on `getNote` calls, and [`tool-registry.test.ts`](tests/mcp/tool-registry.test.ts) tool count from 16 to 17.
 
 **New tool added**:
+
 - `list_notes` — registered in [`tool-registry.ts`](src/mcp/tool-registry.ts), schema in [`schemas.ts`](src/mcp/schemas.ts) (`ListNotesSchema`), handler in [`tools.ts`](src/mcp/tools.ts) using `NOTE_FIELDS_PAGE` constant. Returns paginated notes with `created_time`, `updated_time`, and other metadata.
 
 **End-to-end verification**:
+
 - `initialize` → MCP handshake succeeded, server identified as `joplin-api-mcp v0.1.0`
 - `tools/list` → 17 tools registered (including `list_notes` as first tool)
 - `tools/call list_notes` → returned 5 notes, each with `created_time`, `updated_time`, `id`, `title`, `body`, `parent_id`, `is_todo`, `todo_due`, `todo_completed`, `source_url`. Pagination confirmed with `has_more: true`.
@@ -47,6 +49,7 @@
 **Root Cause**: [`ClipperServer.ts:145`](https://github.com/laurent22/joplin/blob/dev/packages/lib/ClipperServer.ts#L145) in the Joplin source hardcodes `this.server_.listen(this.port_, '127.0.0.1');`. The `joplin server start` command only accepts `--exit-early` and `--quiet` flags — no bind address override.
 
 **Changes**:
+
 - **`Dockerfile.core`**: Added `socat` to apt-get install packages
 - **`entrypoint-core.sh`**: Complete rewrite of Data API startup block:
   1. Configure `joplin config api.port 41185` (internal port)
@@ -57,6 +60,7 @@
 - **`.env`**: Added `JOPLIN_API_TOKEN` extracted from joplin-core container
 
 **Verification**:
+
 - joplin-core Data API healthy on internal 127.0.0.1:41185
 - socat proxy verified reachable on 0.0.0.0:41184 (returns `JoplinClipperServer`)
 - joplin-mcp connected successfully: `"status":"ok","version":"JoplinClipperServer"`
@@ -77,6 +81,7 @@
 **Description**: Identified and removed all obsolete files from the Joplin API project after it was modularized from a monolithic Docker setup into two containers (joplin-core and joplin-mcp).
 
 ### Files Deleted
+
 - `Dockerfile` — original monolithic multi-stage Dockerfile, replaced by `Dockerfile.core` + `Dockerfile.mcp`
 - `entrypoint.sh` — original monolithic entrypoint, replaced by `entrypoint-core.sh` + `entrypoint-mcp.sh`
 - `src/server.ts` — 276-line monolithic entrypoint (spawned Data API, socat proxy, SyncManager, MCP on stdio), replaced by `src/mcp/entry.ts`
@@ -84,6 +89,7 @@
 - `tests/server.test.ts` — 847-line test file (15 tests) for the deleted monolithic `src/server.ts`
 
 ### Files Updated (Reference Cleanup)
+
 - **`README.md`** — ~13 edits: removed monolithic deployment section, updated MCP client config from stdio to HTTP, updated project structure tree (removed `server.test.ts`, `Dockerfile`, `entrypoint.sh`), updated key module descriptions
 - **`SBOM.md`** — 4 edits: removed backward-compatibility note, updated supergateway section, updated mcp.json example from stdio to HTTP
 - **`tests/TODO.md`** — removed `tests/server.test.ts` from audit table (TOTAL recalculated: 282→267, GENUINE: 257→246, WEAK: 7→6, GREEN-ONLY: 9→8), marked tasks 2, 3, 10 as OBSOLETE
@@ -92,6 +98,7 @@
 - **`Dockerfile.core`** — updated description comment
 
 ### Verification
+
 - `npx tsc --noEmit` passed with exit code 0
 - Grep confirmed zero remaining stale references to deleted files in non-obsolete code
 - `src/sync-manager.ts` confirmed NOT obsolete — actively used by Container B tools for write-through sync triggers
@@ -123,6 +130,7 @@
 **Description**: Updated PROMPT.md to reflect the new `list_notes` tool, added `@hono/node-server` and `hono` to the dependencies listing, and updated all tool counts from 16 to 17.
 
 ### Changes
+
 - Line 5: "16 tools" → "17 tools" in Purpose
 - Source File Map: `tool-registry.ts` (16→17), `tools.ts` (16→17), `schemas.ts` (16→17)
 - Section header: "16 MCP Tools" → "17 MCP Tools"
@@ -134,9 +142,26 @@
 ## 2026-06-25T05:26:00Z — Fix devcontainer startup: Dockerfile path reference
 
 **Description**: Devcontainer startup failed with `ENOENT: no such file or directory, open '/home/werner/dev/joplin-api/.devcontainer/Dockerfile.core'`. The [`devcontainer.json`](.devcontainer/devcontainer.json:4) referenced `"dockerfile": "Dockerfile.core"`, which VSCode resolves relative to the `.devcontainer/` directory — looking for `.devcontainer/Dockerfile.core` which doesn't exist. The project has two Dockerfiles:
+
 - `Dockerfile.core` at project root — a **production** image (`node:22-bookworm-slim`, `joplin` user, entrypoint script)
 - `.devcontainer/Dockerfile` — the actual **devcontainer** image (`typescript-node:1-22-bookworm`, dev tools, `node` user)
 
 **Fix**: Changed `dockerfile` from `"Dockerfile.core"` to `"Dockerfile"` in [`devcontainer.json`](.devcontainer/devcontainer.json:4), pointing to the correct devcontainer Dockerfile that already exists inside `.devcontainer/`.
 
-**Outcome**: Devcontainer now references the correct Dockerfile path; startup should proceed without the ENOENT error.>>>>>>> REPLACE
+**Outcome**: Devcontainer now references the correct Dockerfile path; startup should proceed without the ENOENT error.
+
+## 2026-06-25T05:50:00Z — Add input validation rules and fix Joplin API error transparency
+
+**Description**: Two improvements to the MCP server:
+
+1. **Input validation — require `parent_id` for note creation**: Made `parent_id` required in [`CreateNoteSchema`](src/mcp/schemas.ts:47) by removing `.optional()`. This enforces the business rule "you must not create a note without a notebook." Updated all related tests in [`tests/mcp/schemas.test.ts`](tests/mcp/schemas.test.ts) and [`tests/mcp/tools.test.ts`](tests/mcp/tools.test.ts) to include `parent_id` in createNote calls.
+
+2. **Error transparency from Joplin Data API**: Fixed [`data-client.ts`](src/data-client.ts:247) error handling so Joplin API errors are never swallowed:
+   - **404 errors**: Now extract the actual resource ID from the URL path segments and pass it to `NotFoundError(resourceType, id)` instead of using the resource type as a placeholder.
+   - **409 errors**: Same fix — actual resource ID passed to `ConflictError(resourceType, id)`.
+   - **400 errors**: Now pass the API response body text as the `ValidationError` message instead of hardcoding `'Bad request'`, preserving the Joplin API's actual error details.
+   - **403 errors**: Now correctly throw `AuthError` instead of `ValidationError`.
+
+**Tests updated**: 4 tests in [`tests/data-client.test.ts`](tests/data-client.test.ts:663) updated to match new transparent error behavior (403 → AuthError, 404/409 include resource IDs, 400 passes API body).
+
+**Test results**: All 392 tests pass, 0 failures.>>>>>>> REPLACE

@@ -242,9 +242,9 @@ describe('CreateNoteSchema', () => {
     todo_due: 1700000000000,
   };
 
-  it('accepts minimal valid input (only title)', () => {
-    const result = CreateNoteSchema.parse({ title: 'My Note' });
-    expect(result).toEqual({ title: 'My Note' });
+  it('accepts minimal valid input (title and parent_id)', () => {
+    const result = CreateNoteSchema.parse({ title: 'My Note', parent_id: VALID_ID_A });
+    expect(result).toEqual({ title: 'My Note', parent_id: VALID_ID_A });
   });
 
   it('accepts full valid input', () => {
@@ -253,54 +253,62 @@ describe('CreateNoteSchema', () => {
   });
 
   it('accepts is_todo as number 1 (truthy) and transforms it to true', () => {
-    const result = CreateNoteSchema.parse({ title: 'x', is_todo: 1 });
+    const result = CreateNoteSchema.parse({ title: 'x', parent_id: VALID_ID_A, is_todo: 1 });
     expect(result.is_todo).toBe(true);
   });
 
   it('accepts is_todo as number 0 (falsy) and transforms it to false', () => {
-    const result = CreateNoteSchema.parse({ title: 'x', is_todo: 0 });
+    const result = CreateNoteSchema.parse({ title: 'x', parent_id: VALID_ID_A, is_todo: 0 });
     expect(result.is_todo).toBe(false);
   });
 
   it('accepts is_todo as boolean false', () => {
-    const result = CreateNoteSchema.parse({ title: 'x', is_todo: false });
+    const result = CreateNoteSchema.parse({ title: 'x', parent_id: VALID_ID_A, is_todo: false });
     expect(result.is_todo).toBe(false);
   });
 
   it('accepts is_todo as boolean true', () => {
-    const result = CreateNoteSchema.parse({ title: 'x', is_todo: true });
+    const result = CreateNoteSchema.parse({ title: 'x', parent_id: VALID_ID_A, is_todo: true });
     expect(result.is_todo).toBe(true);
   });
 
+  it('rejects missing parent_id', () => {
+    expect(() => CreateNoteSchema.parse({ title: 'x' })).toThrow();
+  });
+
   it('rejects missing title', () => {
-    expect(() => CreateNoteSchema.parse({})).toThrow();
+    expect(() => CreateNoteSchema.parse({ parent_id: VALID_ID_A })).toThrow();
   });
 
   it('rejects empty title', () => {
-    expect(() => CreateNoteSchema.parse({ title: '' })).toThrow();
+    expect(() => CreateNoteSchema.parse({ title: '', parent_id: VALID_ID_A })).toThrow();
   });
 
   it('rejects title exceeding 500 chars', () => {
     const longTitle = 'a'.repeat(501);
-    expect(() => CreateNoteSchema.parse({ title: longTitle })).toThrow();
+    expect(() => CreateNoteSchema.parse({ title: longTitle, parent_id: VALID_ID_A })).toThrow();
   });
 
   it('accepts title at exactly 500 chars', () => {
     const title500 = 'a'.repeat(500);
-    const result = CreateNoteSchema.parse({ title: title500 });
+    const result = CreateNoteSchema.parse({ title: title500, parent_id: VALID_ID_A });
     expect(result.title).toHaveLength(500);
   });
 
   it('rejects wrong type for title', () => {
-    expect(() => CreateNoteSchema.parse({ title: 123 })).toThrow();
+    expect(() => CreateNoteSchema.parse({ title: 123, parent_id: VALID_ID_A })).toThrow();
   });
 
   it('rejects wrong type for is_todo (string)', () => {
-    expect(() => CreateNoteSchema.parse({ title: 'x', is_todo: 'yes' })).toThrow();
+    expect(() =>
+      CreateNoteSchema.parse({ title: 'x', parent_id: VALID_ID_A, is_todo: 'yes' }),
+    ).toThrow();
   });
 
   it('rejects wrong type for todo_due (string)', () => {
-    expect(() => CreateNoteSchema.parse({ title: 'x', todo_due: 'later' })).toThrow();
+    expect(() =>
+      CreateNoteSchema.parse({ title: 'x', parent_id: VALID_ID_A, todo_due: 'later' }),
+    ).toThrow();
   });
 
   it('rejects invalid parent_id (non-hex)', () => {
@@ -309,29 +317,36 @@ describe('CreateNoteSchema', () => {
 
   it('rejects body exceeding 1,000,000 chars', () => {
     const longBody = 'a'.repeat(1_000_001);
-    expect(() => CreateNoteSchema.parse({ title: 'x', body: longBody })).toThrow();
+    expect(() =>
+      CreateNoteSchema.parse({ title: 'x', parent_id: VALID_ID_A, body: longBody }),
+    ).toThrow();
   });
 
   it('rejects author exceeding 200 chars', () => {
     const longAuthor = 'a'.repeat(201);
-    expect(() => CreateNoteSchema.parse({ title: 'x', author: longAuthor })).toThrow();
+    expect(() =>
+      CreateNoteSchema.parse({ title: 'x', parent_id: VALID_ID_A, author: longAuthor }),
+    ).toThrow();
   });
 
   it('accepts valid source_url', () => {
     const result = CreateNoteSchema.parse({
       title: 'x',
+      parent_id: VALID_ID_A,
       source_url: 'https://example.com/page',
     });
     expect(result.source_url).toBe('https://example.com/page');
   });
 
   it('rejects invalid source_url', () => {
-    expect(() => CreateNoteSchema.parse({ title: 'x', source_url: 'not-a-url' })).toThrow();
+    expect(() =>
+      CreateNoteSchema.parse({ title: 'x', parent_id: VALID_ID_A, source_url: 'not-a-url' }),
+    ).toThrow();
   });
 
   it('strips unknown properties', () => {
-    const result = CreateNoteSchema.parse({ title: 'x', unknown: true });
-    expect(result).toEqual({ title: 'x' });
+    const result = CreateNoteSchema.parse({ title: 'x', parent_id: VALID_ID_A, unknown: true });
+    expect(result).toEqual({ title: 'x', parent_id: VALID_ID_A });
   });
 });
 

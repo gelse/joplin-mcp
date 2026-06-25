@@ -455,7 +455,7 @@ describe('createNote', () => {
     const context = createContext();
     context.client.createNote.mockResolvedValue(sampleNote);
 
-    await createNote({ title: 'Todo', is_todo: true }, context);
+    await createNote({ title: 'Todo', parent_id: 'folder1', is_todo: true }, context);
 
     expect(context.client.createNote).toHaveBeenCalledWith(expect.objectContaining({ is_todo: 1 }));
   });
@@ -464,7 +464,7 @@ describe('createNote', () => {
     const context = createContext();
     context.client.createNote.mockResolvedValue(sampleNote);
 
-    await createNote({ title: 'Not Todo', is_todo: false }, context);
+    await createNote({ title: 'Not Todo', parent_id: 'folder1', is_todo: false }, context);
 
     expect(context.client.createNote).toHaveBeenCalledWith(expect.objectContaining({ is_todo: 0 }));
   });
@@ -473,7 +473,7 @@ describe('createNote', () => {
     const context = createContext();
     context.client.createNote.mockResolvedValue(sampleNote);
 
-    await createNote({ title: 'Num Todo', is_todo: 1 }, context);
+    await createNote({ title: 'Num Todo', parent_id: 'folder1', is_todo: 1 }, context);
 
     expect(context.client.createNote).toHaveBeenCalledWith(expect.objectContaining({ is_todo: 1 }));
   });
@@ -482,7 +482,7 @@ describe('createNote', () => {
     const context = createContext();
     context.client.createNote.mockResolvedValue(sampleNote);
 
-    await createNote({ title: 'Sync Test' }, context);
+    await createNote({ title: 'Sync Test', parent_id: 'folder1' }, context);
 
     expect(context.syncManager.triggerSync).toHaveBeenCalledWith('create_note');
     expect(context.syncManager.triggerSync).toHaveBeenCalledOnce();
@@ -492,7 +492,9 @@ describe('createNote', () => {
     const context = createContext();
     context.client.createNote.mockRejectedValue(new Error('Creation failed'));
 
-    await expect(createNote({ title: 'Fail' }, context)).rejects.toThrow('Creation failed');
+    await expect(createNote({ title: 'Fail', parent_id: 'folder1' }, context)).rejects.toThrow(
+      'Creation failed',
+    );
   });
 });
 
