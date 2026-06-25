@@ -130,3 +130,13 @@
 - Dependencies JSON: Added `@hono/node-server` (^1.19.0) and `hono` (^4.12.0)
 
 **Outcome**: PROMPT.md accurately reflects 17 tools, correct dependencies, and the new `list_notes` handler.
+
+## 2026-06-25T05:26:00Z — Fix devcontainer startup: Dockerfile path reference
+
+**Description**: Devcontainer startup failed with `ENOENT: no such file or directory, open '/home/werner/dev/joplin-api/.devcontainer/Dockerfile.core'`. The [`devcontainer.json`](.devcontainer/devcontainer.json:4) referenced `"dockerfile": "Dockerfile.core"`, which VSCode resolves relative to the `.devcontainer/` directory — looking for `.devcontainer/Dockerfile.core` which doesn't exist. The project has two Dockerfiles:
+- `Dockerfile.core` at project root — a **production** image (`node:22-bookworm-slim`, `joplin` user, entrypoint script)
+- `.devcontainer/Dockerfile` — the actual **devcontainer** image (`typescript-node:1-22-bookworm`, dev tools, `node` user)
+
+**Fix**: Changed `dockerfile` from `"Dockerfile.core"` to `"Dockerfile"` in [`devcontainer.json`](.devcontainer/devcontainer.json:4), pointing to the correct devcontainer Dockerfile that already exists inside `.devcontainer/`.
+
+**Outcome**: Devcontainer now references the correct Dockerfile path; startup should proceed without the ENOENT error.>>>>>>> REPLACE

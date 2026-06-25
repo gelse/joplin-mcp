@@ -1,0 +1,49 @@
+{
+  "name": "Joplin API MCP Dev",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+  "containerEnv": {
+    "LANG": "en_US.UTF-8",
+    "LC_ALL": "en_US.UTF-8"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "ms-azuretools.vscode-docker",
+        "yzhang.markdown-all-in-one",
+        "mhutchie.git-graph",
+        "bierner.markdown-mermaid",
+        "github.vscode-github-actions",
+        "zoocodeorganization.zoo-code",
+        "redhat.vscode-yaml"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "typescript.tsdk": "node_modules/typescript/lib"
+      }
+    }
+  },
+  "forwardPorts": [41100],
+  "postCreateCommand": "pnpm install",
+  "remoteUser": "node",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "runArgs": [
+    "--cap-add=SYS_PTRACE",
+    "--security-opt",
+    "seccomp=unconfined"
+  ],
+  "mounts": [
+    "source=${env:HOME}/.roo,target=/home/node/.roo,type=bind",
+    "source=${env:HOME}/.config/Code/User/globalStorage/zoocodeorganization.zoo-code,target=/home/node/.vscode-server/data/User/globalStorage/zoocodeorganization.zoo-code,type=bind"
+  ]
+}
