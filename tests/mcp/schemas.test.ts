@@ -360,15 +360,16 @@ describe('CreateFolderSchema', () => {
   });
 
   it('accepts full valid input', () => {
+    const iconJson = '{"emoji":"📁","name":"file_folder","type":1}';
     const result = CreateFolderSchema.parse({
       title: 'Folder',
       parent_id: VALID_ID_A,
-      icon: '📁',
+      icon: iconJson,
     });
     expect(result).toEqual({
       title: 'Folder',
       parent_id: VALID_ID_A,
-      icon: '📁',
+      icon: iconJson,
     });
   });
 
@@ -405,6 +406,42 @@ describe('CreateFolderSchema', () => {
   it('strips unknown properties', () => {
     const result = CreateFolderSchema.parse({ title: 'x', unknown: true });
     expect(result).toEqual({ title: 'x' });
+  });
+
+  it('accepts valid JSON icon string', () => {
+    const iconJson = '{"emoji":"🧙","name":"mage","type":1}';
+    const result = CreateFolderSchema.parse({
+      title: 'x',
+      icon: iconJson,
+    });
+    expect(result).toEqual({ title: 'x', icon: iconJson });
+  });
+
+  it('accepts empty string icon (clearing)', () => {
+    const result = CreateFolderSchema.parse({ title: 'x', icon: '' });
+    expect(result).toEqual({ title: 'x', icon: '' });
+  });
+
+  it('accepts omitted icon', () => {
+    const result = CreateFolderSchema.parse({ title: 'x' });
+    expect(result).toEqual({ title: 'x' });
+  });
+
+  it('rejects raw emoji string as icon', () => {
+    expect(() => CreateFolderSchema.parse({ title: 'x', icon: '🧙' })).toThrow();
+  });
+
+  it('rejects invalid JSON as icon', () => {
+    expect(() => CreateFolderSchema.parse({ title: 'x', icon: '{broken' })).toThrow();
+  });
+
+  it('rejects JSON icon missing required keys', () => {
+    expect(() =>
+      CreateFolderSchema.parse({
+        title: 'x',
+        icon: '{"emoji":"🧙"}',
+      }),
+    ).toThrow();
   });
 });
 
@@ -515,17 +552,18 @@ describe('EditFolderSchema', () => {
   });
 
   it('accepts full valid input', () => {
+    const iconJson = '{"emoji":"🎉","name":"tada","type":1}';
     const result = EditFolderSchema.parse({
       folder_id: VALID_ID_A,
       title: 'Updated',
       parent_id: VALID_ID_B,
-      icon: '🎉',
+      icon: iconJson,
     });
     expect(result).toEqual({
       folder_id: VALID_ID_A,
       title: 'Updated',
       parent_id: VALID_ID_B,
-      icon: '🎉',
+      icon: iconJson,
     });
   });
 
@@ -557,6 +595,42 @@ describe('EditFolderSchema', () => {
   it('strips unknown properties', () => {
     const result = EditFolderSchema.parse({ folder_id: VALID_ID_A, extra: true });
     expect(result).toEqual({ folder_id: VALID_ID_A });
+  });
+
+  it('accepts valid JSON icon string', () => {
+    const iconJson = '{"emoji":"🧙","name":"mage","type":1}';
+    const result = EditFolderSchema.parse({
+      folder_id: VALID_ID_A,
+      icon: iconJson,
+    });
+    expect(result).toEqual({ folder_id: VALID_ID_A, icon: iconJson });
+  });
+
+  it('accepts empty string icon (clearing)', () => {
+    const result = EditFolderSchema.parse({ folder_id: VALID_ID_A, icon: '' });
+    expect(result).toEqual({ folder_id: VALID_ID_A, icon: '' });
+  });
+
+  it('accepts omitted icon', () => {
+    const result = EditFolderSchema.parse({ folder_id: VALID_ID_A });
+    expect(result).toEqual({ folder_id: VALID_ID_A });
+  });
+
+  it('rejects raw emoji string as icon', () => {
+    expect(() => EditFolderSchema.parse({ folder_id: VALID_ID_A, icon: '🧙' })).toThrow();
+  });
+
+  it('rejects invalid JSON as icon', () => {
+    expect(() => EditFolderSchema.parse({ folder_id: VALID_ID_A, icon: '{broken' })).toThrow();
+  });
+
+  it('rejects JSON icon missing required keys', () => {
+    expect(() =>
+      EditFolderSchema.parse({
+        folder_id: VALID_ID_A,
+        icon: '{"emoji":"🧙"}',
+      }),
+    ).toThrow();
   });
 });
 

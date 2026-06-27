@@ -6,6 +6,34 @@ const joplinId = z.string().regex(/^[0-9a-f]{32}$/, 'Expected 32-character hex I
 // Helper: Joplin CLI uses 0/1 for booleans, but we accept both
 const booleanNum = z.union([z.boolean(), z.number().transform((n) => n !== 0)]).optional();
 
+// Schema for the JSON icon object format used by Joplin's Data API
+const IconObjectSchema = z.object({
+  emoji: z.string(),
+  name: z.string(),
+  type: z.number(),
+});
+
+// Icon must be empty/omitted OR a valid JSON icon object string
+const iconSchema = z
+  .string()
+  .max(100)
+  .optional()
+  .refine(
+    (val) => {
+      if (val === undefined || val === '') return true;
+      try {
+        const parsed = JSON.parse(val);
+        return IconObjectSchema.safeParse(parsed).success;
+      } catch {
+        return false;
+      }
+    },
+    {
+      message:
+        'Icon must be empty or a JSON object string with emoji, name, and type fields (e.g. {"emoji":"🧙","name":"mage","type":1})',
+    },
+  );
+
 // === list_notes ===
 export const ListNotesSchema = z.object({
   limit: z
@@ -62,7 +90,9 @@ export const CreateNoteSchema = z.object({
 export const CreateFolderSchema = z.object({
   title: z.string().min(1).max(500).describe('Folder/notebook title'),
   parent_id: joplinId.optional().describe('Parent folder ID'),
-  icon: z.string().max(100).optional().describe('Emoji icon for the folder'),
+  icon: iconSchema.describe(
+    'Icon as JSON object string (e.g. {"emoji":"🧙","name":"mage","type":1})',
+  ),
 });
 
 // === edit_note ===
@@ -82,7 +112,7 @@ export const EditFolderSchema = z.object({
   folder_id: joplinId.describe('The ID of the folder to edit'),
   title: z.string().max(500).optional(),
   parent_id: joplinId.optional(),
-  icon: z.string().max(100).optional(),
+  icon: iconSchema,
 });
 
 // === create_tag ===

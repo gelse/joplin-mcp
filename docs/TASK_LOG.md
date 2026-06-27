@@ -164,4 +164,15 @@
 
 **Tests updated**: 4 tests in [`tests/data-client.test.ts`](tests/data-client.test.ts:663) updated to match new transparent error behavior (403 → AuthError, 404/409 include resource IDs, 400 passes API body).
 
-**Test results**: All 392 tests pass, 0 failures.>>>>>>> REPLACE
+**Test results**: All 392 tests pass, 0 failures.
+
+## 2026-06-27T15:33:00Z — Add icon input validation for folder notebooks
+
+**Description**: Added Zod schema validation for the `icon` field in both `CreateFolderSchema` and `EditFolderSchema` to prevent AI from passing raw emoji strings (e.g. `"🧙"`) instead of the proper Joplin Data API JSON object format (`{"emoji":"🧙","name":"mage","type":1}`).
+
+**Changes**:
+
+- **[`src/mcp/schemas.ts`](src/mcp/schemas.ts:9)**: Added `IconObjectSchema` (Zod object with `emoji`, `name`, `type` fields) and `iconSchema` with a `.refine()` that accepts undefined/empty string OR valid JSON icon object strings. Applied to both `CreateFolderSchema` (line 93) and `EditFolderSchema` (line 115).
+- **[`tests/mcp/schemas.test.ts`](tests/mcp/schemas.test.ts)**: Updated existing "accepts full valid input" tests to use JSON icon strings. Added 12 new test cases (6 per schema): valid JSON icon, empty string, omitted icon, raw emoji rejection, invalid JSON rejection, and missing keys rejection.
+
+**Test results**: All 404 tests pass, 0 failures (14 skipped — integration tests).
