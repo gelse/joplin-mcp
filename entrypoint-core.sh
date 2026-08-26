@@ -110,6 +110,9 @@ if [ -z "${JOPLIN_API_TOKEN:-}" ]; then
     exit 1
 fi
 log "INFO" "Joplin API token obtained successfully"
+echo "========================================================="
+echo "  Joplin API Token: $JOPLIN_API_TOKEN"
+echo "========================================================="
 
 # -----------------------------------------------------------------------------
 # Export env vars for Joplin CLI
