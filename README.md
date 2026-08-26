@@ -58,10 +58,10 @@ This project involves **two different Joplin tokens** that must not be confused:
 
 | Token | Where to find it | What it's used for |
 | ----- | ----------------- | ------------------- |
-| **Data API token** (`api.token`) | Run `joplin config api.token` in the Joplin CLI | Authenticate requests to the Joplin ClipperServer Data API (used as `JOPLIN_API_TOKEN` in this project) |
+| **Data API token** (`api.token`) | Check `docker logs joplin-core` — the token is echoed on startup | Authenticate requests to the Joplin ClipperServer Data API (used as `JOPLIN_API_TOKEN` in this project) |
 | **Web Clipper token** | Joplin desktop → *Web Clipper → Options* (shown in the browser extension UI) | Authenticate the Web Clipper browser extension — **this is NOT the same token** |
 
-> **⚠️ Do NOT use the Web Clipper token from the Joplin frontend as your `JOPLIN_API_TOKEN`.** They are different values, and using the wrong one will cause authentication failures. Always retrieve the token from `joplin config api.token`.
+> **⚠️ Do NOT use the Web Clipper token from the Joplin frontend as your `JOPLIN_API_TOKEN`.** They are different values, and using the wrong one will cause authentication failures. Always retrieve the token from the container logs.
 
 There is also a short-lived **session token** (`auth_token`) that the MCP server obtains automatically at runtime via `POST /auth` — you never need to set or manage this token yourself.
 
@@ -109,7 +109,21 @@ All configuration is done via environment variables:
 | `SYNC_INTERVAL_SECONDS` | No       | `300`   | Periodic sync interval in seconds                            |
 | `NODE_ENV`              | No       | —       | Set to `production` to enforce HTTPS for `JOPLIN_SERVER_URL` |
 
-> **Note:** `JOPLIN_API_TOKEN` is the Joplin **Data API token**, obtained via `joplin config api.token`. This is **not** the same as the "Web Clipper token" shown in Joplin's desktop frontend — see [Important: Two Different Tokens](#-important-two-different-tokens--do-not-mix). The [core entrypoint script](entrypoint-core.sh) automatically extracts it from Joplin's config and exports it for the server. If running natively without the entrypoint, you must set `JOPLIN_API_TOKEN` manually (run `joplin config api.token` in your terminal to get it).
+> **Note:** `JOPLIN_API_TOKEN` is the Joplin **Data API token**. After starting the containers, the [core entrypoint script](entrypoint-core.sh) automatically generates and echoes the token to stdout. Retrieve it by running:
+>
+> ```bash
+> docker logs joplin-core
+> ```
+>
+> The token appears in a bordered banner:
+>
+> ```
+> =========================================================
+>   Joplin API Token: <token>
+> =========================================================
+> ```
+>
+> This is **not** the same as the "Web Clipper token" shown in Joplin's desktop frontend — see [Important: Two Different Tokens](#-important-two-different-tokens--do-not-mix). If running natively without Docker, you must set `JOPLIN_API_TOKEN` manually in your `.env` file.
 
 #### Running the Server
 
@@ -204,7 +218,7 @@ Place variables in the `.env` file (automatically picked up by [`docker-compose.
 | `JOPLIN_SERVER_URL`     | joplin-core     | **Yes**  | —       | Joplin Server URL (e.g., `https://joplin.example.com/`)      |
 | `JOPLIN_USERNAME`       | joplin-core     | **Yes**  | —       | Joplin Server username/email                                 |
 | `JOPLIN_PASSWORD`       | joplin-core     | **Yes**  | —       | Joplin Server password                                       |
-| `JOPLIN_API_TOKEN`      | both            | **Yes**  | —       | Joplin Data API token (extracted from `joplin config api.token`) |
+| `JOPLIN_API_TOKEN`      | both            | **Yes**  | —       | Joplin Data API token (displayed in `docker logs joplin-core` on startup) |
 | `JOPLIN_CORE_URL`       | joplin-mcp      | **Yes**  | —       | URL of the joplin-core Data API (e.g., `http://joplin-core:41184`) |
 | `JOPLIN_DATA_API_PORT`  | joplin-core     | No       | `41184` | Internal Data API listen port                                |
 | `MCP_PORT`              | joplin-mcp      | No       | `3000`  | MCP HTTP server port (exposed to host)                       |
@@ -379,11 +393,11 @@ Validation error: note_id: Expected 32-character hex ID
 
 ### Token Management
 
-> **⚠️ Reminder:** `JOPLIN_API_TOKEN` is the Data API token (`joplin config api.token`), **not** the Web Clipper token from the Joplin frontend. See [Important: Two Different Tokens](#-important-two-different-tokens--do-not-mix) for details.
+> **⚠️ Reminder:** `JOPLIN_API_TOKEN` is the Data API token (displayed in `docker logs joplin-core` on startup), **not** the Web Clipper token from the Joplin frontend. See [Important: Two Different Tokens](#-important-two-different-tokens--do-not-mix) for details.
 
 The Joplin Data API uses **two layers of token authentication**:
 
-1. **API token** (`JOPLIN_API_TOKEN`) — a static token passed as a query parameter (`?token=...`) to every Data API request. Obtained via `joplin config api.token`
+1. **API token** (`JOPLIN_API_TOKEN`) — a static token passed as a query parameter (`?token=...`) to every Data API request. Displayed in `docker logs joplin-core` on startup
 2. **Session token** (`auth_token`) — a short-lived token (~55 minutes) obtained automatically on startup via `POST /auth`. Used as a `Bearer` token in the `Authorization` header
 
 The session token is managed by [`JoplinDataClient`](src/data-client.ts) and stored in a [`GuardedString`](src/guarded-string.ts) wrapper:
