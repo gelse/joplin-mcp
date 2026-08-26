@@ -52,6 +52,21 @@ MCP client config (HTTP):
 
 ---
 
+## ⚠️ Important: Two Different Tokens — Do Not Mix
+
+This project involves **two different Joplin tokens** that must not be confused:
+
+| Token | Where to find it | What it's used for |
+| ----- | ----------------- | ------------------- |
+| **Data API token** (`api.token`) | Run `joplin config api.token` in the Joplin CLI | Authenticate requests to the Joplin ClipperServer Data API (used as `JOPLIN_API_TOKEN` in this project) |
+| **Web Clipper token** | Joplin desktop → *Web Clipper → Options* (shown in the browser extension UI) | Authenticate the Web Clipper browser extension — **this is NOT the same token** |
+
+> **⚠️ Do NOT use the Web Clipper token from the Joplin frontend as your `JOPLIN_API_TOKEN`.** They are different values, and using the wrong one will cause authentication failures. Always retrieve the token from `joplin config api.token`.
+
+There is also a short-lived **session token** (`auth_token`) that the MCP server obtains automatically at runtime via `POST /auth` — you never need to set or manage this token yourself.
+
+---
+
 ## Detailed How-To
 
 ### Direct Installation
@@ -94,7 +109,7 @@ All configuration is done via environment variables:
 | `SYNC_INTERVAL_SECONDS` | No       | `300`   | Periodic sync interval in seconds                            |
 | `NODE_ENV`              | No       | —       | Set to `production` to enforce HTTPS for `JOPLIN_SERVER_URL` |
 
-> **Note:** `JOPLIN_API_TOKEN` is not a user-facing variable. The [core entrypoint script](entrypoint-core.sh) automatically extracts it from Joplin's config (`joplin config api.token`) and exports it for the server. If running natively without the entrypoint, you must set `JOPLIN_API_TOKEN` manually (run `joplin config api.token` in your terminal to get it).
+> **Note:** `JOPLIN_API_TOKEN` is the Joplin **Data API token**, obtained via `joplin config api.token`. This is **not** the same as the "Web Clipper token" shown in Joplin's desktop frontend — see [Important: Two Different Tokens](#-important-two-different-tokens--do-not-mix). The [core entrypoint script](entrypoint-core.sh) automatically extracts it from Joplin's config and exports it for the server. If running natively without the entrypoint, you must set `JOPLIN_API_TOKEN` manually (run `joplin config api.token` in your terminal to get it).
 
 #### Running the Server
 
@@ -364,7 +379,14 @@ Validation error: note_id: Expected 32-character hex ID
 
 ### Token Management
 
-The Joplin Data API uses bearer token authentication. The token is obtained automatically on startup via a `POST /auth` request and is stored in a [`GuardedString`](src/guarded-string.ts) wrapper:
+> **⚠️ Reminder:** `JOPLIN_API_TOKEN` is the Data API token (`joplin config api.token`), **not** the Web Clipper token from the Joplin frontend. See [Important: Two Different Tokens](#-important-two-different-tokens--do-not-mix) for details.
+
+The Joplin Data API uses **two layers of token authentication**:
+
+1. **API token** (`JOPLIN_API_TOKEN`) — a static token passed as a query parameter (`?token=...`) to every Data API request. Obtained via `joplin config api.token`
+2. **Session token** (`auth_token`) — a short-lived token (~55 minutes) obtained automatically on startup via `POST /auth`. Used as a `Bearer` token in the `Authorization` header
+
+The session token is managed by [`JoplinDataClient`](src/data-client.ts) and stored in a [`GuardedString`](src/guarded-string.ts) wrapper:
 
 - **`GuardedString`** stores the raw value in a private `#value` field, making it inaccessible through `toString()`, `toJSON()`, or template-literal coercion — all such operations return `'[REDACTED]'`
 - The only way to access the actual value is via the explicit `.value` property
