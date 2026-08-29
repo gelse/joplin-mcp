@@ -52,7 +52,6 @@ log_sync() {
 check_sync_errors() {
     local label="$1"
     local log_offset="${2:-0}"
-    local found_errors=false
     local combined_pattern='\[(error|warn)\]|There was some errors|Could not encrypt item|Master key is not loaded|Error:'
 
     local files=(
@@ -61,21 +60,24 @@ check_sync_errors() {
         "${LOG_DIR}/sync-stderr.log"
     )
 
+    local match=false
     for f in "${files[@]}"; do
         [ -f "${f}" ] || continue
 
-        local grep_target="${f}"
         if [ "${f}" = "${LOG_DIR}/log.txt" ] && [ "${log_offset}" -gt 0 ]; then
-            grep_target="$(tail -n +"${log_offset}" "${f}")"
-        fi
-
-        if echo "${grep_target}" | grep -i -q -E "${combined_pattern}" 2>/dev/null; then
-            found_errors=true
-            break
+            if tail -n +"${log_offset}" "${f}" 2>/dev/null | grep -i -q -E "${combined_pattern}" 2>/dev/null; then
+                match=true
+                break
+            fi
+        else
+            if grep -i -q -E "${combined_pattern}" "${f}" 2>/dev/null; then
+                match=true
+                break
+            fi
         fi
     done
 
-    if [ "${found_errors}" = true ]; then
+    if [ "${match}" = true ]; then
         log "WARN" "[${label}] Sync log files contain error/warning patterns — sync may have encountered issues despite exit code 0"
         return 1
     fi
