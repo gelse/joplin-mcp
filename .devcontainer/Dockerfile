@@ -20,4 +20,6 @@ USER node
 # Pre-create .vscode-server so bind mounts don't create it as root
 RUN mkdir -p /home/node/.vscode-server/data/Machine && \
     mkdir -p /home/node/.roo && \
-    mkdir -p /home/node/.vscode-server/data/User/globalStorage/zoocodeorganization.zoo-code
+    mkdir -p /home/node/.vscode-server/data/User/globalStorage && \
+    mkdir -p /home/node/.vscode-server/data/User/globalStorage/zoocodeorganization.zoo-code && \
+    mkdir -p /home/node/.vscode-server/data/User/globalStorage/emptyWindowChatSessions
