@@ -44,6 +44,7 @@
   ],
   "mounts": [
     "source=${env:HOME}/.roo,target=/home/node/.roo,type=bind",
-    "source=${env:HOME}/.config/Code/User/globalStorage/zoocodeorganization.zoo-code,target=/home/node/.vscode-server/data/User/globalStorage/zoocodeorganization.zoo-code,type=bind"
+    "source=${env:HOME}/.config/Code/User/globalStorage/zoocodeorganization.zoo-code,target=/home/node/.vscode-server/data/User/globalStorage/zoocodeorganization.zoo-code,type=bind",
+    "source=${env:HOME}/.config/Code/User/globalStorage/emptyWindowChatSessions,target=/home/node/.vscode-server/data/User/globalStorage/emptyWindowChatSessions,type=bind"
   ]
 }
