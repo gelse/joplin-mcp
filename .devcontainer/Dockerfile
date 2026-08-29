@@ -11,4 +11,5 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install pnpm globally (matching Dockerfile.core and Dockerfile.mcp)
 RUN npm install -g "pnpm@9"
 
-# The default 'node' user (uid 1000) matches remoteUser in devcontainer.json
+# Pre-create .vscode-server with correct ownership so bind mounts don't create it as root
+RUN mkdir -p /home/node/.vscode-server && chown -R node:node /home/node
