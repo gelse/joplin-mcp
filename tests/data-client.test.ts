@@ -138,6 +138,7 @@ describe('JoplinDataClient', () => {
   let fetchAllPagesMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    vi.useRealTimers(); // safety net — reset any leftover fake timers
     vi.clearAllMocks();
     mockFetch = vi.fn();
     vi.stubGlobal('fetch', mockFetch);
@@ -445,6 +446,145 @@ describe('JoplinDataClient', () => {
 
       expect(fetchAllPagesMock).toHaveBeenCalledTimes(1);
       expect(result).toEqual(notes);
+    });
+  });
+
+  // =====================================================================
+  // SQLITE_BUSY retry
+  // =====================================================================
+  describe('SQLITE_BUSY retry', () => {
+    const SQLITE_BUSY_MSG = 'SQLITE_BUSY: database is locked';
+
+    it('GET retries on SQLITE_BUSY', async () => {
+      mockFetch
+        .mockResolvedValueOnce(errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG))
+        .mockResolvedValueOnce(errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG))
+        .mockResolvedValueOnce(okResponse(sampleNote));
+
+      const note = await client.getNote('note-1');
+
+      expect(note).toMatchObject({ id: 'note-1' });
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+      expect(mockLogger.warn).toHaveBeenCalled();
+      expect(mockLogger.info).toHaveBeenCalled();
+    });
+
+    it('GET succeeds on first SQLITE_BUSY retry', async () => {
+      mockFetch
+        .mockResolvedValueOnce(errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG))
+        .mockResolvedValueOnce(okResponse(sampleNote));
+
+      const note = await client.getNote('note-1');
+
+      expect(note).toMatchObject({ id: 'note-1' });
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('non-SQLITE_BUSY 500 is NOT retried', async () => {
+      mockFetch.mockResolvedValueOnce(
+        errorResponse(500, 'Internal Server Error', 'some other error'),
+      );
+
+      await expect(client.getNote('note-1')).rejects.toThrow(DataApiError);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      // No retry warning for SQLITE_BUSY
+      expect(mockLogger.warn).not.toHaveBeenCalledWith(
+        expect.objectContaining({ attempt: expect.any(Number) }),
+        expect.stringContaining('Retrying'),
+      );
+    });
+
+    it('POST does NOT retry on SQLITE_BUSY', async () => {
+      mockFetch.mockResolvedValueOnce(
+        errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG),
+      );
+
+      const err = await client
+        .createNote({ title: 'Test', body: '' })
+        .catch((e: unknown) => e as DataApiError);
+      expect(err).toBeInstanceOf(DataApiError);
+      expect(err.message).toContain('not retrying');
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('PUT does NOT retry on SQLITE_BUSY', async () => {
+      mockFetch.mockResolvedValueOnce(
+        errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG),
+      );
+
+      await expect(client.updateNote('note-1', { title: 'X' })).rejects.toThrow(DataApiError);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('DELETE does NOT retry on SQLITE_BUSY', async () => {
+      mockFetch.mockResolvedValueOnce(
+        errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG),
+      );
+
+      await expect(client.deleteNote('note-1')).rejects.toThrow(DataApiError);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('all retries exhausted throws DataApiError', async () => {
+      mockFetch
+        .mockResolvedValueOnce(errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG))
+        .mockResolvedValueOnce(errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG))
+        .mockResolvedValueOnce(errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG))
+        .mockResolvedValueOnce(errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG));
+
+      const err = await client.getNote('note-1').catch((e: unknown) => e as DataApiError);
+      expect(err).toBeInstanceOf(DataApiError);
+      expect(err.message).toContain('SQLITE_BUSY after 3 retries');
+      expect(mockFetch).toHaveBeenCalledTimes(4);
+      expect(mockLogger.error).toHaveBeenCalled();
+    });
+
+    it('concurrency slot is released between retries', async () => {
+      vi.useFakeTimers();
+      try {
+        mockFetch
+          .mockResolvedValueOnce(errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG))
+          .mockResolvedValueOnce(errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG))
+          .mockResolvedValueOnce(okResponse(sampleNote));
+
+        const promise = client.getNote('note-1');
+
+        // Use async variant so microtask continuations run between timer fires
+        await vi.advanceTimersByTimeAsync(1000);
+        await vi.advanceTimersByTimeAsync(2000);
+
+        const note = await promise;
+
+        expect(note).toMatchObject({ id: 'note-1' });
+        // Verify the retry lifecycle was logged (delay observed between retries)
+        expect(mockLogger.info).toHaveBeenCalledWith(
+          expect.objectContaining({ delay: expect.any(Number) }),
+          expect.stringContaining('Retrying'),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('fetchAllPages GET retries work end-to-end', async () => {
+      // fetchAllPages is mocked — simulate it calling the callback, where
+      // the underlying listNotes hits SQLITE_BUSY once then succeeds.
+      fetchAllPagesMock.mockImplementation(async (callback) => {
+        const res = await callback(1);
+        return res.items;
+      });
+
+      mockFetch
+        .mockResolvedValueOnce(
+          errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG),
+        )
+        .mockResolvedValueOnce(okResponse({ items: [sampleNote], has_more: false }));
+
+      const result = await client.getAllNotes();
+
+      expect(result).toEqual([sampleNote]);
+      // First call: SQLITE_BUSY, second call: success
+      expect(mockFetch).toHaveBeenCalledTimes(2);
     });
   });
 

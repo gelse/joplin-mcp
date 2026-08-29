@@ -229,7 +229,7 @@ export class JoplinDataClient {
             'SQLITE_BUSY on write operation — not retrying to avoid duplicates',
           );
           throw new DataApiError(
-            `Server error (${result.status}) accessing ${path.split('/').filter(Boolean)[0] || 'resource'}`,
+            `Server error (${result.status}) accessing ${path.split('/').filter(Boolean)[0] || 'resource'} — not retrying to avoid duplicates`,
             result.status,
             result.body,
           );
