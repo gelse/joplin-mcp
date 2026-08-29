@@ -45,7 +45,7 @@ log_sync() {
 }
 
 # -----------------------------------------------------------------------------
-# Check log files for sync error/warning patterns
+# Check log files for sync error patterns
 # Returns 0 if no errors found, 1 if error patterns detected
 # Usage: check_sync_errors <label> [log_offset]
 # -----------------------------------------------------------------------------
@@ -62,7 +62,12 @@ check_sync_errors() {
 
     local match=false
     for f in "${files[@]}"; do
-        [ -f "${f}" ] || continue
+        if [ ! -f "${f}" ]; then
+            if [ "${f}" = "${LOG_DIR}/log.txt" ]; then
+                log "WARN" "[${label}] ${f} not found — sync error detection limited to stdout/stderr logs"
+            fi
+            continue
+        fi
 
         if [ "${f}" = "${LOG_DIR}/log.txt" ] && [ "${log_offset}" -gt 0 ]; then
             if grep -i -q -E "${combined_pattern}" <(tail -n +"${log_offset}" "${f}" 2>/dev/null) 2>/dev/null; then
@@ -78,7 +83,7 @@ check_sync_errors() {
     done
 
     if [ "${match}" = true ]; then
-        log "WARN" "[${label}] Sync log files contain error/warning patterns — sync may have encountered issues despite exit code 0"
+        log "WARN" "[${label}] Sync log files contain error patterns — sync may have encountered issues despite exit code 0"
         return 1
     fi
 
