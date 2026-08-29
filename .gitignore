@@ -11,6 +11,7 @@ reports/
 
 # Excluded from public repository (kept locally for development)
 .devcontainer/
+!.devcontainer/Dockerfile
 docs/
 tests/TODO.md
 
