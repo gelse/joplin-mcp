@@ -52,7 +52,7 @@ log_sync() {
 check_sync_errors() {
     local label="$1"
     local log_offset="${2:-0}"
-    local combined_pattern='\[(error|warn)\]|There was some errors|Could not encrypt item|Master key is not loaded|Error:'
+    local combined_pattern='\[error\]|There was some errors|Could not encrypt item|Master key is not loaded'
 
     local files=(
         "${LOG_DIR}/log.txt"
@@ -65,7 +65,7 @@ check_sync_errors() {
         [ -f "${f}" ] || continue
 
         if [ "${f}" = "${LOG_DIR}/log.txt" ] && [ "${log_offset}" -gt 0 ]; then
-            if tail -n +"${log_offset}" "${f}" 2>/dev/null | grep -i -q -E "${combined_pattern}" 2>/dev/null; then
+            if grep -i -q -E "${combined_pattern}" <(tail -n +"${log_offset}" "${f}" 2>/dev/null) 2>/dev/null; then
                 match=true
                 break
             fi
