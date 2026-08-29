@@ -136,7 +136,7 @@ joplin config "sync.10.path" "${JOPLIN_SERVER_URL}"
 joplin config "sync.10.username" "${JOPLIN_USERNAME}"
 joplin config "sync.10.password" "${JOPLIN_PASSWORD}"
 
-log "INFO" "Joplin CLI sync configured successfully"
+log "INFO" "Joplin CLI sync target configured (server reachability will be checked after API token is obtained)"
 
 # -----------------------------------------------------------------------------
 # Extract API token from Joplin config
@@ -159,6 +159,17 @@ log "INFO" "Joplin API token obtained successfully"
 echo "========================================================="
 echo "  Joplin API Token: $JOPLIN_API_TOKEN"
 echo "========================================================="
+
+# -----------------------------------------------------------------------------
+# Probe Joplin Server connectivity
+# -----------------------------------------------------------------------------
+log "INFO" "Probing Joplin Server connectivity..."
+if curl -sf --connect-timeout 5 --max-time 10 "${JOPLIN_SERVER_URL}/api/ping?token=${JOPLIN_API_TOKEN}" -o /dev/null 2>/dev/null; then
+    log "INFO" "Joplin Server is reachable at ${JOPLIN_SERVER_URL}"
+else
+    log "WARN" "Joplin Server not reachable at ${JOPLIN_SERVER_URL} — sync may fail"
+    log "WARN" "This is expected if the server is temporarily unavailable or the token is incorrect"
+fi
 
 # -----------------------------------------------------------------------------
 # Export env vars for Joplin CLI
@@ -257,6 +268,8 @@ if [ "${SYNC_EXIT}" -ne 0 ]; then
     log_sync "FAIL" "Initial sync failed (exit code: ${SYNC_EXIT})"
     log "ERROR" "Sync stderr output:"
     cat "${LOG_DIR}/sync-stderr.log" >&2
+    log "ERROR" "Last 20 lines of Joplin log (log.txt):"
+    tail -n 20 "${LOG_DIR}/log.txt" >&2 || log "WARN" "log.txt not found or empty"
 elif ! check_sync_errors "Initial" "${LOG_TAIL_START}"; then
     log_sync "FAIL" "Initial sync reported errors despite exit code 0"
 else
@@ -280,6 +293,8 @@ fi
             log_sync "FAIL" "Periodic sync failed (exit code: ${SYNC_EXIT})"
             log "ERROR" "Sync stderr output (exit code ${SYNC_EXIT}):"
             cat "${SYNC_STDERR}" >&2
+            log "ERROR" "Last 20 lines of Joplin log (log.txt):"
+            tail -n 20 "${LOG_DIR}/log.txt" >&2 || log "WARN" "log.txt not found or empty"
         elif ! check_sync_errors "Periodic" "${LOG_TAIL_START}"; then
             log_sync "FAIL" "Periodic sync reported errors despite exit code 0"
         else
