@@ -31,7 +31,6 @@ const SQLITE_BUSY_BASE_DELAY_MS = 500;
 const SQLITE_BUSY_MAX_DELAY_MS = 4000;
 
 type RetryableResult<T> =
-  | { ok: true; data: T }
   | { ok: false; retryable: true; status: number; body: string };
 
 export class JoplinDataClient {
@@ -243,14 +242,16 @@ export class JoplinDataClient {
     }
 
     // All retries exhausted
+    const finalStatus = (lastError as { status?: number } | undefined)?.status ?? 500;
+    const finalBody = (lastError as { body?: string })?.body;
     this.logger.error(
-      { method, path, retries: SQLITE_BUSY_MAX_RETRIES },
+      { method, path, retries: SQLITE_BUSY_MAX_RETRIES, status: finalStatus, body: finalBody },
       'SQLITE_BUSY retries exhausted',
     );
     throw new DataApiError(
-      `Server error (500) accessing ${path.split('/').filter(Boolean)[0] || 'resource'} — SQLITE_BUSY after ${SQLITE_BUSY_MAX_RETRIES} retries`,
-      500,
-      (lastError as { body?: string })?.body,
+      `Server error (${finalStatus}) accessing ${path.split('/').filter(Boolean)[0] || 'resource'} — SQLITE_BUSY after ${SQLITE_BUSY_MAX_RETRIES} retries`,
+      finalStatus,
+      finalBody,
     );
   }
 
