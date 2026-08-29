@@ -1,6 +1,6 @@
 FROM node:22-bookworm-slim
 
-# System packages for development
+# System packages for development (requires root)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
@@ -8,8 +8,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Install pnpm globally (matching Dockerfile.core and Dockerfile.mcp)
+# Install pnpm globally (requires root)
 RUN npm install -g "pnpm@9"
 
-# Pre-create .vscode-server with correct ownership so bind mounts don't create it as root
-RUN mkdir -p /home/node/.vscode-server && chown -R node:node /home/node
+# Switch to node user for remaining operations
+USER node
+
+# Pre-create .vscode-server so bind mounts don't create it as root
+RUN mkdir -p /home/node/.vscode-server
