@@ -31,7 +31,7 @@
       }
     }
   },
-  "forwardPorts": [41100],
+  "forwardPorts": [3000],
   "postCreateCommand": "pnpm install",
   "remoteUser": "node",
   "features": {
