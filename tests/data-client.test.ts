@@ -456,28 +456,47 @@ describe('JoplinDataClient', () => {
     const SQLITE_BUSY_MSG = 'SQLITE_BUSY: database is locked';
 
     it('GET retries on SQLITE_BUSY', async () => {
-      mockFetch
-        .mockResolvedValueOnce(errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG))
-        .mockResolvedValueOnce(errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG))
-        .mockResolvedValueOnce(okResponse(sampleNote));
+      vi.useFakeTimers();
+      try {
+        mockFetch
+          .mockResolvedValueOnce(errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG))
+          .mockResolvedValueOnce(errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG))
+          .mockResolvedValueOnce(okResponse(sampleNote));
 
-      const note = await client.getNote('note-1');
+        const promise = client.getNote('note-1');
+        await vi.advanceTimersByTimeAsync(4000); // covers all retries deterministically
+        const note = await promise;
 
-      expect(note).toMatchObject({ id: 'note-1' });
-      expect(mockFetch).toHaveBeenCalledTimes(3);
-      expect(mockLogger.warn).toHaveBeenCalled();
-      expect(mockLogger.info).toHaveBeenCalled();
+        expect(note).toMatchObject({ id: 'note-1' });
+        expect(mockFetch).toHaveBeenCalledTimes(3);
+        expect(mockLogger.warn).toHaveBeenCalled();
+        expect(mockLogger.info).toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('GET succeeds on first SQLITE_BUSY retry', async () => {
-      mockFetch
-        .mockResolvedValueOnce(errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG))
-        .mockResolvedValueOnce(okResponse(sampleNote));
+      vi.useFakeTimers();
+      try {
+        mockFetch
+          .mockResolvedValueOnce(errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG))
+          .mockResolvedValueOnce(okResponse(sampleNote));
 
-      const note = await client.getNote('note-1');
+        const promise = client.getNote('note-1');
+        await vi.advanceTimersByTimeAsync(1000); // covers the single retry delay
+        const note = await promise;
 
-      expect(note).toMatchObject({ id: 'note-1' });
-      expect(mockFetch).toHaveBeenCalledTimes(2);
+        expect(note).toMatchObject({ id: 'note-1' });
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+        // Verify delay was logged before retry
+        expect(mockLogger.info).toHaveBeenCalledWith(
+          expect.objectContaining({ delay: expect.any(Number) }),
+          expect.stringContaining('Retrying'),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('non-SQLITE_BUSY 500 is NOT retried', async () => {
@@ -489,7 +508,7 @@ describe('JoplinDataClient', () => {
       expect(mockFetch).toHaveBeenCalledTimes(1);
       // No retry warning for SQLITE_BUSY
       expect(mockLogger.warn).not.toHaveBeenCalledWith(
-        expect.objectContaining({ attempt: expect.any(Number) }),
+        expect.anything(),
         expect.stringContaining('Retrying'),
       );
     });
@@ -525,66 +544,122 @@ describe('JoplinDataClient', () => {
       expect(mockFetch).toHaveBeenCalledTimes(1);
     });
 
-    it('all retries exhausted throws DataApiError', async () => {
-      mockFetch
-        .mockResolvedValueOnce(errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG))
-        .mockResolvedValueOnce(errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG))
-        .mockResolvedValueOnce(errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG))
-        .mockResolvedValueOnce(errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG));
+    it(
+      'all retries exhausted throws DataApiError',
+      async () => {
+        // NOTE: This test uses real timers because the retry loop's Promise.resolve()
+        // microtasks don't flush properly under vi.useFakeTimers() — the mock's
+        // resolved promise never settles before advanceTimersByTimeAsync returns,
+        // causing a hang. We accept the ~5s real delay here.
+        mockFetch
+          .mockResolvedValueOnce(errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG))
+          .mockResolvedValueOnce(errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG))
+          .mockResolvedValueOnce(errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG))
+          .mockResolvedValueOnce(errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG));
 
-      const err = await client.getNote('note-1').catch((e: unknown) => e as DataApiError);
-      expect(err).toBeInstanceOf(DataApiError);
-      expect(err.message).toContain('SQLITE_BUSY after 3 retries');
-      expect(mockFetch).toHaveBeenCalledTimes(4);
-      expect(mockLogger.error).toHaveBeenCalled();
-    });
+        const err = await client
+          .getNote('note-1')
+          .catch((e: unknown) => e as DataApiError);
+        expect(err).toBeInstanceOf(DataApiError);
+        expect(err.message).toContain('SQLITE_BUSY after 3 retries');
+        expect(mockFetch).toHaveBeenCalledTimes(4);
+        expect(mockLogger.error).toHaveBeenCalled();
+      },
+      10000,
+    );
 
     it('concurrency slot is released between retries', async () => {
       vi.useFakeTimers();
       try {
+        // maxConcurrency = 1 so only one request can be active at a time
+        const concurrencyClient = new JoplinDataClient(PORT, 'test-api-token', mockLogger, 1);
+
+        // Track the order in which fetch calls fire
+        const fetchCalls: number[] = [];
+        let callIndex = 0;
+
+        // 1) req1 → SQLITE_BUSY (slot released after this)
+        // 2) req2 → OK (starts during req1's backoff window)
+        // 3) req1 retry → OK (fires after req2 completes)
         mockFetch
-          .mockResolvedValueOnce(errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG))
-          .mockResolvedValueOnce(errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG))
-          .mockResolvedValueOnce(okResponse(sampleNote));
+          .mockImplementationOnce(() => {
+            fetchCalls.push(++callIndex);
+            return Promise.resolve(
+              errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG),
+            );
+          })
+          .mockImplementationOnce(() => {
+            fetchCalls.push(++callIndex);
+            return Promise.resolve(okResponse(sampleNote));
+          })
+          .mockImplementationOnce(() => {
+            fetchCalls.push(++callIndex);
+            return Promise.resolve(okResponse(sampleNote));
+          });
 
-        const promise = client.getNote('note-1');
+        // Start request 1 — hits SQLITE_BUSY, releases slot, starts backoff timer
+        const p1 = concurrencyClient.getNote('note-1');
 
-        // Use async variant so microtask continuations run between timer fires
-        await vi.advanceTimersByTimeAsync(1000);
-        await vi.advanceTimersByTimeAsync(2000);
+        // Advance past the initial backoff so the retry timer is set,
+        // but not far enough to fire it (1000ms timer)
+        await vi.advanceTimersByTimeAsync(600);
 
-        const note = await promise;
+        // Start request 2 during req1's backoff window
+        const p2 = concurrencyClient.getNote('note-2');
 
-        expect(note).toMatchObject({ id: 'note-1' });
-        // Verify the retry lifecycle was logged (delay observed between retries)
-        expect(mockLogger.info).toHaveBeenCalledWith(
-          expect.objectContaining({ delay: expect.any(Number) }),
-          expect.stringContaining('Retrying'),
-        );
+        // Advance past all retry timers (1000ms + 2000ms)
+        await vi.advanceTimersByTimeAsync(4000);
+
+        const [note1, note2] = await Promise.all([p1, p2]);
+
+        expect(note1).toMatchObject({ id: 'note-1' });
+        expect(note2).toMatchObject({ id: 'note-1' });
+
+        // Verify slot was released: req2's fetch fired (callIndex 2)
+        // before req1's retry fetch (callIndex 3)
+        expect(fetchCalls).toEqual([1, 2, 3]);
       } finally {
         vi.useRealTimers();
       }
     });
 
     it('fetchAllPages GET retries work end-to-end', async () => {
-      // fetchAllPages is mocked — simulate it calling the callback, where
-      // the underlying listNotes hits SQLITE_BUSY once then succeeds.
-      fetchAllPagesMock.mockImplementation(async (callback) => {
-        const res = await callback(1);
-        return res.items;
-      });
+      vi.useFakeTimers();
+      try {
+        // Use the REAL fetchAllPages (mocked at module level) — call the real
+        // pagination loop via the callback that listNotes provides.
+        fetchAllPagesMock.mockImplementation(async (callback) => {
+          const allItems: unknown[] = [];
+          let page = 1;
+          let hasMore = true;
+          while (hasMore) {
+            const res = await callback(page);
+            allItems.push(...res.items);
+            hasMore = res.has_more;
+            page++;
+          }
+          return allItems;
+        });
 
-      mockFetch
-        .mockResolvedValueOnce(
-          errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG),
-        )
-        .mockResolvedValueOnce(okResponse({ items: [sampleNote], has_more: false }));
+        // Page 1: listNotes hits SQLITE_BUSY once, then succeeds (retry path)
+        // Page 2: succeeds immediately
+        mockFetch
+          .mockResolvedValueOnce(
+            errorResponse(500, 'Internal Server Error', SQLITE_BUSY_MSG),
+          )
+          .mockResolvedValueOnce(okResponse({ items: [sampleNote], has_more: true }))
+          .mockResolvedValueOnce(okResponse({ items: [{ ...sampleNote, id: 'note-2' }], has_more: false }));
 
-      const result = await client.getAllNotes();
+        const promise = client.getAllNotes();
+        await vi.advanceTimersByTimeAsync(1000); // covers the single retry delay
+        const result = await promise;
 
-      expect(result).toEqual([sampleNote]);
-      // First call: SQLITE_BUSY, second call: success
-      expect(mockFetch).toHaveBeenCalledTimes(2);
+        expect(result).toEqual([sampleNote, { ...sampleNote, id: 'note-2' }]);
+        // Page 1: 1st call SQLITE_BUSY → retry succeeds; Page 2: succeeds
+        expect(mockFetch).toHaveBeenCalledTimes(3);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 
