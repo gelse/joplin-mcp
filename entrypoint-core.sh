@@ -47,11 +47,13 @@ log_sync() {
 # -----------------------------------------------------------------------------
 # Check log files for sync error/warning patterns
 # Returns 0 if no errors found, 1 if error patterns detected
-# Usage: check_sync_errors <label> [exit_code]
+# Usage: check_sync_errors <label> [log_offset]
 # -----------------------------------------------------------------------------
 check_sync_errors() {
     local label="$1"
+    local log_offset="${2:-0}"
     local found_errors=false
+    local combined_pattern='\[(error|warn)\]|There was some errors|Could not encrypt item|Master key is not loaded|Error:'
 
     local files=(
         "${LOG_DIR}/log.txt"
@@ -62,23 +64,13 @@ check_sync_errors() {
     for f in "${files[@]}"; do
         [ -f "${f}" ] || continue
 
-        if grep -i -q -E '\[(error|warn)\]' "${f}" 2>/dev/null; then
-            found_errors=true
-        fi
-        if grep -i -q -E 'There was some errors' "${f}" 2>/dev/null; then
-            found_errors=true
-        fi
-        if grep -i -q -E 'Could not encrypt item' "${f}" 2>/dev/null; then
-            found_errors=true
-        fi
-        if grep -i -q -E 'Master key is not loaded' "${f}" 2>/dev/null; then
-            found_errors=true
-        fi
-        if grep -i -q -E 'Error:' "${f}" 2>/dev/null; then
-            found_errors=true
+        local grep_target="${f}"
+        if [ "${f}" = "${LOG_DIR}/log.txt" ] && [ "${log_offset}" -gt 0 ]; then
+            grep_target="$(tail -n +"${log_offset}" "${f}")"
         fi
 
-        if [ "${found_errors}" = true ]; then
+        if echo "${grep_target}" | grep -i -q -E "${combined_pattern}" 2>/dev/null; then
+            found_errors=true
             break
         fi
     done
@@ -250,6 +242,7 @@ log "INFO" "Starting periodic sync loop (interval: ${SYNC_INTERVAL_SECONDS}s)...
 
 # Perform an initial sync immediately
 log_sync "START" "Performing initial sync..."
+LOG_TAIL_START=$(( $(wc -l < "${LOG_DIR}/log.txt" 2>/dev/null || echo 0) + 1 ))
 SYNC_EXIT=0
 joplin sync > "${LOG_DIR}/sync-stdout.log" 2> "${LOG_DIR}/sync-stderr.log" || SYNC_EXIT=$?
 
@@ -257,7 +250,7 @@ if [ "${SYNC_EXIT}" -ne 0 ]; then
     log_sync "FAIL" "Initial sync failed (exit code: ${SYNC_EXIT})"
     log "ERROR" "Sync stderr output:"
     cat "${LOG_DIR}/sync-stderr.log" >&2
-elif check_sync_errors "Initial"; then
+elif ! check_sync_errors "Initial" "${LOG_TAIL_START}"; then
     log_sync "FAIL" "Initial sync reported errors despite exit code 0"
 else
     log_sync "PASS" "Initial sync completed successfully"
@@ -272,6 +265,7 @@ fi
         SYNC_STDOUT="${LOG_DIR}/sync-stdout.log"
         SYNC_STDERR="${LOG_DIR}/sync-stderr.log"
 
+        LOG_TAIL_START=$(( $(wc -l < "${LOG_DIR}/log.txt" 2>/dev/null || echo 0) + 1 ))
         SYNC_EXIT=0
         joplin sync > "${SYNC_STDOUT}" 2> "${SYNC_STDERR}" || SYNC_EXIT=$?
 
@@ -279,7 +273,7 @@ fi
             log_sync "FAIL" "Periodic sync failed (exit code: ${SYNC_EXIT})"
             log "ERROR" "Sync stderr output (exit code ${SYNC_EXIT}):"
             cat "${SYNC_STDERR}" >&2
-        elif check_sync_errors "Periodic"; then
+        elif ! check_sync_errors "Periodic" "${LOG_TAIL_START}"; then
             log_sync "FAIL" "Periodic sync reported errors despite exit code 0"
         else
             log_sync "PASS" "Periodic sync completed successfully"
