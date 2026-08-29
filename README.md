@@ -331,6 +331,15 @@ graph TD
 6. Write operations from the MCP server trigger sync via the Data API; bash scheduler provides periodic backup sync
 7. Both containers use **healthchecks** — joplin-mcp waits for joplin-core to be healthy before starting
 
+> **Note: SQLITE_BUSY during sync** — During periodic sync windows, the Joplin CLI holds a
+> write lock on the SQLite database, which can cause transient `SQLITE_BUSY` errors for
+> concurrent read requests from the MCP server. The MCP server automatically retries read
+> (GET) requests on `SQLITE_BUSY` with exponential backoff (up to 3 retries). Write requests
+> (POST/PUT/DELETE) are **not** retried to avoid duplicate resource creation. This is an
+> inherent limitation of the two-process architecture (Data API + sync CLI sharing one
+> SQLite database). The long-term fix is a single long-lived process
+> ([GitHub Issue #2, Topic 6](https://github.com/gelse/joplin-mcp/issues/2)).
+
 ## Available MCP Tools
 
 ### Tool Overview
