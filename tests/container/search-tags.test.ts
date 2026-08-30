@@ -50,10 +50,10 @@ async function waitForSearch(
   delayMs = 500,
 ): Promise<void> {
   for (let i = 0; i < maxRetries; i++) {
-    const result = await callTool<{ items: Array<{ id: string }> }>(client, 'search_notes', {
+    const result = await callTool<Array<{ id: string }>>(client, 'search_notes', {
       query,
     });
-    if (result.items?.some((item) => item.id === expectedId)) {
+    if (result.some((item) => item.id === expectedId)) {
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -188,6 +188,9 @@ describe('Search & Tags', () => {
       tag_id: tag.id,
     });
 
+    // Allow sync to commit the tag association before reading
+    await new Promise((r) => setTimeout(r, 500));
+
     expect(result).toBeDefined();
     expect(result.note_id).toBe(note.id);
     expect(result.tag_id).toBe(tag.id);
@@ -210,6 +213,9 @@ describe('Search & Tags', () => {
       note_id: note.id,
       tag_id: tag.id,
     });
+
+    // Allow sync to commit the tag association before reading
+    await new Promise((r) => setTimeout(r, 500));
 
     const tags = await callTool<TagResult[]>(client, 'read_tags', {
       note_id: note.id,
@@ -238,6 +244,9 @@ describe('Search & Tags', () => {
       note_id: note.id,
       tag_id: tag.id,
     });
+
+    // Allow sync to commit the tag association before reading
+    await new Promise((r) => setTimeout(r, 500));
 
     // Confirm tag is present before removal
     const tagsBefore = await callTool<TagResult[]>(client, 'read_tags', {
