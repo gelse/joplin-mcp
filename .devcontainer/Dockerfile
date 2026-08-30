@@ -35,3 +35,6 @@ RUN mkdir -p /home/node/.vscode-server/data/Machine && \
     mkdir -p /home/node/.vscode-server/data/User/globalStorage && \
     mkdir -p /home/node/.vscode-server/data/User/globalStorage/zoocodeorganization.zoo-code && \
     mkdir -p /home/node/.vscode-server/data/User/globalStorage/emptyWindowChatSessions
+
+# Override Docker credential helper to avoid host secretservice dependency
+RUN mkdir -p /home/node/.docker && echo '{}' > /home/node/.docker/config.json
