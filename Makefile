@@ -1,6 +1,6 @@
 PNPM ?= pnpm
 
-.PHONY: help install build dev start test test-watch lint format docker-build docker-up docker-down clean smoke-test
+.PHONY: help install build dev start test test-watch test-integration lint format docker-build docker-up docker-down clean smoke-test
 
 .DEFAULT_GOAL := help
 
@@ -46,3 +46,6 @@ clean: ## Remove build artifacts (dist/)
 
 smoke-test: ## Run smoke tests
 	bash scripts/smoke-test.sh
+
+test-integration: ## Run container-based integration tests
+	bash scripts/run-integration-tests.sh
