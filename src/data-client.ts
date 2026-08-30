@@ -351,7 +351,8 @@ export class JoplinDataClient {
 
     const contentType = response.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
-      return response.json() as Promise<T>;
+      const jsonBody = (await response.json()) as T;
+      return jsonBody;
     }
     // Non-JSON response (e.g., /ping returns plain text)
     return response.text() as unknown as T;
@@ -643,8 +644,8 @@ export class JoplinDataClient {
   async tagNote(noteId: string, tagId: string): Promise<NoteTag> {
     this.validateId(noteId, 'note_id');
     this.validateId(tagId, 'tag_id');
-    return this.request<NoteTag>('POST', `/notes/${noteId}/tags`, {
-      id: tagId,
+    return this.request<NoteTag>('POST', `/tags/${tagId}/notes`, {
+      id: noteId,
     });
   }
 
@@ -660,7 +661,7 @@ export class JoplinDataClient {
   async untagNote(noteId: string, tagId: string): Promise<void> {
     this.validateId(noteId, 'note_id');
     this.validateId(tagId, 'tag_id');
-    await this.request<never>('DELETE', `/notes/${noteId}/tags/${tagId}`);
+    await this.request<never>('DELETE', `/tags/${tagId}/notes/${noteId}`);
   }
 
   // === Resources ===

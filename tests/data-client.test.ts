@@ -816,10 +816,10 @@ describe('JoplinDataClient', () => {
 
       expect(result).toMatchObject({ note_id: 'note-1', tag_id: 'tag-1' });
       const call = mockFetch.mock.calls[0];
-      expect(call[0] as string).toBe(`${BASE_URL}/notes/note-1/tags?token=test-api-token`);
+      expect(call[0] as string).toBe(`${BASE_URL}/tags/tag-1/notes?token=test-api-token`);
       expect((call[1] as Record<string, unknown>).method).toBe('POST');
       expect(JSON.parse((call[1] as Record<string, unknown>).body as string)).toEqual({
-        id: 'tag-1',
+        id: 'note-1',
       });
     });
 
@@ -829,7 +829,7 @@ describe('JoplinDataClient', () => {
       await client.untagNote('note-1', 'tag-1');
 
       const call = mockFetch.mock.calls[0];
-      expect(call[0] as string).toBe(`${BASE_URL}/notes/note-1/tags/tag-1?token=test-api-token`);
+      expect(call[0] as string).toBe(`${BASE_URL}/tags/tag-1/notes/note-1?token=test-api-token`);
       expect((call[1] as Record<string, unknown>).method).toBe('DELETE');
     });
 
