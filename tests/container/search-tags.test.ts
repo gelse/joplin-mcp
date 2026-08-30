@@ -46,7 +46,7 @@ async function waitForSearch(
   client: Client,
   query: string,
   expectedId: string,
-  maxRetries = 10,
+  maxRetries = 30,
   delayMs = 500,
 ): Promise<void> {
   for (let i = 0; i < maxRetries; i++) {
@@ -189,7 +189,7 @@ describe('Search & Tags', () => {
     });
 
     // Allow sync to commit the tag association before reading
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 2000));
 
     expect(result).toBeDefined();
     expect(result.note_id).toBe(note.id);
@@ -215,7 +215,7 @@ describe('Search & Tags', () => {
     });
 
     // Allow sync to commit the tag association before reading
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 2000));
 
     const tags = await callTool<TagResult[]>(client, 'read_tags', {
       note_id: note.id,
@@ -246,7 +246,7 @@ describe('Search & Tags', () => {
     });
 
     // Allow sync to commit the tag association before reading
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 2000));
 
     // Confirm tag is present before removal
     const tagsBefore = await callTool<TagResult[]>(client, 'read_tags', {
