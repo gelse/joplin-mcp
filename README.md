@@ -415,6 +415,8 @@ All tool input is validated through [Zod](https://zod.dev/) schemas. Below are t
 | `read_multinote` | `{ note_ids: string[] (array of 32-char hex IDs) }`                    | `{ notes: Note[], errors: { note_id, error }[] }` |
 | `read_tags`      | `{ note_id: string (32-char hex) }`                                    | `Tag[]`                                           |
 
+> **⚠️ Known limitation: `search_notes` may return empty results.** Joplin's `/search` endpoint reads from a SQLite full-text-search (FTS) index that the headless CLI (`joplin server start`, as used by `joplin-core`) does **not** build or update. Notes created/edited via the Data API remain readable through `list_notes`/`read_note` but are **not findable** through `search_notes`. This is a known upstream Joplin issue: <https://github.com/laurent22/joplin/issues/11631>. Until it is resolved, do not rely on `search_notes` to locate recently-written notes — use `list_notes` and filter client-side instead.
+
 #### Write Tools
 
 | Tool            | Input                                                                                                                                                          | Output              |
