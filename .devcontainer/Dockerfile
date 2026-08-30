@@ -24,7 +24,7 @@ RUN install -m 0755 -d /etc/apt/keyrings \
     && rm -rf /var/lib/apt/lists/*
 
 # Create docker group (GID 955 matches host) and add node user for socket access
-RUN groupadd -g 955 docker && usermod -aG docker node
+RUN getent group docker || groupadd -g 955 docker; usermod -aG docker node
 
 # Switch to node user for remaining operations
 USER node
