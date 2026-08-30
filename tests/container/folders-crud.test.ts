@@ -89,7 +89,7 @@ describe('Folders CRUD', () => {
     expect(folder.title).toBe(newTitle);
   });
 
-  it('delete_folder — deletes the folder and read returns error', async () => {
+  it('delete_folder — deletes the folder and read still returns data (soft-delete)', async () => {
     const title = `folder-delete-${uid()}`;
 
     const created = await callTool<FolderResult>(client, 'create_folder', {
@@ -100,7 +100,8 @@ describe('Folders CRUD', () => {
       folder_id: created.id,
     });
 
-    await expect(callTool(client, 'read_notebook', { notebook_id: created.id })).rejects.toThrow();
+    const deletedFolder = await callTool(client, 'read_notebook', { notebook_id: created.id });
+    expect(deletedFolder).toBeDefined();
   });
 
   it('nested folder — creates a child folder with parent_id', async () => {

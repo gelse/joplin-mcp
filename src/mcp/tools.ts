@@ -53,10 +53,11 @@ export const searchNotes: ToolHandler<{ query: string; type?: string }, SearchRe
   if (!input.query || input.query.trim().length === 0) {
     throw new Error('searchNotes validation failed: query must be a non-empty string');
   }
-  return ctx.client.search({
+  const result = await ctx.client.search({
     query: input.query,
     type: input.type as 'note' | 'folder' | 'tag' | undefined,
   });
+  return result.items;
 };
 
 export const readNote: ToolHandler<{ note_id: string }, Note> = async (input, ctx) => {
@@ -92,7 +93,8 @@ export const readMultinote: ToolHandler<{ note_ids: string[] }, ReadMultinoteRes
 };
 
 export const readTags: ToolHandler<{ note_id: string }, Tag[]> = async (input, ctx) => {
-  return ctx.client.getNoteTags(input.note_id);
+  const result = await ctx.client.getNoteTags(input.note_id);
+  return result.items;
 };
 
 // =============================================================================
@@ -181,7 +183,11 @@ export const tagNote: ToolHandler<
 > = async (input, ctx) => {
   const result = await ctx.client.tagNote(input.note_id, input.tag_id);
   if (ctx.syncManager) await ctx.syncManager.triggerSync('tag_note');
-  return result;
+  return {
+    id: result.id,
+    note_id: input.note_id,
+    tag_id: input.tag_id,
+  };
 };
 
 export const untagNote: ToolHandler<

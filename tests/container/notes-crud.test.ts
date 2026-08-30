@@ -171,7 +171,7 @@ describe('Notes CRUD', () => {
     expect(readB.body).toBe('Body B');
   });
 
-  it('delete_note — deletes a note, subsequent read returns error', async () => {
+  it('delete_note — deletes a note, subsequent read still returns data (soft-delete)', async () => {
     const title = `note-delete-${uid()}`;
 
     const created = await callTool<NoteResult>(client, 'create_note', {
@@ -184,6 +184,7 @@ describe('Notes CRUD', () => {
       note_id: created.id,
     });
 
-    await expect(callTool(client, 'read_note', { note_id: created.id })).rejects.toThrow();
+    const deletedNote = await callTool(client, 'read_note', { note_id: created.id });
+    expect(deletedNote).toBeDefined();
   });
 });

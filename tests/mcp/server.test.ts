@@ -109,27 +109,23 @@ describe('MCP Server', () => {
 
       expect(mockToolFn).toHaveBeenCalledTimes(3);
 
-      // First tool: list_notebooks with empty shape
+      // First tool: list_notebooks
       expect(mockToolFn).toHaveBeenNthCalledWith(
         1,
         'list_notebooks',
         'List notebooks',
-        {},
         expect.any(Function),
       );
 
-      // Second tool: search_notes with shape containing query
-      const searchShape = mockToolFn.mock.calls[1][2];
-      expect(searchShape).toHaveProperty('query');
+      // Second tool: search_notes
       expect(mockToolFn.mock.calls[1][0]).toBe('search_notes');
       expect(mockToolFn.mock.calls[1][1]).toBe('Search notes');
 
-      // Third tool: sync with empty shape
+      // Third tool: sync
       expect(mockToolFn).toHaveBeenNthCalledWith(
         3,
         'sync',
         'Trigger sync',
-        {},
         expect.any(Function),
       );
     });
@@ -146,7 +142,7 @@ describe('MCP Server', () => {
       const { createMCPServer } = await import('../../src/mcp/server.js');
       await createMCPServer(mockRegistry as any, mockCtx as any, mockLogger);
 
-      const handler = mockToolFn.mock.calls[0][3];
+      const handler = mockToolFn.mock.calls[0][2];
 
       await handler({});
 
@@ -166,7 +162,7 @@ describe('MCP Server', () => {
       const { createMCPServer } = await import('../../src/mcp/server.js');
       await createMCPServer(mockRegistry as any, mockCtx as any, mockLogger);
 
-      const handler = mockToolFn.mock.calls[0][3];
+      const handler = mockToolFn.mock.calls[0][2];
       await handler({ input: 'data' });
 
       expect(mockLogger.debug).toHaveBeenCalledWith(
@@ -190,7 +186,7 @@ describe('MCP Server', () => {
       const { createMCPServer } = await import('../../src/mcp/server.js');
       await createMCPServer(mockRegistry as any, mockCtx as any, mockLogger);
 
-      const handler = mockToolFn.mock.calls[0][3];
+      const handler = mockToolFn.mock.calls[0][2];
       const result = await handler({});
 
       expect(result).toEqual({
@@ -232,7 +228,7 @@ describe('MCP Server', () => {
       const { createMCPServer } = await import('../../src/mcp/server.js');
       await createMCPServer(mockRegistry as any, mockCtx as any, mockLogger);
 
-      const handler = mockToolFn.mock.calls[0][3];
+      const handler = mockToolFn.mock.calls[0][2];
       await handler({});
 
       expect(mockLogger.warn).toHaveBeenCalledWith(
@@ -241,7 +237,7 @@ describe('MCP Server', () => {
       );
     });
 
-    it('extracts empty shape for tool without a ZodObject schema', async () => {
+    it('registers tools without schema shape argument', async () => {
       const mockTools = [
         {
           name: 'string_tool',
@@ -259,19 +255,17 @@ describe('MCP Server', () => {
       const { createMCPServer } = await import('../../src/mcp/server.js');
       await createMCPServer(mockRegistry as any, mockCtx as any, mockLogger);
 
-      // Both tools should register with empty shape since their schemas are not ZodObject
+      // Both tools should register with name, description, and handler only (no schema shape)
       expect(mockToolFn).toHaveBeenNthCalledWith(
         1,
         'string_tool',
         'Uses string schema',
-        {},
         expect.any(Function),
       );
       expect(mockToolFn).toHaveBeenNthCalledWith(
         2,
         'number_tool',
         'Uses number schema',
-        {},
         expect.any(Function),
       );
     });

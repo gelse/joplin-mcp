@@ -182,7 +182,7 @@ describe('searchNotes', () => {
       updated_time: 2000,
       created_time: 1000,
     };
-    context.client.search.mockResolvedValue([searchResult]);
+    context.client.search.mockResolvedValue({ items: [searchResult] });
 
     const result = await searchNotes({ query: 'hello', type: 'note' }, context);
 
@@ -195,7 +195,7 @@ describe('searchNotes', () => {
 
   it('delegates to client.search without type', async () => {
     const context = createContext();
-    context.client.search.mockResolvedValue([]);
+    context.client.search.mockResolvedValue({ items: [] });
 
     await searchNotes({ query: 'hello' }, context);
 
@@ -207,7 +207,7 @@ describe('searchNotes', () => {
 
   it('does NOT trigger sync', async () => {
     const context = createContext();
-    context.client.search.mockResolvedValue([]);
+    context.client.search.mockResolvedValue({ items: [] });
 
     await searchNotes({ query: 'test', type: 'folder' }, context);
 
@@ -394,7 +394,7 @@ describe('readMultinote', () => {
 describe('readTags', () => {
   it('delegates to client.getNoteTags with note_id', async () => {
     const context = createContext();
-    context.client.getNoteTags.mockResolvedValue([sampleTag]);
+    context.client.getNoteTags.mockResolvedValue({ items: [sampleTag] });
 
     const result = await readTags({ note_id: 'note1' }, context);
 
@@ -404,7 +404,7 @@ describe('readTags', () => {
 
   it('does NOT trigger sync', async () => {
     const context = createContext();
-    context.client.getNoteTags.mockResolvedValue([]);
+    context.client.getNoteTags.mockResolvedValue({ items: [] });
 
     await readTags({ note_id: 'n1' }, context);
 
@@ -711,32 +711,17 @@ describe('createTag', () => {
 describe('tagNote', () => {
   it('delegates to client.tagNote with note_id and tag_id', async () => {
     const context = createContext();
-    const noteTagResult = {
-      id: 'rel1',
-      note_id: 'note1',
-      tag_id: 'tag1',
-      created_time: 1000,
-      updated_time: 1000,
-      user_created_time: 1000,
-      user_updated_time: 1000,
-      encryption_cipher_text: '',
-      encryption_applied: 0,
-    };
-    context.client.tagNote.mockResolvedValue(noteTagResult);
+    context.client.tagNote.mockResolvedValue({ id: 'rel1' });
 
     const result = await tagNote({ note_id: 'note1', tag_id: 'tag1' }, context);
 
     expect(context.client.tagNote).toHaveBeenCalledWith('note1', 'tag1');
-    expect(result).toEqual(noteTagResult);
+    expect(result).toEqual({ id: 'rel1', note_id: 'note1', tag_id: 'tag1' });
   });
 
   it('triggers sync after tagging', async () => {
     const context = createContext();
-    context.client.tagNote.mockResolvedValue({
-      id: 'r1',
-      note_id: 'n1',
-      tag_id: 't1',
-    });
+    context.client.tagNote.mockResolvedValue({ id: 'r1' });
 
     await tagNote({ note_id: 'n1', tag_id: 't1' }, context);
 

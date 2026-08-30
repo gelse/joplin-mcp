@@ -625,9 +625,9 @@ export class JoplinDataClient {
    * @throws {NotFoundError} If the note does not exist
    * @throws {AuthError} If the token is expired or authentication fails
    */
-  async getNoteTags(noteId: string): Promise<Tag[]> {
+  async getNoteTags(noteId: string): Promise<PaginatedResponse<Tag>> {
     this.validateId(noteId, 'note_id');
-    return this.request<Tag[]>('GET', `/notes/${noteId}/tags`);
+    return this.request<PaginatedResponse<Tag>>('GET', `/notes/${noteId}/tags`);
   }
 
   /**
@@ -731,11 +731,11 @@ export class JoplinDataClient {
    * @throws {AuthError} If the token is expired or authentication fails
    * @throws {DataApiError} On unexpected HTTP errors
    */
-  async search(query: SearchQuery): Promise<SearchResult[]> {
+  async search(query: SearchQuery): Promise<PaginatedResponse<SearchResult>> {
     const params = new URLSearchParams();
     params.set('query', query.query);
     if (query.type) params.set('type', query.type);
 
-    return this.request<SearchResult[]>('GET', `/search?${params.toString()}`);
+    return this.request<PaginatedResponse<SearchResult>>('GET', `/search?${params.toString()}`);
   }
 }
