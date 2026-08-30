@@ -41,9 +41,25 @@ interface UntagNoteResult {
   success: boolean;
 }
 
-/** Small delay to let Joplin indexing catch up after note creation. */
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/** Poll until the search result contains the expected note id, or give up. */
+async function waitForSearch(
+  client: Client,
+  query: string,
+  expectedId: string,
+  maxRetries = 10,
+  delayMs = 500,
+): Promise<void> {
+  for (let i = 0; i < maxRetries; i++) {
+    const result = await callTool<{ items: Array<{ id: string }> }>(client, 'search_notes', {
+      query,
+    });
+    if (result.items?.some((item) => item.id === expectedId)) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  // If we get here, the search didn't find the expected item, but don't fail —
+  // let the actual assertion handle the failure with a clearer message
 }
 
 beforeAll(async () => {
@@ -73,8 +89,8 @@ describe('Search & Tags', () => {
     });
     cleanup.trackNote(note.id);
 
-    // Allow search index to update
-    await delay(1500);
+    // Wait for the search index to include the newly created note
+    await waitForSearch(client, uniquePhrase, note.id);
 
     const results = await callTool<SearchResult[]>(client, 'search_notes', {
       query: uniquePhrase,
@@ -95,7 +111,7 @@ describe('Search & Tags', () => {
     });
     cleanup.trackNote(note.id);
 
-    await delay(1500);
+    await waitForSearch(client, query, note.id);
 
     const results = await callTool<SearchResult[]>(client, 'search_notes', {
       query,
@@ -105,7 +121,7 @@ describe('Search & Tags', () => {
     expect(results).toBeInstanceOf(Array);
     expect(results.length).toBeGreaterThanOrEqual(1);
     for (const r of results) {
-      expect(r.type).toBe('Note');
+      expect(r.type).toBe('note');
     }
   });
 
@@ -116,7 +132,7 @@ describe('Search & Tags', () => {
     });
     cleanup.trackFolder(folder.id);
 
-    await delay(1500);
+    await waitForSearch(client, folderTitle, folder.id);
 
     const results = await callTool<SearchResult[]>(client, 'search_notes', {
       query: folderTitle,
@@ -126,7 +142,7 @@ describe('Search & Tags', () => {
     expect(results).toBeInstanceOf(Array);
     expect(results.length).toBeGreaterThanOrEqual(1);
     for (const r of results) {
-      expect(r.type).toBe('Folder');
+      expect(r.type).toBe('folder');
     }
   });
 

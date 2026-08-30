@@ -29,8 +29,8 @@ describe('Error Handling', () => {
       expect(result.isError).toBe(true);
       const text = result.content?.[0]?.type === 'text' ? result.content[0].text : '';
       expect(text).toContain('Validation error');
-    } catch {
-      // MCP SDK may reject invalid input before reaching the tool
+    } catch (err) {
+      throw new Error(`Tool should return isError, but callTool rejected: ${String(err)}`);
     }
   });
 
@@ -56,8 +56,8 @@ describe('Error Handling', () => {
       expect(result.isError).toBe(true);
       const text = result.content?.[0]?.type === 'text' ? result.content[0].text : '';
       expect(text).toContain('Validation error');
-    } catch {
-      // MCP SDK may reject missing required fields before reaching the tool
+    } catch (err) {
+      throw new Error(`Tool should return isError, but callTool rejected: ${String(err)}`);
     }
   });
 
@@ -74,8 +74,8 @@ describe('Error Handling', () => {
       expect(result.isError).toBe(true);
       const text = result.content?.[0]?.type === 'text' ? result.content[0].text : '';
       expect(text).toContain('Validation error');
-    } catch {
-      // MCP SDK may reject empty title before reaching the tool
+    } catch (err) {
+      throw new Error(`Tool should return isError, but callTool rejected: ${String(err)}`);
     }
   });
 
@@ -98,8 +98,8 @@ describe('Error Handling', () => {
       expect(result.isError).toBe(true);
       const text = result.content?.[0]?.type === 'text' ? result.content[0].text : '';
       expect(text).toContain('Validation error');
-    } catch {
-      // MCP SDK may reject empty query before reaching the tool
+    } catch (err) {
+      throw new Error(`Tool should return isError, but callTool rejected: ${String(err)}`);
     }
   });
 
@@ -113,8 +113,8 @@ describe('Error Handling', () => {
       expect(result.isError).toBe(true);
       const text = result.content?.[0]?.type === 'text' ? result.content[0].text : '';
       expect(text).toContain('Validation error');
-    } catch {
-      // MCP SDK may reject invalid note_id before reaching the tool
+    } catch (err) {
+      throw new Error(`Tool should return isError, but callTool rejected: ${String(err)}`);
     }
   });
 
