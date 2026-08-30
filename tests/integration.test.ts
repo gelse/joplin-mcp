@@ -200,8 +200,8 @@ describe.skipIf(!INTEGRATION_ENABLED)('JoplinDataClient — integration', () => 
       createdNoteIds.push(created.id);
 
       const results = await client.search({ query: uniqueId });
-      expect(results.length).toBeGreaterThanOrEqual(1);
-      const match = results.find((r) => r.id === created.id);
+      expect(results.items.length).toBeGreaterThanOrEqual(1);
+      const match = results.items.find((r) => r.id === created.id);
       expect(match).toBeDefined();
       expect(match!.title).toBe(title);
     }, 20_000);

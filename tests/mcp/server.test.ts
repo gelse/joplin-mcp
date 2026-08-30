@@ -114,6 +114,7 @@ describe('MCP Server', () => {
         1,
         'list_notebooks',
         'List notebooks',
+        expect.any(Object),
         expect.any(Function),
       );
 
@@ -126,6 +127,7 @@ describe('MCP Server', () => {
         3,
         'sync',
         'Trigger sync',
+        expect.any(Object),
         expect.any(Function),
       );
     });
@@ -142,7 +144,7 @@ describe('MCP Server', () => {
       const { createMCPServer } = await import('../../src/mcp/server.js');
       await createMCPServer(mockRegistry as any, mockCtx as any, mockLogger);
 
-      const handler = mockToolFn.mock.calls[0][2];
+      const handler = mockToolFn.mock.calls[0][3];
 
       await handler({});
 
@@ -162,7 +164,7 @@ describe('MCP Server', () => {
       const { createMCPServer } = await import('../../src/mcp/server.js');
       await createMCPServer(mockRegistry as any, mockCtx as any, mockLogger);
 
-      const handler = mockToolFn.mock.calls[0][2];
+      const handler = mockToolFn.mock.calls[0][3];
       await handler({ input: 'data' });
 
       expect(mockLogger.debug).toHaveBeenCalledWith(
@@ -186,7 +188,7 @@ describe('MCP Server', () => {
       const { createMCPServer } = await import('../../src/mcp/server.js');
       await createMCPServer(mockRegistry as any, mockCtx as any, mockLogger);
 
-      const handler = mockToolFn.mock.calls[0][2];
+      const handler = mockToolFn.mock.calls[0][3];
       const result = await handler({});
 
       expect(result).toEqual({
@@ -228,7 +230,7 @@ describe('MCP Server', () => {
       const { createMCPServer } = await import('../../src/mcp/server.js');
       await createMCPServer(mockRegistry as any, mockCtx as any, mockLogger);
 
-      const handler = mockToolFn.mock.calls[0][2];
+      const handler = mockToolFn.mock.calls[0][3];
       await handler({});
 
       expect(mockLogger.warn).toHaveBeenCalledWith(
@@ -255,17 +257,20 @@ describe('MCP Server', () => {
       const { createMCPServer } = await import('../../src/mcp/server.js');
       await createMCPServer(mockRegistry as any, mockCtx as any, mockLogger);
 
-      // Both tools should register with name, description, and handler only (no schema shape)
+      // Both tools register with name, description, schema shape, and handler.
+      // Non-ZodObject schemas (z.string(), z.number()) produce an empty shape {}.
       expect(mockToolFn).toHaveBeenNthCalledWith(
         1,
         'string_tool',
         'Uses string schema',
+        {},
         expect.any(Function),
       );
       expect(mockToolFn).toHaveBeenNthCalledWith(
         2,
         'number_tool',
         'Uses number schema',
+        {},
         expect.any(Function),
       );
     });

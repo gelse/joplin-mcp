@@ -5,6 +5,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { Logger } from '../logger.js';
 import { ToolRegistry } from './tool-registry.js';
 import type { ToolContext } from './tools.js';
+import { extractSchemaShape } from './schemas.js';
 import { ZodError } from 'zod';
 
 /**
@@ -61,6 +62,7 @@ export async function createMCPServer(
     server.tool(
       tool.name,
       tool.description,
+      extractSchemaShape(tool.schema),
       async (input: unknown) => {
         logger.debug({ tool: tool.name, input }, 'MCP tool called');
         try {

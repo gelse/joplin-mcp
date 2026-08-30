@@ -788,11 +788,11 @@ describe('JoplinDataClient', () => {
 
     it('getNoteTags fetches tags for a note', async () => {
       const tags = [sampleTag];
-      mockFetch.mockResolvedValueOnce(okResponse(tags));
+      mockFetch.mockResolvedValueOnce(okResponse({ items: tags, has_more: false }));
 
       const result = await client.getNoteTags('note-1');
 
-      expect(result).toEqual(tags);
+      expect(result.items).toEqual(tags);
       expect(mockFetch.mock.calls[0][0] as string).toBe(
         `${BASE_URL}/notes/note-1/tags?token=test-api-token`,
       );
@@ -1152,11 +1152,11 @@ describe('JoplinDataClient', () => {
     });
 
     it('search sends query and optional type parameters', async () => {
-      mockFetch.mockResolvedValueOnce(okResponse([{ id: 'n1', title: 'result', type: 'note' }]));
+      mockFetch.mockResolvedValueOnce(okResponse({ items: [{ id: 'n1', title: 'result', type: 'note' }], has_more: false }));
 
       const result = await client.search({ query: 'hello', type: 'note' });
 
-      expect(result).toHaveLength(1);
+      expect(result.items).toHaveLength(1);
       const url = mockFetch.mock.calls[0][0] as string;
       expect(url).toContain('/search?');
       expect(url).toContain('query=hello');
@@ -1197,10 +1197,10 @@ describe('JoplinDataClient', () => {
     });
 
     it('handles unicode and emoji characters in search queries', async () => {
-      mockFetch.mockResolvedValueOnce(okResponse([{ id: 'n1', title: 'café', type: 'note' }]));
+      mockFetch.mockResolvedValueOnce(okResponse({ items: [{ id: 'n1', title: 'café', type: 'note' }], has_more: false }));
 
       const result = await client.search({ query: 'café ☕ emoji 🎉' });
-      expect(result).toHaveLength(1);
+      expect(result.items).toHaveLength(1);
 
       const url = mockFetch.mock.calls[0][0] as string;
       // URLSearchParams percent-encodes non-ASCII characters

@@ -28,7 +28,7 @@ describe('Error Handling', () => {
 
       expect(result.isError).toBe(true);
       const text = result.content?.[0]?.type === 'text' ? result.content[0].text : '';
-      expect(text).toContain('Validation error');
+      expect(text.toLowerCase()).toContain('validation error');
     } catch (err) {
       throw new Error(`Tool should return isError, but callTool rejected: ${String(err)}`);
     }
@@ -55,7 +55,7 @@ describe('Error Handling', () => {
 
       expect(result.isError).toBe(true);
       const text = result.content?.[0]?.type === 'text' ? result.content[0].text : '';
-      expect(text).toContain('Validation error');
+      expect(text.toLowerCase()).toContain('validation error');
     } catch (err) {
       throw new Error(`Tool should return isError, but callTool rejected: ${String(err)}`);
     }
@@ -73,19 +73,18 @@ describe('Error Handling', () => {
 
       expect(result.isError).toBe(true);
       const text = result.content?.[0]?.type === 'text' ? result.content[0].text : '';
-      expect(text).toContain('Validation error');
+      expect(text.toLowerCase()).toContain('validation error');
     } catch (err) {
       throw new Error(`Tool should return isError, but callTool rejected: ${String(err)}`);
     }
   });
 
-  it('unknown tool name — returns rejection', async () => {
-    await expect(
-      client.callTool({
-        name: 'nonexistent_tool',
-        arguments: {},
-      }),
-    ).rejects.toThrow();
+  it('unknown tool name — returns error response', async () => {
+    const result = (await client.callTool({
+      name: 'nonexistent_tool',
+      arguments: {},
+    })) as unknown as CallToolResult;
+    expect(result.isError).toBe(true);
   });
 
   it('search_notes with empty query — returns validation error', async () => {
@@ -97,7 +96,7 @@ describe('Error Handling', () => {
 
       expect(result.isError).toBe(true);
       const text = result.content?.[0]?.type === 'text' ? result.content[0].text : '';
-      expect(text).toContain('Validation error');
+      expect(text.toLowerCase()).toContain('validation error');
     } catch (err) {
       throw new Error(`Tool should return isError, but callTool rejected: ${String(err)}`);
     }
@@ -112,7 +111,7 @@ describe('Error Handling', () => {
 
       expect(result.isError).toBe(true);
       const text = result.content?.[0]?.type === 'text' ? result.content[0].text : '';
-      expect(text).toContain('Validation error');
+      expect(text.toLowerCase()).toContain('validation error');
     } catch (err) {
       throw new Error(`Tool should return isError, but callTool rejected: ${String(err)}`);
     }
