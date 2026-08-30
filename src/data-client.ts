@@ -25,6 +25,14 @@ import type {
 } from './api-types.js';
 import { clampLimit, buildPageParam, fetchAllPages } from './pagination.js';
 
+// --- SQLITE_BUSY retry configuration ---
+const SQLITE_BUSY_MAX_RETRIES = 3;
+const SQLITE_BUSY_BASE_DELAY_MS = 500;
+const SQLITE_BUSY_MAX_DELAY_MS = 4000;
+
+type RetryableResult<T> =
+  | { ok: false; retryable: true; status: number; body: string };
+
 export class JoplinDataClient {
   private readonly baseUrl: string;
   private readonly apiToken: string;
@@ -187,9 +195,64 @@ export class JoplinDataClient {
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    return this.enqueueRequest(async () => {
-      return this.executeRequest<T>(method, path, body);
-    });
+    let lastError: unknown;
+    const isWriteMethod = method === 'POST' || method === 'PUT' || method === 'DELETE';
+
+    for (let attempt = 0; attempt <= SQLITE_BUSY_MAX_RETRIES; attempt++) {
+      if (attempt > 0) {
+        const delay =
+          Math.min(
+            SQLITE_BUSY_BASE_DELAY_MS * Math.pow(2, attempt - 1),
+            SQLITE_BUSY_MAX_DELAY_MS,
+          ) + Math.floor(Math.random() * SQLITE_BUSY_BASE_DELAY_MS);
+        this.logger.info(
+          { attempt, maxRetries: SQLITE_BUSY_MAX_RETRIES, delay, method, path },
+          `Retrying after SQLITE_BUSY (attempt ${attempt}/${SQLITE_BUSY_MAX_RETRIES})`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+
+      const result = await this.enqueueRequest(async () => {
+        return this.executeRequest<T>(method, path, body, false, attempt);
+      });
+
+      if (
+        result &&
+        typeof result === 'object' &&
+        'retryable' in result &&
+        result.retryable
+      ) {
+        // Only retry GET requests — writes must not be retried (duplicate risk)
+        if (isWriteMethod) {
+          this.logger.warn(
+            { method, path, status: result.status },
+            'SQLITE_BUSY on write operation — not retrying to avoid duplicates',
+          );
+          throw new DataApiError(
+            `Server error (${result.status}) accessing ${path.split('/').filter(Boolean)[0] || 'resource'} — not retrying to avoid duplicates`,
+            result.status,
+            result.body,
+          );
+        }
+        lastError = result;
+        continue; // retry loop
+      }
+
+      return result as T;
+    }
+
+    // All retries exhausted
+    const finalStatus = (lastError as { status?: number } | undefined)?.status ?? 500;
+    const finalBody = (lastError as { body?: string })?.body;
+    this.logger.error(
+      { method, path, retries: SQLITE_BUSY_MAX_RETRIES, status: finalStatus, body: finalBody },
+      'SQLITE_BUSY retries exhausted',
+    );
+    throw new DataApiError(
+      `Server error (${finalStatus}) accessing ${path.split('/').filter(Boolean)[0] || 'resource'} — SQLITE_BUSY after ${SQLITE_BUSY_MAX_RETRIES} retries`,
+      finalStatus,
+      finalBody,
+    );
   }
 
   private async executeRequest<T>(
@@ -197,7 +260,8 @@ export class JoplinDataClient {
     path: string,
     body?: unknown,
     isRetry = false,
-  ): Promise<T> {
+    attempt = 0,
+  ): Promise<T | RetryableResult<T>> {
     const url = `${this.baseUrl}${this.appendToken(path)}`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -262,6 +326,13 @@ export class JoplinDataClient {
     if ([500, 502, 503].includes(response.status)) {
       const resourceType = path.split('/').filter(Boolean)[0] || 'resource';
       const body = await response.text().catch(() => '');
+      if (body.includes('SQLITE_BUSY')) {
+        this.logger.warn(
+          { status: response.status, path, attempt, maxRetries: SQLITE_BUSY_MAX_RETRIES },
+          'SQLITE_BUSY detected, returning retryable result',
+        );
+        return { ok: false, retryable: true, status: response.status, body };
+      }
       this.logger.debug({ status: response.status, path }, 'Request failed');
       throw new DataApiError(
         `Server error (${response.status}) accessing ${resourceType}`,

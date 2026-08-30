@@ -67,6 +67,40 @@ There is also a short-lived **session token** (`auth_token`) that the MCP server
 
 ---
 
+## ⚠️ End-to-End Encryption (E2EE)
+
+If you have **End-to-End Encryption (E2EE)** enabled on your Joplin Server, `joplin-core` must know the **master password** before it can encrypt notes for upload. Without it, writes appear to succeed locally but **silently fail to reach the server** — and the sync process will misleadingly report `SYNC_PASS`.
+
+### What E2EE means
+
+When E2EE is enabled, Joplin encrypts all note content on the client before sending it to the server. The server only ever sees ciphertext — decryption happens client-side using the master password. This project's `joplin-core` container acts as such a client, so it must have the master password configured.
+
+### Setting the master password
+
+After starting the containers for the first time (or after enabling E2EE on Joplin Server), run:
+
+```bash
+# Set the master password inside the joplin-core container
+docker exec joplin-core joplin config encryption.masterPassword 'THE_PASSWORD'
+
+# Restart so the new config is picked up
+docker restart joplin-core
+```
+
+Replace `THE_PASSWORD` with the same master password used when enabling E2EE on Joplin Server (or the one you chose if you enabled it from the CLI).
+
+> **Tip:** This only needs to be done once — the password is persisted in the `joplin_data` Docker volume.
+
+### ⚠️ Warning: `joplin e2ee decrypt` does NOT persist the password
+
+The command `joplin e2ee decrypt -p 'PASSWORD'` decrypts data **for the current session only** and does **not** store the password for future sync operations. Using it as your setup step will cause encrypted items to silently fail to upload on subsequent syncs. Always use `joplin config encryption.masterPassword` instead.
+
+### How to tell if E2EE is the problem
+
+If you notice notes are missing from Joplin Server despite `docker logs joplin-core` reporting `SYNC_PASS`, check whether E2EE is enabled on the server and whether the master password has been configured in `joplin-core`.
+
+---
+
 ## Detailed How-To
 
 ### Direct Installation
@@ -296,6 +330,15 @@ graph TD
 5. **Bash sync scheduler** in joplin-core handles periodic sync via the Joplin CLI against Joplin Server
 6. Write operations from the MCP server trigger sync via the Data API; bash scheduler provides periodic backup sync
 7. Both containers use **healthchecks** — joplin-mcp waits for joplin-core to be healthy before starting
+
+> **Note: SQLITE_BUSY during sync** — During periodic sync windows, the Joplin CLI holds a
+> write lock on the SQLite database, which can cause transient `SQLITE_BUSY` errors for
+> concurrent read requests from the MCP server. The MCP server automatically retries read
+> (GET) requests on `SQLITE_BUSY` with exponential backoff (up to 3 retries). Write requests
+> (POST/PUT/DELETE) are **not** retried to avoid duplicate resource creation. This is an
+> inherent limitation of the two-process architecture (Data API + sync CLI sharing one
+> SQLite database). The long-term fix is a single long-lived process
+> ([GitHub Issue #2, Topic 6](https://github.com/gelse/joplin-mcp/issues/2)).
 
 ## Available MCP Tools
 

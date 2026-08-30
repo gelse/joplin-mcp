@@ -8,11 +8,7 @@ reports/
 **/.env.*
 !.env.example
 .roo/
-
-# Excluded from public repository (kept locally for development)
-.devcontainer/
-docs/
-tests/TODO.md
+plans/
 
 # IDE
 .vscode/
@@ -23,3 +19,4 @@ tests/TODO.md
 # OS
 .DS_Store
 Thumbs.db
+.devcontainer/devcontainer-lock.json
