@@ -14,6 +14,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install pnpm globally (requires root)
 RUN npm install -g "pnpm@9"
 
+# Install Docker CLI and Compose plugin (for integration tests)
+RUN install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
+    && chmod a+r /etc/apt/keyrings/docker.asc \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create docker group (GID 955 matches host) and add node user for socket access
+RUN groupadd -g 955 docker && usermod -aG docker node
+
 # Switch to node user for remaining operations
 USER node
 
