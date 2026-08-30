@@ -56,10 +56,10 @@ MCP client config (HTTP):
 
 This project involves **two different Joplin tokens** that must not be confused:
 
-| Token | Where to find it | What it's used for |
-| ----- | ----------------- | ------------------- |
-| **Data API token** (`api.token`) | Check `docker logs joplin-core` — the token is echoed on startup | Authenticate requests to the Joplin ClipperServer Data API (used as `JOPLIN_API_TOKEN` in this project) |
-| **Web Clipper token** | Joplin desktop → *Web Clipper → Options* (shown in the browser extension UI) | Authenticate the Web Clipper browser extension — **this is NOT the same token** |
+| Token                            | Where to find it                                                             | What it's used for                                                                                      |
+| -------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **Data API token** (`api.token`) | Check `docker logs joplin-core` — the token is echoed on startup             | Authenticate requests to the Joplin ClipperServer Data API (used as `JOPLIN_API_TOKEN` in this project) |
+| **Web Clipper token**            | Joplin desktop → _Web Clipper → Options_ (shown in the browser extension UI) | Authenticate the Web Clipper browser extension — **this is NOT the same token**                         |
 
 > **⚠️ Do NOT use the Web Clipper token from the Joplin frontend as your `JOPLIN_API_TOKEN`.** They are different values, and using the wrong one will cause authentication failures. Always retrieve the token from the container logs.
 
@@ -110,7 +110,7 @@ If you notice notes are missing from Joplin Server despite `docker logs joplin-c
 - **Node.js** 20 or later (the project's [`package.json`](package.json) `engines` field requires `>=22.0.0`)
 - **[pnpm](https://pnpm.io/)** 9 or later (for package management)
 - **Joplin desktop app** running with the **Data API (ClipperServer)** enabled:
-  - In Joplin: *Web Clipper → Options → Enable Clipper Server*
+  - In Joplin: _Web Clipper → Options → Enable Clipper Server_
   - The server binds to `127.0.0.1:41184` by default and ignores `--host`/`--port` flags
 - **Joplin Server** (optional but recommended) — a sync target for multi-device synchronisation. Without it, write-through sync will fail and notes remain local-only
 
@@ -133,15 +133,15 @@ cp .env.example .env
 
 All configuration is done via environment variables:
 
-| Variable                | Required | Default | Description                                                  |
-| ----------------------- | -------- | ------- | ------------------------------------------------------------ |
-| `JOPLIN_SERVER_URL`     | **Yes**  | —       | Joplin Server URL (e.g., `https://joplin.example.com/`)      |
-| `JOPLIN_USERNAME`       | **Yes**  | —       | Joplin Server username/email                                 |
-| `JOPLIN_PASSWORD`       | **Yes**  | —       | Joplin Server password                                       |
+| Variable                | Required | Default | Description                                                            |
+| ----------------------- | -------- | ------- | ---------------------------------------------------------------------- |
+| `JOPLIN_SERVER_URL`     | **Yes**  | —       | Joplin Server URL (e.g., `https://joplin.example.com/`)                |
+| `JOPLIN_USERNAME`       | **Yes**  | —       | Joplin Server username/email                                           |
+| `JOPLIN_PASSWORD`       | **Yes**  | —       | Joplin Server password                                                 |
 | `JOPLIN_DATA_API_PORT`  | No       | `41184` | Internal Data API listen port (Joplin ClipperServer hardcoded default) |
-| `LOG_LEVEL`             | No       | `info`  | Log level: `debug`, `info`, `warn`, `error`, `silent`        |
-| `SYNC_INTERVAL_SECONDS` | No       | `300`   | Periodic sync interval in seconds                            |
-| `NODE_ENV`              | No       | —       | Set to `production` to enforce HTTPS for `JOPLIN_SERVER_URL` |
+| `LOG_LEVEL`             | No       | `info`  | Log level: `debug`, `info`, `warn`, `error`, `silent`                  |
+| `SYNC_INTERVAL_SECONDS` | No       | `300`   | Periodic sync interval in seconds                                      |
+| `NODE_ENV`              | No       | —       | Set to `production` to enforce HTTPS for `JOPLIN_SERVER_URL`           |
 
 > **Note:** `JOPLIN_API_TOKEN` is the Joplin **Data API token**. After starting the containers, the [core entrypoint script](entrypoint-core.sh) automatically generates and echoes the token to stdout. Retrieve it by running:
 >
@@ -247,18 +247,18 @@ docker compose down
 
 Place variables in the `.env` file (automatically picked up by [`docker-compose.yml`](docker-compose.yml)).
 
-| Variable                | Container       | Required | Default | Description                                                  |
-| ----------------------- | --------------- | -------- | ------- | ------------------------------------------------------------ |
-| `JOPLIN_SERVER_URL`     | joplin-core     | **Yes**  | —       | Joplin Server URL (e.g., `https://joplin.example.com/`)      |
-| `JOPLIN_USERNAME`       | joplin-core     | **Yes**  | —       | Joplin Server username/email                                 |
-| `JOPLIN_PASSWORD`       | joplin-core     | **Yes**  | —       | Joplin Server password                                       |
-| `JOPLIN_API_TOKEN`      | both            | **Yes**  | —       | Joplin Data API token (displayed in `docker logs joplin-core` on startup) |
-| `JOPLIN_CORE_URL`       | joplin-mcp      | **Yes**  | —       | URL of the joplin-core Data API (e.g., `http://joplin-core:41184`) |
-| `JOPLIN_DATA_API_PORT`  | joplin-core     | No       | `41184` | Internal Data API listen port                                |
-| `MCP_PORT`              | joplin-mcp      | No       | `3000`  | MCP HTTP server port (exposed to host)                       |
-| `LOG_LEVEL`             | both            | No       | `info`  | Log level: `debug`, `info`, `warn`, `error`, `silent`        |
-| `SYNC_INTERVAL_SECONDS` | joplin-core     | No       | `300`   | Periodic sync interval in seconds                            |
-| `NODE_ENV`              | joplin-core     | No       | —       | Set to `production` to enforce HTTPS for `JOPLIN_SERVER_URL` |
+| Variable                | Container   | Required | Default | Description                                                               |
+| ----------------------- | ----------- | -------- | ------- | ------------------------------------------------------------------------- |
+| `JOPLIN_SERVER_URL`     | joplin-core | **Yes**  | —       | Joplin Server URL (e.g., `https://joplin.example.com/`)                   |
+| `JOPLIN_USERNAME`       | joplin-core | **Yes**  | —       | Joplin Server username/email                                              |
+| `JOPLIN_PASSWORD`       | joplin-core | **Yes**  | —       | Joplin Server password                                                    |
+| `JOPLIN_API_TOKEN`      | both        | **Yes**  | —       | Joplin Data API token (displayed in `docker logs joplin-core` on startup) |
+| `JOPLIN_CORE_URL`       | joplin-mcp  | **Yes**  | —       | URL of the joplin-core Data API (e.g., `http://joplin-core:41184`)        |
+| `JOPLIN_DATA_API_PORT`  | joplin-core | No       | `41184` | Internal Data API listen port                                             |
+| `MCP_PORT`              | joplin-mcp  | No       | `3000`  | MCP HTTP server port (exposed to host)                                    |
+| `LOG_LEVEL`             | both        | No       | `info`  | Log level: `debug`, `info`, `warn`, `error`, `silent`                     |
+| `SYNC_INTERVAL_SECONDS` | joplin-core | No       | `300`   | Periodic sync interval in seconds                                         |
+| `NODE_ENV`              | joplin-core | No       | —       | Set to `production` to enforce HTTPS for `JOPLIN_SERVER_URL`              |
 
 #### MCP Client Configuration (Docker)
 
@@ -303,6 +303,41 @@ Tests use [Vitest](https://vitest.dev/) with v8 coverage (thresholds: 70% statem
 
 The test suite does not require a running Joplin instance — unit tests use mocks, and integration tests are skipped when the Joplin Data API is unavailable.
 
+### Container Integration Tests
+
+End-to-end tests that run the full MCP stack (joplin-core + joplin-mcp) in Docker containers.
+
+#### Prerequisites
+
+- Docker and Docker Compose v2
+
+#### Running
+
+```bash
+make test-integration
+# or
+./scripts/run-integration-tests.sh
+```
+
+#### What it tests
+
+- MCP connection and tool discovery (17 tools)
+- Note CRUD via MCP tools
+- Folder CRUD via MCP tools
+- Search and tag operations
+- Error handling and validation
+
+#### Architecture
+
+Tests connect to joplin-mcp via `@modelcontextprotocol/sdk` StreamableHTTP transport.
+joplin-core runs with dummy sync credentials — no real Joplin Server is needed.
+The API token is extracted from a shared Docker volume at startup.
+
+#### Reports
+
+- JUnit XML: `reports/container/junit.xml`
+- Container logs: `reports/container/*.log`
+
 ---
 
 ## Architecture
@@ -344,25 +379,25 @@ graph TD
 
 ### Tool Overview
 
-| Tool             | Description                                       | Writes? |
-| ---------------- | ------------------------------------------------- | ------- |
-| `list_notebooks` | List all notebooks/folders                        | No      |
-| `list_notes`     | List notes with pagination and metadata fields    | No      |
-| `search_notes`   | Search notes, folders, and tags                   | No      |
-| `read_note`      | Read a single note by ID        | No      |
-| `read_notebook`  | Read a single notebook by ID    | No      |
-| `read_multinote` | Read multiple notes by IDs      | No      |
-| `read_tags`      | Get tags for a note             | No      |
-| `create_note`    | Create a new note               | **Yes** |
-| `create_folder`  | Create a new notebook           | **Yes** |
-| `edit_note`      | Edit an existing note           | **Yes** |
-| `edit_folder`    | Edit an existing folder         | **Yes** |
-| `create_tag`     | Create a new tag                | **Yes** |
-| `tag_note`       | Apply a tag to a note           | **Yes** |
-| `untag_note`     | Remove a tag from a note        | **Yes** |
-| `delete_note`    | Delete a note                   | **Yes** |
-| `delete_folder`  | Delete a folder                 | **Yes** |
-| `sync`           | Manually trigger sync           | No      |
+| Tool             | Description                                    | Writes? |
+| ---------------- | ---------------------------------------------- | ------- |
+| `list_notebooks` | List all notebooks/folders                     | No      |
+| `list_notes`     | List notes with pagination and metadata fields | No      |
+| `search_notes`   | Search notes, folders, and tags                | No      |
+| `read_note`      | Read a single note by ID                       | No      |
+| `read_notebook`  | Read a single notebook by ID                   | No      |
+| `read_multinote` | Read multiple notes by IDs                     | No      |
+| `read_tags`      | Get tags for a note                            | No      |
+| `create_note`    | Create a new note                              | **Yes** |
+| `create_folder`  | Create a new notebook                          | **Yes** |
+| `edit_note`      | Edit an existing note                          | **Yes** |
+| `edit_folder`    | Edit an existing folder                        | **Yes** |
+| `create_tag`     | Create a new tag                               | **Yes** |
+| `tag_note`       | Apply a tag to a note                          | **Yes** |
+| `untag_note`     | Remove a tag from a note                       | **Yes** |
+| `delete_note`    | Delete a note                                  | **Yes** |
+| `delete_folder`  | Delete a folder                                | **Yes** |
+| `sync`           | Manually trigger sync                          | No      |
 
 ### Input / Output Schemas
 
@@ -382,15 +417,15 @@ All tool input is validated through [Zod](https://zod.dev/) schemas. Below are t
 
 #### Write Tools
 
-| Tool            | Input                                                                                                                                                                                           | Output              |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
-| `create_note`   | `{ title (1–500 chars), parent_id?, body? (max 1 MB), author? (max 200), source_url? (validated URL), is_todo? (boolean \| number 0/1), todo_due? (unix ms) }`                                      | `Note`              |
-| `create_folder` | `{ title (1–500 chars), parent_id?, icon? (max 100) }`                                                                                                                                         | `Folder`            |
-| `edit_note`     | `{ note_id, title?, parent_id?, body?, author? (max 200), source_url? (validated URL), is_todo? (boolean \| number 0/1), todo_due? (unix ms) }`                                                     | `Note`              |
-| `edit_folder`   | `{ folder_id, title?, parent_id?, icon? (max 100) }`                                                                                                                                           | `Folder`            |
-| `create_tag`    | `{ title (1–200 chars) }`                                                                                                                                                                       | `Tag`               |
-| `tag_note`      | `{ note_id, tag_id }`                                                                                                                                                                           | `NoteTag`           |
-| `untag_note`    | `{ note_id, tag_id }`                                                                                                                                                                           | `{ success: true }` |
+| Tool            | Input                                                                                                                                                          | Output              |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| `create_note`   | `{ title (1–500 chars), parent_id?, body? (max 1 MB), author? (max 200), source_url? (validated URL), is_todo? (boolean \| number 0/1), todo_due? (unix ms) }` | `Note`              |
+| `create_folder` | `{ title (1–500 chars), parent_id?, icon? (max 100) }`                                                                                                         | `Folder`            |
+| `edit_note`     | `{ note_id, title?, parent_id?, body?, author? (max 200), source_url? (validated URL), is_todo? (boolean \| number 0/1), todo_due? (unix ms) }`                | `Note`              |
+| `edit_folder`   | `{ folder_id, title?, parent_id?, icon? (max 100) }`                                                                                                           | `Folder`            |
+| `create_tag`    | `{ title (1–200 chars) }`                                                                                                                                      | `Tag`               |
+| `tag_note`      | `{ note_id, tag_id }`                                                                                                                                          | `NoteTag`           |
+| `untag_note`    | `{ note_id, tag_id }`                                                                                                                                          | `{ success: true }` |
 
 #### Delete Tools
 
@@ -401,8 +436,8 @@ All tool input is validated through [Zod](https://zod.dev/) schemas. Below are t
 
 #### Sync Tool
 
-| Tool   | Input | Output                                                     |
-| ------ | ----- | ---------------------------------------------------------- |
+| Tool   | Input | Output                                                          |
+| ------ | ----- | --------------------------------------------------------------- |
 | `sync` | `{}`  | `{ status: "idle" \| "syncing", lastSyncTime: string \| null }` |
 
 ### Error Response Format
@@ -630,14 +665,14 @@ scripts/
 
 Root-level deployment files:
 
-| File | Purpose |
-| ---- | ------- |
-| [`Dockerfile.core`](Dockerfile.core) | Container A: Joplin CLI + Data API + bash sync scheduler |
-| [`Dockerfile.mcp`](Dockerfile.mcp) | Container B: stateless MCP HTTP server |
-| [`Dockerfile.tests`](Dockerfile.tests) | Test runner container |
-| [`entrypoint-core.sh`](entrypoint-core.sh) | Container A entrypoint: bash sync scheduler with extensive logging |
-| [`entrypoint-mcp.sh`](entrypoint-mcp.sh) | Container B entrypoint: validates env vars and starts MCP HTTP server |
-| [`docker-compose.yml`](docker-compose.yml) | Two-service orchestration with healthchecks and dependency ordering |
+| File                                       | Purpose                                                               |
+| ------------------------------------------ | --------------------------------------------------------------------- |
+| [`Dockerfile.core`](Dockerfile.core)       | Container A: Joplin CLI + Data API + bash sync scheduler              |
+| [`Dockerfile.mcp`](Dockerfile.mcp)         | Container B: stateless MCP HTTP server                                |
+| [`Dockerfile.tests`](Dockerfile.tests)     | Test runner container                                                 |
+| [`entrypoint-core.sh`](entrypoint-core.sh) | Container A entrypoint: bash sync scheduler with extensive logging    |
+| [`entrypoint-mcp.sh`](entrypoint-mcp.sh)   | Container B entrypoint: validates env vars and starts MCP HTTP server |
+| [`docker-compose.yml`](docker-compose.yml) | Two-service orchestration with healthchecks and dependency ordering   |
 
 ## Startup & Shutdown Pipeline
 
