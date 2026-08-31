@@ -277,6 +277,13 @@ fi
 
 # Start periodic sync loop in its own process group so cleanup() can kill
 # the whole group (subshell + any in-flight joplin sync child) atomically.
+#
+# `bash -c` children do not inherit shell functions or non-exported variables,
+# so we must export everything the loop body references:
+#   - variables: SYNC_INTERVAL_SECONDS, LOG_DIR, LOG_FILE, SYNC_LOG_FILE
+#   - functions: log, log_sync, check_sync_errors
+export SYNC_INTERVAL_SECONDS LOG_DIR LOG_FILE SYNC_LOG_FILE
+export -f log log_sync check_sync_errors
 setsid bash -c '
     while true; do
         sleep "${SYNC_INTERVAL_SECONDS}"
@@ -344,7 +351,7 @@ cleanup() {
         log "INFO" "Stopping sync loop (PID: ${SYNC_LOOP_PID}) and children..."
         kill -TERM -- -"${SYNC_LOOP_PID}" 2>/dev/null || true
         # Drain: wait up to 10 seconds for the group to exit
-        local waited=0
+        waited=0
         while [ "${waited}" -lt 10 ] && kill -0 "${SYNC_LOOP_PID}" 2>/dev/null; do
             sleep 1
             waited=$((waited + 1))
@@ -356,6 +363,9 @@ cleanup() {
         else
             log "INFO" "Sync loop and children exited cleanly"
         fi
+        # Reap the setsid leader so the process group is fully gone before
+        # we perform the final sync.
+        wait "${SYNC_LOOP_PID}" 2>/dev/null || true
     fi
 
     # 2. Send SIGTERM to the MCP child process and wait briefly for graceful close.
@@ -364,7 +374,7 @@ cleanup() {
     if [ -n "${MCP_PID:-}" ] && kill -0 "${MCP_PID}" 2>/dev/null; then
         log "INFO" "Sending SIGTERM to MCP server (PID: ${MCP_PID})..."
         kill -TERM "${MCP_PID}" 2>/dev/null || true
-        local waited=0
+        waited=0
         while [ "${waited}" -lt 8 ] && kill -0 "${MCP_PID}" 2>/dev/null; do
             sleep 1
             waited=$((waited + 1))
@@ -383,12 +393,16 @@ cleanup() {
         data_api_alive=true
         log "INFO" "Stopping Joplin Data API (PID: ${JOPLIN_SERVER_PID})..."
         kill "${JOPLIN_SERVER_PID}" 2>/dev/null || true
-        # Give it a moment to close SQLite cleanly
-        local waited=0
+        # Give it a moment to close SQLite cleanly, then escalate to SIGKILL
+        waited=0
         while [ "${waited}" -lt 3 ] && kill -0 "${JOPLIN_SERVER_PID}" 2>/dev/null; do
             sleep 1
             waited=$((waited + 1))
         done
+        if kill -0 "${JOPLIN_SERVER_PID}" 2>/dev/null; then
+            log "WARN" "Joplin Data API did not exit within 3 s, sending SIGKILL"
+            kill -9 "${JOPLIN_SERVER_PID}" 2>/dev/null || true
+        fi
         log "INFO" "Joplin Data API stopped"
     fi
 
@@ -416,19 +430,20 @@ trap 'cleanup SIGINT' SIGINT
 
 EXIT_CODE=0
 while true; do
-    # wait -n (bash ≥4.3) returns when any one of the listed PIDs finishes.
-    # The entrypoint shebang is #!/bin/bash and the image ships bash ≥5.
-    wait -n "${MCP_PID}" "${JOPLIN_SERVER_PID}" 2>/dev/null
-    WAIT_STATUS=$?
+    # wait -n -p (bash ≥5.1) returns when any one of the listed PIDs finishes
+    # and stores the actual exited PID in WAIT_PID.
+    # The entrypoint shebang is #!/bin/bash and the image ships bash 5.2.
+    WAIT_PID=""
+    wait -n -p WAIT_PID "${MCP_PID}" "${JOPLIN_SERVER_PID}" 2>/dev/null || WAIT_STATUS=$?
 
-    if ! kill -0 "${MCP_PID}" 2>/dev/null; then
-        log "ERROR" "MCP server (PID: ${MCP_PID}) exited unexpectedly (wait status: ${WAIT_STATUS})"
+    if [ "${WAIT_PID}" = "${MCP_PID}" ]; then
+        log "ERROR" "MCP server (PID: ${MCP_PID}) exited unexpectedly (wait status: ${WAIT_STATUS:-?})"
         EXIT_CODE=1
         # Gracefully stop the surviving Data API
         if [ -n "${JOPLIN_SERVER_PID:-}" ] && kill -0 "${JOPLIN_SERVER_PID}" 2>/dev/null; then
             log "INFO" "Sending SIGTERM to surviving Data API (PID: ${JOPLIN_SERVER_PID})..."
             kill -TERM "${JOPLIN_SERVER_PID}" 2>/dev/null || true
-            local waited=0
+            waited=0
             while [ "${waited}" -lt 5 ] && kill -0 "${JOPLIN_SERVER_PID}" 2>/dev/null; do
                 sleep 1
                 waited=$((waited + 1))
@@ -437,14 +452,14 @@ while true; do
                 kill -9 "${JOPLIN_SERVER_PID}" 2>/dev/null || true
             fi
         fi
-    elif ! kill -0 "${JOPLIN_SERVER_PID}" 2>/dev/null; then
-        log "ERROR" "Data API (PID: ${JOPLIN_SERVER_PID}) exited unexpectedly (wait status: ${WAIT_STATUS})"
+    elif [ "${WAIT_PID}" = "${JOPLIN_SERVER_PID}" ]; then
+        log "ERROR" "Data API (PID: ${JOPLIN_SERVER_PID}) exited unexpectedly (wait status: ${WAIT_STATUS:-?})"
         EXIT_CODE=1
         # Gracefully stop the surviving MCP server
         if [ -n "${MCP_PID:-}" ] && kill -0 "${MCP_PID}" 2>/dev/null; then
             log "INFO" "Sending SIGTERM to surviving MCP server (PID: ${MCP_PID})..."
             kill -TERM "${MCP_PID}" 2>/dev/null || true
-            local waited=0
+            waited=0
             while [ "${waited}" -lt 5 ] && kill -0 "${MCP_PID}" 2>/dev/null; do
                 sleep 1
                 waited=$((waited + 1))
