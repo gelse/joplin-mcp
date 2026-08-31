@@ -22,7 +22,8 @@ services:
     container_name: joplin-mcp
     ports:
       # MCP_HOST_PORT selects the host-side port; the container always
-      # listens on 3000 (MCP_PORT is intentionally NOT passed into the container).
+      # listens on 3000 (any MCP_PORT value is canonicalized to 3000 by
+      # entrypoint-combined.sh with a warning — use MCP_HOST_PORT instead).
       - '127.0.0.1:${MCP_HOST_PORT:-3000}:3000'
     env_file:
       - .env

@@ -408,10 +408,16 @@ cleanup() {
         log "INFO" "Stopping Joplin Data API (PID: ${JOPLIN_SERVER_PID})..."
         kill "${JOPLIN_SERVER_PID}" 2>/dev/null || true
         # Give it a moment to close SQLite cleanly, then escalate to SIGKILL.
-        # Check liveness FIRST so SIGKILL is reachable; `wait` would block
-        # forever if the process is still alive.
+        #
+        # Zombie race: after SIGTERM the process may die and become a zombie
+        # before the drain loop reaps it.  `kill -0` succeeds on zombies, so
+        # the loop may report "did not exit within 3 s" spuriously.  We attempt
+        # a non-blocking `wait` inside the drain loop to reap the zombie first;
+        # only WARN (and escalate) if kill -0 still succeeds after the reap.
         waited=0
         while [ "${waited}" -lt 3 ] && kill -0 "${JOPLIN_SERVER_PID}" 2>/dev/null; do
+            # Try to reap if already dead (returns immediately for zombies/exited)
+            wait "${JOPLIN_SERVER_PID}" 2>/dev/null || true
             sleep 1
             waited=$((waited + 1))
         done
