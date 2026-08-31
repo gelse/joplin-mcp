@@ -341,6 +341,9 @@ log "INFO" "  Log file: ${LOG_FILE}"
 log "INFO" "============================================="
 
 cleanup() {
+    [ "${CLEANUP_DONE:-0}" -eq 1 ] && return 0
+    CLEANUP_DONE=1
+
     local signal="$1"
     log "INFO" "Received ${signal}, shutting down gracefully..."
 
@@ -399,6 +402,7 @@ cleanup() {
             sleep 1
             waited=$((waited + 1))
         done
+        wait "${JOPLIN_SERVER_PID}" 2>/dev/null || true
         if kill -0 "${JOPLIN_SERVER_PID}" 2>/dev/null; then
             log "WARN" "Joplin Data API did not exit within 3 s, sending SIGKILL"
             kill -9 "${JOPLIN_SERVER_PID}" 2>/dev/null || true
@@ -434,6 +438,7 @@ while true; do
     # and stores the actual exited PID in WAIT_PID.
     # The entrypoint shebang is #!/bin/bash and the image ships bash 5.2.
     WAIT_PID=""
+    WAIT_STATUS=""
     wait -n -p WAIT_PID "${MCP_PID}" "${JOPLIN_SERVER_PID}" 2>/dev/null || WAIT_STATUS=$?
 
     if [ "${WAIT_PID}" = "${MCP_PID}" ]; then
