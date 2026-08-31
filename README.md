@@ -288,7 +288,7 @@ The test suite does not require a running Joplin instance — unit tests use moc
 
 ### Container Integration Tests
 
-End-to-end tests that run the full MCP stack in Docker containers using the **integration-test stack** ([`docker-compose.test.yml`](docker-compose.test.yml)), which retains the two-container topology (`joplin-core` + `joplin-mcp`).
+End-to-end tests that run the full MCP stack in a Docker container using the **integration-test stack** ([`docker-compose.test.yml`](docker-compose.test.yml)), built from `Dockerfile.combined`.
 
 #### Prerequisites
 
@@ -313,10 +313,8 @@ make test-integration
 #### Architecture
 
 Tests connect to `joplin-mcp` via `@modelcontextprotocol/sdk` StreamableHTTP transport.
-`joplin-core` runs with dummy sync credentials — no real Joplin Server is needed.
-The API token is extracted from a shared Docker volume at startup.
-
-The integration-test stack uses `Dockerfile.core`, `Dockerfile.mcp`, `entrypoint-core.sh`, `entrypoint-mcp.sh`, and `scripts/extract-api-token.sh` — these files are **retained exclusively for the test stack** and are not used in production.
+The combined container runs with dummy sync credentials — no real Joplin Server is needed.
+The API token is auto-extracted from the Joplin CLI config at startup.
 
 #### Reports
 
@@ -662,17 +660,7 @@ Root-level deployment files:
 | [`Dockerfile.tests`](Dockerfile.tests)       | Test runner container                                                            |
 | [`entrypoint-combined.sh`](entrypoint-combined.sh) | Production entrypoint: Data API + sync loop + MCP server with graceful shutdown |
 | [`docker-compose.yml`](docker-compose.yml)   | Single-service orchestration with healthchecks                                   |
-| [`docker-compose.test.yml`](docker-compose.test.yml) | Integration-test stack (two-container topology, used by `make test-integration`) |
-
-The following files are **retained for the integration-test stack only** and are not used in production:
-
-| File                                         | Purpose                                                          |
-| -------------------------------------------- | ---------------------------------------------------------------- |
-| [`Dockerfile.core`](Dockerfile.core)         | Test-stack Container A: Joplin CLI + Data API                    |
-| [`Dockerfile.mcp`](Dockerfile.mcp)           | Test-stack Container B: stateless MCP HTTP server                |
-| [`entrypoint-core.sh`](entrypoint-core.sh)   | Test-stack Container A entrypoint                                |
-| [`entrypoint-mcp.sh`](entrypoint-mcp.sh)     | Test-stack Container B entrypoint                                |
-| [`scripts/extract-api-token.sh`](scripts/extract-api-token.sh) | Test-stack token extraction from shared volume |
+| [`docker-compose.test.yml`](docker-compose.test.yml) | Integration-test stack (uses `Dockerfile.combined`, used by `make test-integration`) |
 
 ## Startup & Shutdown Pipeline
 
@@ -691,15 +679,14 @@ The following files are **retained for the integration-test stack only** and are
 9. **Liveness monitor** — `wait -n` on both child PIDs; exits non-zero if either dies (triggers Docker restart)
 10. **Handle signals** — On `SIGTERM`/`SIGINT`: kill sync loop group, stop MCP server, stop Data API, perform final sync, exit 0
 
-### Integration-Test Stack (Two Containers)
+### Integration-Test Stack
 
-The integration-test stack ([`docker-compose.test.yml`](docker-compose.test.yml)) retains the original two-container topology using [`entrypoint-core.sh`](entrypoint-core.sh) and [`entrypoint-mcp.sh`](entrypoint-mcp.sh). This is used exclusively by `make test-integration`.
+The integration-test stack ([`docker-compose.test.yml`](docker-compose.test.yml)) uses the same `Dockerfile.combined` as production. This is used exclusively by `make test-integration`.
 
 ## Key Design Decisions
 
 1. **Data API over CLI for data operations** — Avoids fragile CLI output parsing; uses structured HTTP API with typed responses
-2. **Single combined container for production** — All components (Data API, MCP server, sync scheduler) run in one container. Communication happens over loopback (`127.0.0.1:41184`), eliminating the need for Docker internal networking or a socat proxy. Only port 3000 is published to the host.
-3. **Two-container topology retained for integration tests** — The stateful/stateless split is preserved in the test stack (`docker-compose.test.yml`) because the tests exercise the split (MCP server connecting to a separate Data API container). This also preserves the design history.
+2. **Single combined container** — All components (Data API, MCP server, sync scheduler) run in one container. Communication happens over loopback (`127.0.0.1:41184`), eliminating the need for Docker internal networking or a socat proxy. Only port 3000 is published to the host.
 4. **Bash-based sync scheduler** — Replaces the TypeScript SyncManager with a simple, reliable bash `while true` loop. Logs every sync with PASS/FAIL to `/var/log/joplin/sync.log`.
 5. **Write-through sync** — Write tools trigger immediate sync so Joplin Server is always up-to-date
 6. **Serialized sync queue** — Prevents concurrent sync calls causing `SQLITE_BUSY` errors

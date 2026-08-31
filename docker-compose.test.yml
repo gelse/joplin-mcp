@@ -1,9 +1,9 @@
 services:
-  joplin-core:
+  joplin-mcp:
     build:
       context: .
-      dockerfile: Dockerfile.core
-    image: joplin-api-core:test
+      dockerfile: Dockerfile.combined
+    image: joplin-mcp-combined:test
     environment:
       - JOPLIN_SERVER_URL=https://dummy-joplin-server.example.com
       - JOPLIN_USERNAME=test-user
@@ -13,34 +13,11 @@ services:
     volumes:
       - joplin_data:/home/joplin/.config/joplin
     healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:41184/ping']
+      test: ['CMD-SHELL', 'curl -f http://localhost:41184/ping && curl -f http://localhost:3000/health']
       interval: 5s
       timeout: 10s
       retries: 10
       start_period: 60s
-    init: true
-
-  joplin-mcp:
-    build:
-      context: .
-      dockerfile: Dockerfile.mcp
-    image: joplin-api-mcp:test
-    volumes:
-      - joplin_data:/joplin-data:ro
-      - ./scripts/extract-api-token.sh:/app/extract-api-token.sh:ro
-    entrypoint: ['./extract-api-token.sh']
-    environment:
-      - JOPLIN_CORE_URL=http://joplin-core:41184
-      - LOG_LEVEL=warn
-    depends_on:
-      joplin-core:
-        condition: service_healthy
-    healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:3000/health']
-      interval: 5s
-      timeout: 10s
-      retries: 5
-      start_period: 10s
     init: true
 
   test-runner:

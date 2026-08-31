@@ -21,10 +21,9 @@
 - Persistent SQLite DB at `/home/joplin/.config/joplin` (Docker volume: `joplin_data`)
 - Healthcheck: `curl 127.0.0.1:41184/ping && curl 127.0.0.1:3000/health` (90s start-period)
 
-### Integration-Test Stack (retained two-container topology)
-- Uses `Dockerfile.core` + `Dockerfile.mcp` via `docker-compose.test.yml` (not used in production)
-- Container A (`joplin-core`): `entrypoint-core.sh` + socat proxy on port 41184
-- Container B (`joplin-mcp`): `entrypoint-mcp.sh` → `node dist/mcp/entry.js`, connects to Container A via `JOPLIN_CORE_URL`
+### Integration-Test Stack
+- Uses `Dockerfile.combined` via `docker-compose.test.yml` (same image as production)
+- Built with dummy sync credentials; no real Joplin Server needed
 
 ## Source File Map
 
@@ -132,12 +131,8 @@ search(SearchQuery) → SearchResult[]
 | `Dockerfile.combined` | Production: combined Joplin CLI + Data API + MCP HTTP server (node:22-bookworm-slim, multi-stage) |
 | `Dockerfile.tests` | Test runner: vitest with v8 coverage, JUnit XML to `./reports/` |
 | `docker-compose.yml` | Single service: `joplin-mcp` (combined container); test runner; volume: `joplin_data` |
-| `docker-compose.test.yml` | Integration-test stack: two-container topology (retained for `make test-integration`) |
-| `Dockerfile.core` | Test-stack only: Container A (Joplin CLI + Data API + socat) |
-| `Dockerfile.mcp` | Test-stack only: Container B (stateless MCP HTTP server) |
-| `entrypoint-combined.sh` | Production entrypoint: Data API + sync loop + MCP server with SIGTERM cleanup |
-| `entrypoint-core.sh` | Test-stack only: Container A entrypoint |
-| `entrypoint-mcp.sh` | Test-stack only: Container B entrypoint |
+| `docker-compose.test.yml` | Integration-test stack: uses `Dockerfile.combined` (same as production) for `make test-integration` |
+| `entrypoint-combined.sh` | Production + test-stack entrypoint: Data API + sync loop + MCP server with SIGTERM cleanup |
 
 ## Config Env Vars
 | Var | Required | Default | Notes |

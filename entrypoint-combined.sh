@@ -165,49 +165,13 @@ joplin config "sync.10.password" "${JOPLIN_PASSWORD}"
 log "INFO" "Joplin CLI sync target configured (server reachability will be checked after API token is obtained)"
 
 # -----------------------------------------------------------------------------
-# Extract API token from Joplin config
-# If JOPLIN_API_TOKEN is already set (e.g. via .env), honour it directly.
-# Otherwise derive from `joplin config api.token` / settings.json as fallback.
-# -----------------------------------------------------------------------------
-log "INFO" "Reading Joplin API token..."
-
-if [ -z "${JOPLIN_API_TOKEN:-}" ]; then
-    JOPLIN_API_TOKEN=$(joplin config api.token 2>/dev/null || true)
-    if [ -z "${JOPLIN_API_TOKEN:-}" ]; then
-        # Fallback: read directly from settings.json
-        if [ -f /home/joplin/.config/joplin/settings.json ]; then
-            JOPLIN_API_TOKEN=$(grep -o '"api\.token"[[:space:]]*:[[:space:]]*"[^"]*"' /home/joplin/.config/joplin/settings.json | grep -o '[^"]*"$' | tr -d '"' || true)
-        fi
-    fi
-    if [ -z "${JOPLIN_API_TOKEN:-}" ]; then
-        log "ERROR" "Could not read Joplin API token from config or settings.json"
-        log "ERROR" "Ensure Joplin CLI is authenticated with the server"
-        exit 1
-    fi
-    log "INFO" "Joplin API token extracted from Joplin CLI config"
-else
-    log "INFO" "Using pre-set Joplin API token from environment"
-fi
-
-# -----------------------------------------------------------------------------
-# Probe Joplin Server connectivity
-# -----------------------------------------------------------------------------
-log "INFO" "Probing Joplin Server connectivity..."
-if curl -sf --connect-timeout 5 --max-time 10 "${JOPLIN_SERVER_URL}/api/ping?token=${JOPLIN_API_TOKEN}" -o /dev/null 2>/dev/null; then
-    log "INFO" "Joplin Server is reachable at ${JOPLIN_SERVER_URL}"
-else
-    log "WARN" "Joplin Server not reachable at ${JOPLIN_SERVER_URL} — sync may fail"
-    log "WARN" "This is expected if the server is temporarily unavailable or the token is incorrect"
-fi
-
-# -----------------------------------------------------------------------------
-# Export env vars for Joplin CLI
+# Export env vars for Joplin CLI (JOPLIN_API_TOKEN exported later after
+# Data API starts — the server generates the token on first boot).
 # -----------------------------------------------------------------------------
 export JOPLIN_SERVER_URL
 export JOPLIN_USERNAME
 export JOPLIN_PASSWORD
 export JOPLIN_DATA_API_PORT
-export JOPLIN_API_TOKEN
 export LOG_LEVEL
 
 # -----------------------------------------------------------------------------
@@ -262,6 +226,58 @@ if [ "${DATA_API_HEALTHY}" != true ]; then
 fi
 
 log "INFO" "Joplin Data API is running and healthy on 127.0.0.1:${JOPLIN_INTERNAL_PORT}"
+
+# -----------------------------------------------------------------------------
+# Extract API token from Joplin config
+# The Data API generates the token on first boot and writes it to
+# settings.json, so we must extract it AFTER the server is healthy.
+# If JOPLIN_API_TOKEN is already set (e.g. via .env), honour it directly.
+# -----------------------------------------------------------------------------
+log "INFO" "Reading Joplin API token..."
+
+if [ -z "${JOPLIN_API_TOKEN:-}" ]; then
+    # The Data API may still be writing settings.json — retry a few times.
+    TOKEN_MAX_RETRIES=10
+    TOKEN_RETRY_DELAY=2
+    for t in $(seq 1 ${TOKEN_MAX_RETRIES}); do
+        _RAW_TOKEN=$(joplin config api.token 2>/dev/null || true)
+        # `joplin config` outputs "api.token = <value>" — strip the prefix.
+        JOPLIN_API_TOKEN="${_RAW_TOKEN#api.token = }"
+        if [ -n "${JOPLIN_API_TOKEN:-}" ]; then
+            break
+        fi
+        # Fallback: read directly from settings.json
+        if [ -f /home/joplin/.config/joplin/settings.json ]; then
+            JOPLIN_API_TOKEN=$(grep -o '"api\.token"[[:space:]]*:[[:space:]]*"[^"]*"' /home/joplin/.config/joplin/settings.json | grep -o '[^"]*"$' | tr -d '"' || true)
+            if [ -n "${JOPLIN_API_TOKEN:-}" ]; then
+                break
+            fi
+        fi
+        if [ "${t}" -eq "${TOKEN_MAX_RETRIES}" ]; then
+            log "ERROR" "Could not read Joplin API token after ${TOKEN_MAX_RETRIES} attempts"
+            log "ERROR" "Ensure Joplin CLI is authenticated with the server"
+            exit 1
+        fi
+        log "WARN" "API token not ready yet (attempt ${t}/${TOKEN_MAX_RETRIES}), retrying in ${TOKEN_RETRY_DELAY}s..."
+        sleep "${TOKEN_RETRY_DELAY}"
+    done
+    log "INFO" "Joplin API token extracted from Joplin CLI config"
+else
+    log "INFO" "Using pre-set Joplin API token from environment"
+fi
+
+export JOPLIN_API_TOKEN
+
+# -----------------------------------------------------------------------------
+# Probe Joplin Server connectivity
+# -----------------------------------------------------------------------------
+log "INFO" "Probing Joplin Server connectivity..."
+if curl -sf --connect-timeout 5 --max-time 10 "${JOPLIN_SERVER_URL}/api/ping?token=${JOPLIN_API_TOKEN}" -o /dev/null 2>/dev/null; then
+    log "INFO" "Joplin Server is reachable at ${JOPLIN_SERVER_URL}"
+else
+    log "WARN" "Joplin Server not reachable at ${JOPLIN_SERVER_URL} — sync may fail"
+    log "WARN" "This is expected if the server is temporarily unavailable or the token is incorrect"
+fi
 
 # -----------------------------------------------------------------------------
 # Periodic sync loop (same as core entrypoint)

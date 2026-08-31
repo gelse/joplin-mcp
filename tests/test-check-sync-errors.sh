@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Unit tests for check_sync_errors() function from entrypoint-core.sh
+# Unit tests for check_sync_errors() function from entrypoint-combined.sh
 set -euo pipefail
 
 # --- Stub log functions (suppress output) ---
 log() { :; }
 log_sync() { :; }
 
-# --- Copy check_sync_errors() exactly from entrypoint-core.sh (lines 52-91) ---
+# --- Copy check_sync_errors() exactly from entrypoint-combined.sh (lines 66-105) ---
 check_sync_errors() {
     local label="$1"
     local log_offset="${2:-0}"

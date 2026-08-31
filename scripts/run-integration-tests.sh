@@ -10,7 +10,7 @@ echo "=== Building test images ==="
 docker compose -f "$COMPOSE_FILE" build
 
 echo "=== Starting test stack ==="
-docker compose -f "$COMPOSE_FILE" up -d joplin-core joplin-mcp
+docker compose -f "$COMPOSE_FILE" up -d joplin-mcp
 
 echo "=== Waiting for joplin-mcp to become healthy ==="
 docker compose -f "$COMPOSE_FILE" up -d --wait joplin-mcp
@@ -23,7 +23,6 @@ docker compose -f "$COMPOSE_FILE" run --rm test-runner \
   || TEST_EXIT=$?
 
 echo "=== Collecting logs ==="
-docker compose -f "$COMPOSE_FILE" logs joplin-core > "${REPORTS_DIR}/joplin-core.log" 2>&1 || true
 docker compose -f "$COMPOSE_FILE" logs joplin-mcp > "${REPORTS_DIR}/joplin-mcp.log" 2>&1 || true
 
 echo "=== Tearing down test stack ==="

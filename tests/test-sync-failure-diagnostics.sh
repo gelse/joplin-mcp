@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Unit tests for sync failure diagnostics in entrypoint-core.sh
+# Unit tests for sync failure diagnostics in entrypoint-combined.sh
 # Tests: log tail on failure, connectivity probe, updated log messages
 set -euo pipefail
 
 # --- Paths ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENTRYPOINT="${SCRIPT_DIR}/../entrypoint-core.sh"
+ENTRYPOINT="${SCRIPT_DIR}/../entrypoint-combined.sh"
 
 # --- Test harness ---
 TEST_DIR="$(mktemp -d)"
@@ -108,8 +108,8 @@ echo "=== Group 2: Log tail fallback behavior ==="
     # Remove the file if it exists
     rm -f "${TEST_DIR}/log.txt"
 
-    # Replicate the exact pattern from entrypoint-core.sh:
-    #   tail -n 20 "${LOG_DIR}/log.txt" >&2 || log "WARN" "log.txt not found or empty"
+    # Replicate the exact pattern from entrypoint-combined.sh:
+    #   tail -n 20 "${LOG_DIR}/log.txt" 2>/dev/null || log "WARN" "log.txt not found or empty"
     # We use a stub log function and capture stderr
     log() { :; }
     tail -n 20 "${TEST_DIR}/log.txt" 2>/dev/null || log "WARN" "log.txt not found or empty"
@@ -143,7 +143,7 @@ echo ""
 
 echo "=== Group 3: Connectivity probe behavior ==="
 
-# --- Helper: probe function replicating the pattern from entrypoint-core.sh ---
+# --- Helper: probe function replicating the pattern from entrypoint-combined.sh ---
 # Usage: run_probe <mock_exit_code> <expected_keyword>
 # Sets up a mock curl, runs the probe, and checks output.
 run_probe() {
@@ -168,7 +168,7 @@ MOCK
     PATH="${mock_dir}:${PATH}" bash -c "
         server_url=\"${server_url}\"
         api_token=\"${api_token}\"
-        # Replicate the probe logic from entrypoint-core.sh
+        # Replicate the probe logic from entrypoint-combined.sh
         if curl -sf --connect-timeout 5 --max-time 10 \"\${server_url}/api/ping?token=\${api_token}\" -o /dev/null 2>/dev/null; then
             echo 'reachable'
         else
