@@ -39,7 +39,7 @@ fi
 
 # 3. Verify Data API is reachable inside the container (loopback-only)
 echo -n "Checking Data API via docker exec... "
-if docker exec "${CONTAINER_NAME}" curl -sf http://127.0.0.1:41184/ping > /dev/null 2>&1; then
+if docker exec "${CONTAINER_NAME}" curl -sf "http://127.0.0.1:${JOPLIN_DATA_API_PORT:-41184}/ping" > /dev/null 2>&1; then
   echo "OK"
 else
   echo "WARN: Data API not responding inside container (may still be starting)"

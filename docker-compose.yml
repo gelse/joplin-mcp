@@ -27,7 +27,7 @@ services:
     environment:
       - SYNC_INTERVAL_SECONDS=${SYNC_INTERVAL_SECONDS:-300}
       - LOG_LEVEL=${LOG_LEVEL:-info}
-      - MCP_PORT=${MCP_PORT:-3000}
+      # Container always listens on 3000; MCP_PORT only changes the host-side mapping.
     volumes:
       - joplin_data:/home/joplin/.config/joplin
     deploy:

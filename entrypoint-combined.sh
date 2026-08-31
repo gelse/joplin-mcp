@@ -161,22 +161,28 @@ log "INFO" "Joplin CLI sync target configured (server reachability will be check
 
 # -----------------------------------------------------------------------------
 # Extract API token from Joplin config
+# If JOPLIN_API_TOKEN is already set (e.g. via .env), honour it directly.
+# Otherwise derive from `joplin config api.token` / settings.json as fallback.
 # -----------------------------------------------------------------------------
 log "INFO" "Reading Joplin API token..."
 
-JOPLIN_API_TOKEN=$(joplin config api.token 2>/dev/null || true)
 if [ -z "${JOPLIN_API_TOKEN:-}" ]; then
-    # Fallback: read directly from settings.json
-    if [ -f /home/joplin/.config/joplin/settings.json ]; then
-        JOPLIN_API_TOKEN=$(grep -o '"api\.token"[[:space:]]*:[[:space:]]*"[^"]*"' /home/joplin/.config/joplin/settings.json | grep -o '[^"]*"$' | tr -d '"' || true)
+    JOPLIN_API_TOKEN=$(joplin config api.token 2>/dev/null || true)
+    if [ -z "${JOPLIN_API_TOKEN:-}" ]; then
+        # Fallback: read directly from settings.json
+        if [ -f /home/joplin/.config/joplin/settings.json ]; then
+            JOPLIN_API_TOKEN=$(grep -o '"api\.token"[[:space:]]*:[[:space:]]*"[^"]*"' /home/joplin/.config/joplin/settings.json | grep -o '[^"]*"$' | tr -d '"' || true)
+        fi
     fi
+    if [ -z "${JOPLIN_API_TOKEN:-}" ]; then
+        log "ERROR" "Could not read Joplin API token from config or settings.json"
+        log "ERROR" "Ensure Joplin CLI is authenticated with the server"
+        exit 1
+    fi
+    log "INFO" "Joplin API token extracted from Joplin CLI config"
+else
+    log "INFO" "Using pre-set Joplin API token from environment"
 fi
-if [ -z "${JOPLIN_API_TOKEN:-}" ]; then
-    log "ERROR" "Could not read Joplin API token from config or settings.json"
-    log "ERROR" "Ensure Joplin CLI is authenticated with the server"
-    exit 1
-fi
-log "INFO" "Joplin API token obtained successfully"
 
 # -----------------------------------------------------------------------------
 # Probe Joplin Server connectivity
@@ -396,17 +402,19 @@ cleanup() {
         data_api_alive=true
         log "INFO" "Stopping Joplin Data API (PID: ${JOPLIN_SERVER_PID})..."
         kill "${JOPLIN_SERVER_PID}" 2>/dev/null || true
-        # Give it a moment to close SQLite cleanly, then escalate to SIGKILL
+        # Give it a moment to close SQLite cleanly, then escalate to SIGKILL.
+        # Check liveness FIRST so SIGKILL is reachable; `wait` would block
+        # forever if the process is still alive.
         waited=0
         while [ "${waited}" -lt 3 ] && kill -0 "${JOPLIN_SERVER_PID}" 2>/dev/null; do
             sleep 1
             waited=$((waited + 1))
         done
-        wait "${JOPLIN_SERVER_PID}" 2>/dev/null || true
         if kill -0 "${JOPLIN_SERVER_PID}" 2>/dev/null; then
             log "WARN" "Joplin Data API did not exit within 3 s, sending SIGKILL"
             kill -9 "${JOPLIN_SERVER_PID}" 2>/dev/null || true
         fi
+        wait "${JOPLIN_SERVER_PID}" 2>/dev/null || true
         log "INFO" "Joplin Data API stopped"
     fi
 
