@@ -130,7 +130,12 @@ fi
 JOPLIN_DATA_API_PORT="${JOPLIN_DATA_API_PORT:-41184}"
 SYNC_INTERVAL_SECONDS="${SYNC_INTERVAL_SECONDS:-300}"
 LOG_LEVEL="${LOG_LEVEL:-info}"
-MCP_PORT="${MCP_PORT:-3000}"
+# Canonicalize MCP port — the container always binds to 3000.
+# env_file may inject a non-3000 MCP_PORT from .env; ignore it.
+if [ "${MCP_PORT:-3000}" != "3000" ]; then
+    log "WARN" "MCP_PORT is set to '${MCP_PORT}' via env_file — ignoring (container always listens on 3000; use MCP_HOST_PORT for host mapping)"
+fi
+MCP_PORT=3000
 
 # The Data API binds directly to this port — no offset needed.
 # In the old two-container setup a TCP proxy forwarded from the public

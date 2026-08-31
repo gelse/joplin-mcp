@@ -2,7 +2,7 @@
 set -euo pipefail
 
 CONTAINER_NAME="joplin-mcp"
-HEALTH_PORT="${MCP_PORT:-3000}"
+HEALTH_PORT="${MCP_HOST_PORT:-${MCP_PORT:-3000}}"
 HEALTH_URL="http://localhost:${HEALTH_PORT}/health"
 MAX_WAIT=60
 INTERVAL=5
