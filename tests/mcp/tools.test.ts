@@ -871,4 +871,17 @@ describe('sync', () => {
 
     await expect(sync({}, context)).rejects.toThrow('Sync failed');
   });
+
+  it('returns static status when no syncManager (combined container)', async () => {
+    const context = createContext();
+    // Simulate combined container: no syncManager provided
+    delete (context as Record<string, unknown>).syncManager;
+
+    const result = await sync({}, context);
+
+    expect(result).toEqual({
+      status: 'Sync is handled automatically on a schedule by the container entrypoint.',
+      lastSyncTime: null,
+    });
+  });
 });

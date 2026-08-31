@@ -237,7 +237,7 @@ export const sync: ToolHandler<object, { status: string; lastSyncTime: string | 
     };
   }
   return {
-    status: 'Sync is managed by the core container on a schedule',
+    status: 'Sync is handled automatically on a schedule by the container entrypoint.',
     lastSyncTime: null,
   };
 };

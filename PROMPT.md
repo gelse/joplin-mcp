@@ -30,7 +30,7 @@
 
 | File | Role |
 |------|------|
-| `src/config.ts` | Zod env parser: `JOPLIN_SERVER_URL`, `JOPLIN_USERNAME`, `JOPLIN_PASSWORD`, `JOPLIN_API_TOKEN`, `JOPLIN_CORE_URL`, `JOPLIN_DATA_API_PORT`(41184), `LOG_LEVEL`(info), `SYNC_INTERVAL_SECONDS`(300), `MCP_PORT`(3000) |
+| `src/config.ts` | Zod env parser: `JOPLIN_SERVER_URL`, `JOPLIN_USERNAME`, `JOPLIN_PASSWORD`, `JOPLIN_API_TOKEN`, `JOPLIN_CORE_URL`, `JOPLIN_DATA_API_PORT`(41184), `LOG_LEVEL`(info), `SYNC_INTERVAL_SECONDS`(300); `MCP_PORT`(3000) read directly from `process.env` in `src/mcp/entry.ts`, unvalidated |
 | `src/logger.ts` | Pino structured logger (`pino` + `pino-pretty`), `createLogger(config)` |
 | `src/guarded-string.ts` | `GuardedString` class — `#value` private field, `toString()`/`toJSON()` return `'[REDACTED]'`, only `.value` exposes raw |
 | `src/errors.ts` | Hierarchy: `ConfigError`, `DataApiError(statusCode,responseBody?)`, `NotFoundError(404)`, `ConflictError(409)`, `ValidationError(400)`, `AuthError(401)`, `FatalError(cause?,exitCode)` |
@@ -38,11 +38,11 @@
 | `src/pagination.ts` | `clampLimit(n)` → 1–100, `buildPageParam(p)` → `&page=N`, `fetchAllPages(fn)` → loop `has_more` |
 | `src/data-client.ts` | `JoplinDataClient` — HTTP client for Joplin Data API; 26 methods; auth via `POST /auth` (Bearer token, 55min expiry, 60s proactive refresh, 401 retry); concurrency limiter (max 5); ID validation (`/^[a-zA-Z0-9_-]+$/`) |
 | `src/cli-executor.ts` | `CliExecutor` — wraps `joplin` CLI via `execFile`; whitelist of subcommands; shell metacharacter blocking |
-| `src/sync-manager.ts` | `SyncManager` — serialized sync queue (`triggerSync`), periodic timer, status: idle/syncing/error; **NOT used in Container B** |
+| `src/sync-manager.ts` | `SyncManager` — serialized sync queue (`triggerSync`), periodic timer, status: idle/syncing/error; **NOT used in the combined container** |
 | `src/mcp/entry.ts` | MCP server entrypoint: parseConfig → createLogger → `JoplinDataClient(joplinCoreUrl, token)` → ping → `new ToolRegistry()` → `startMCPHttpServer()` |
 | `src/mcp/server.ts` | MCP server factory: `createMCPServer()` registers tools, `startMCPServer()` (stdio), `startMCPHttpServer()` (HTTP + `/health` endpoint) |
 | `src/mcp/tool-registry.ts` | `ToolRegistry` — static `TOOLS` record of 17 `RegisteredTool`; `executeTool(name,input,ctx)` does Zod parse → handler |
-| `src/mcp/tools.ts` | 17 `ToolHandler` functions; write tools call `ctx.syncManager?.triggerSync()` (no-op in Container B); `ToolContext = { client, syncManager?, logger }` |
+| `src/mcp/tools.ts` | 17 `ToolHandler` functions; write tools call `ctx.syncManager?.triggerSync()` (no-op when omitted); `ToolContext = { client, syncManager?, logger }` |
 | `src/mcp/schemas.ts` | 17 Zod schemas; `joplinId = /^[0-9a-f]{32}$/`; `booleanNum = z.union([boolean, number→bool])`; `extractSchemaShape()` helper |
 
 ## 17 MCP Tools
@@ -78,7 +78,7 @@
 ### Sync (1)
 | Tool | Input | Output |
 |------|-------|--------|
-| `sync` | `{}` | `{status, lastSyncTime}` — triggers sync via SyncManager |
+| `sync` | `{}` | `{status, lastSyncTime}` — returns static status when no SyncManager (combined container); triggers sync via SyncManager otherwise |
 
 ## Dependencies
 ```json

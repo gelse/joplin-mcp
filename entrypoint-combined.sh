@@ -411,13 +411,11 @@ cleanup() {
         #
         # Zombie race: after SIGTERM the process may die and become a zombie
         # before the drain loop reaps it.  `kill -0` succeeds on zombies, so
-        # the loop may report "did not exit within 3 s" spuriously.  We attempt
-        # a non-blocking `wait` inside the drain loop to reap the zombie first;
-        # only WARN (and escalate) if kill -0 still succeeds after the reap.
+        # the loop may report "did not exit within 3 s" spuriously — this is
+        # acceptable / best-effort; the single `wait` after escalation reaps
+        # either way (zombie or killed).
         waited=0
         while [ "${waited}" -lt 3 ] && kill -0 "${JOPLIN_SERVER_PID}" 2>/dev/null; do
-            # Try to reap if already dead (returns immediately for zombies/exited)
-            wait "${JOPLIN_SERVER_PID}" 2>/dev/null || true
             sleep 1
             waited=$((waited + 1))
         done
@@ -425,6 +423,7 @@ cleanup() {
             log "WARN" "Joplin Data API did not exit within 3 s, sending SIGKILL"
             kill -9 "${JOPLIN_SERVER_PID}" 2>/dev/null || true
         fi
+        # Reap zombie or killed process (non-blocking in both cases).
         wait "${JOPLIN_SERVER_PID}" 2>/dev/null || true
         log "INFO" "Joplin Data API stopped"
     fi
