@@ -2,7 +2,7 @@
 # Combined single-container: joplin-core + joplin-mcp
 # =============================================================================
 # Merges the Joplin CLI + Data API (core) and MCP HTTP server (mcp) into one
-# container. No socat proxy — the Data API binds directly to the public port.
+# container. The Data API binds directly to loopback (127.0.0.1).
 # =============================================================================
 
 # ---------------------------------------------------------------------------
@@ -47,8 +47,10 @@ ARG JOPLIN_CLI_VERSION=3.6.2
 RUN npm install -g "pnpm@9" "joplin@${JOPLIN_CLI_VERSION}"
 
 # Create non-root user for security.
-# UID/GID 1000 matches Dockerfile.core — the existing joplin_data volume was
-# created by this user so we must use the same user/uid/gid.
+# The node base image reserves uid/gid 1000 for the `node` user, so
+# useradd assigns uid/gid 1001 by default. This matches Dockerfile.core
+# and preserves compatibility with existing joplin_data volumes.
+# Do NOT pass --uid/--gid to pin 1000 — that collides with the node user.
 RUN useradd --create-home --shell /bin/bash joplin
 
 # Set up application directory
@@ -74,10 +76,13 @@ RUN mkdir -p /home/joplin/.config/joplin && chown -R joplin:joplin /home/joplin 
 # Switch to non-root user
 USER joplin
 
-# Expose MCP server port and Data API port
-EXPOSE 3000 41184
+# Expose MCP server port only.  The Data API binds to 127.0.0.1 (loopback)
+# inside the container, so port 41184 is not exposed to the host.
+EXPOSE 3000
 
-# Health check: verify both MCP server and Data API are responding
+# Health check: verify both MCP server and Data API are responding.
+# NOTE: Probes the default ports only; does not honour JOPLIN_DATA_API_PORT
+# or MCP_PORT overrides — matches core's existing healthcheck pattern.
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=90s \
     CMD curl -f http://127.0.0.1:41184/ping && curl -f http://127.0.0.1:3000/health || exit 1
 

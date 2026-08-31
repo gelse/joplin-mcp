@@ -8,13 +8,19 @@ set -euo pipefail
 #
 # Signal flow:
 #   docker stop → init sends SIGTERM → bash trap fires cleanup()
-#     → kill periodic-sync loop
+#     → kill periodic-sync loop (own process group, drain bounded ~10 s)
 #     → send SIGTERM to MCP child (Node) and wait briefly for graceful close
-#     → perform final joplin sync
+#     → if Data API is still alive: stop it, then perform final joplin sync
+#     → if Data API already died: skip final sync (would fail over loopback)
 #     → exit 0
 #
-# The Data API binds directly to 0.0.0.0:${JOPLIN_DATA_API_PORT} (no socat,
-# no internal-port offset) since Joplin CLI now accepts api.port for binding.
+# Liveness: a monitor loop waits on BOTH MCP_PID and JOPLIN_SERVER_PID.
+# If either child dies, we log which one failed, run cleanup, and exit non-zero
+# so Docker's restart policy kicks in.
+#
+# The Data API binds to 127.0.0.1:${JOPLIN_DATA_API_PORT} (loopback-only).
+# Joplin CLI hardcodes 127.0.0.1 in ClipperServer.ts; no proxy is needed
+# because both the MCP server and the sync loop run inside the same container.
 # =============================================================================
 
 LOG_DIR="/var/log/joplin"
@@ -126,8 +132,8 @@ SYNC_INTERVAL_SECONDS="${SYNC_INTERVAL_SECONDS:-300}"
 LOG_LEVEL="${LOG_LEVEL:-info}"
 MCP_PORT="${MCP_PORT:-3000}"
 
-# The Data API binds directly to this port — no socat, no +1 offset.
-# In the old two-container setup a socat proxy forwarded from the public
+# The Data API binds directly to this port — no offset needed.
+# In the old two-container setup a TCP proxy forwarded from the public
 # port to an internal port (+1). Now the CLI listens on the same port
 # that is exposed.
 JOPLIN_INTERNAL_PORT="${JOPLIN_DATA_API_PORT}"
@@ -171,11 +177,6 @@ if [ -z "${JOPLIN_API_TOKEN:-}" ]; then
     exit 1
 fi
 log "INFO" "Joplin API token obtained successfully"
-# NOTE: This token is consumed in-container by the MCP server process.
-# No operator copy/paste is needed in the combined container.
-echo "========================================================="
-echo "  Joplin API Token (consumed in-container by MCP server): $JOPLIN_API_TOKEN"
-echo "========================================================="
 
 # -----------------------------------------------------------------------------
 # Probe Joplin Server connectivity
@@ -199,10 +200,10 @@ export JOPLIN_API_TOKEN
 export LOG_LEVEL
 
 # -----------------------------------------------------------------------------
-# Start Joplin Data API with retry loop (no socat)
+# Start Joplin Data API with retry loop (loopback-only)
 # -----------------------------------------------------------------------------
 # The Data API binds directly to 127.0.0.1:${JOPLIN_INTERNAL_PORT} which
-# equals ${JOPLIN_DATA_API_PORT}. No socat proxy is needed.
+# equals ${JOPLIN_DATA_API_PORT}. No proxy is needed.
 
 log "INFO" "Configuring Joplin Data API to listen on 127.0.0.1:${JOPLIN_INTERNAL_PORT}..."
 joplin config api.port "${JOPLIN_INTERNAL_PORT}"
@@ -274,8 +275,9 @@ else
     log_sync "PASS" "Initial sync completed successfully"
 fi
 
-# Start periodic sync loop in the background
-(
+# Start periodic sync loop in its own process group so cleanup() can kill
+# the whole group (subshell + any in-flight joplin sync child) atomically.
+setsid bash -c '
     while true; do
         sleep "${SYNC_INTERVAL_SECONDS}"
 
@@ -299,10 +301,10 @@ fi
             log_sync "PASS" "Periodic sync completed successfully"
         fi
     done
-) &
+' &
 SYNC_LOOP_PID=$!
 
-log "INFO" "Periodic sync loop started (PID: ${SYNC_LOOP_PID})"
+log "INFO" "Periodic sync loop started (PID: ${SYNC_LOOP_PID}, own process group)"
 
 # -----------------------------------------------------------------------------
 # Start MCP HTTP server (Node.js, in background)
@@ -325,7 +327,7 @@ log "INFO" "MCP server process started (PID: ${MCP_PID})"
 # -----------------------------------------------------------------------------
 log "INFO" "============================================="
 log "INFO" "joplin combined container is ready"
-log "INFO" "  Data API: http://0.0.0.0:${JOPLIN_DATA_API_PORT}"
+log "INFO" "  Data API: http://127.0.0.1:${JOPLIN_DATA_API_PORT} (loopback-only)"
 log "INFO" "  MCP Server: http://0.0.0.0:${MCP_PORT}"
 log "INFO" "  Sync interval: ${SYNC_INTERVAL_SECONDS}s"
 log "INFO" "  Log file: ${LOG_FILE}"
@@ -335,10 +337,25 @@ cleanup() {
     local signal="$1"
     log "INFO" "Received ${signal}, shutting down gracefully..."
 
-    # 1. Kill the periodic sync loop
+    # 1. Kill the periodic sync loop AND any in-flight joplin sync child.
+    #    The loop runs in its own process group (setsid), so we kill the
+    #    whole group by sending SIGTERM to the negative PGID.
     if [ -n "${SYNC_LOOP_PID:-}" ] && kill -0 "${SYNC_LOOP_PID}" 2>/dev/null; then
-        kill "${SYNC_LOOP_PID}" 2>/dev/null || true
-        log "INFO" "Sync loop stopped"
+        log "INFO" "Stopping sync loop (PID: ${SYNC_LOOP_PID}) and children..."
+        kill -TERM -- -"${SYNC_LOOP_PID}" 2>/dev/null || true
+        # Drain: wait up to 10 seconds for the group to exit
+        local waited=0
+        while [ "${waited}" -lt 10 ] && kill -0 "${SYNC_LOOP_PID}" 2>/dev/null; do
+            sleep 1
+            waited=$((waited + 1))
+        done
+        if kill -0 "${SYNC_LOOP_PID}" 2>/dev/null; then
+            log "WARN" "Sync loop did not exit within 10 s, sending SIGKILL to group"
+            kill -KILL -- -"${SYNC_LOOP_PID}" 2>/dev/null || true
+            sleep 1
+        else
+            log "INFO" "Sync loop and children exited cleanly"
+        fi
     fi
 
     # 2. Send SIGTERM to the MCP child process and wait briefly for graceful close.
@@ -347,7 +364,6 @@ cleanup() {
     if [ -n "${MCP_PID:-}" ] && kill -0 "${MCP_PID}" 2>/dev/null; then
         log "INFO" "Sending SIGTERM to MCP server (PID: ${MCP_PID})..."
         kill -TERM "${MCP_PID}" 2>/dev/null || true
-        # Wait up to 8 seconds for Node to shut down gracefully
         local waited=0
         while [ "${waited}" -lt 8 ] && kill -0 "${MCP_PID}" 2>/dev/null; do
             sleep 1
@@ -361,27 +377,85 @@ cleanup() {
         fi
     fi
 
-    # 3. Kill the Joplin Data API server
+    # 3. Stop the Joplin Data API if it is still running.
+    local data_api_alive=false
     if [ -n "${JOPLIN_SERVER_PID:-}" ] && kill -0 "${JOPLIN_SERVER_PID}" 2>/dev/null; then
+        data_api_alive=true
+        log "INFO" "Stopping Joplin Data API (PID: ${JOPLIN_SERVER_PID})..."
         kill "${JOPLIN_SERVER_PID}" 2>/dev/null || true
-        log "INFO" "Joplin Data API server stopped"
+        # Give it a moment to close SQLite cleanly
+        local waited=0
+        while [ "${waited}" -lt 3 ] && kill -0 "${JOPLIN_SERVER_PID}" 2>/dev/null; do
+            sleep 1
+            waited=$((waited + 1))
+        done
+        log "INFO" "Joplin Data API stopped"
     fi
 
-    # 4. Final sync before exit (matches entrypoint-core.sh shutdown semantics)
-    log_sync "START" "Performing final sync before shutdown..."
-    if joplin sync > /dev/null 2>&1; then
-        log_sync "PASS" "Final sync completed successfully"
+    # 4. Final sync before exit (matches entrypoint-core.sh shutdown semantics).
+    #    Skip if the Data API already died — a final sync over loopback would fail.
+    if [ "${data_api_alive}" = true ]; then
+        log_sync "START" "Performing final sync before shutdown..."
+        if joplin sync > /dev/null 2>&1; then
+            log_sync "PASS" "Final sync completed successfully"
+        else
+            log_sync "FAIL" "Final sync failed"
+        fi
     else
-        log_sync "FAIL" "Final sync failed"
+        log "WARN" "Skipping final sync — Data API is not running"
     fi
 
     log "INFO" "Shutdown complete"
-    exit 0
 }
 
+# --- Liveness monitor -------------------------------------------------------
+# Wait for EITHER child to exit.  If one dies, we log clearly, run cleanup
+# for the survivor(s), and exit non-zero so the Docker restart policy kicks in.
 trap 'cleanup SIGTERM' SIGTERM
 trap 'cleanup SIGINT' SIGINT
 
-# Wait for the MCP server process (foreground behavior).
-# If the MCP server exits unexpectedly, the container will stop.
-wait "${MCP_PID}"
+EXIT_CODE=0
+while true; do
+    # wait -n (bash ≥4.3) returns when any one of the listed PIDs finishes.
+    # The entrypoint shebang is #!/bin/bash and the image ships bash ≥5.
+    wait -n "${MCP_PID}" "${JOPLIN_SERVER_PID}" 2>/dev/null
+    WAIT_STATUS=$?
+
+    if ! kill -0 "${MCP_PID}" 2>/dev/null; then
+        log "ERROR" "MCP server (PID: ${MCP_PID}) exited unexpectedly (wait status: ${WAIT_STATUS})"
+        EXIT_CODE=1
+        # Gracefully stop the surviving Data API
+        if [ -n "${JOPLIN_SERVER_PID:-}" ] && kill -0 "${JOPLIN_SERVER_PID}" 2>/dev/null; then
+            log "INFO" "Sending SIGTERM to surviving Data API (PID: ${JOPLIN_SERVER_PID})..."
+            kill -TERM "${JOPLIN_SERVER_PID}" 2>/dev/null || true
+            local waited=0
+            while [ "${waited}" -lt 5 ] && kill -0 "${JOPLIN_SERVER_PID}" 2>/dev/null; do
+                sleep 1
+                waited=$((waited + 1))
+            done
+            if kill -0 "${JOPLIN_SERVER_PID}" 2>/dev/null; then
+                kill -9 "${JOPLIN_SERVER_PID}" 2>/dev/null || true
+            fi
+        fi
+    elif ! kill -0 "${JOPLIN_SERVER_PID}" 2>/dev/null; then
+        log "ERROR" "Data API (PID: ${JOPLIN_SERVER_PID}) exited unexpectedly (wait status: ${WAIT_STATUS})"
+        EXIT_CODE=1
+        # Gracefully stop the surviving MCP server
+        if [ -n "${MCP_PID:-}" ] && kill -0 "${MCP_PID}" 2>/dev/null; then
+            log "INFO" "Sending SIGTERM to surviving MCP server (PID: ${MCP_PID})..."
+            kill -TERM "${MCP_PID}" 2>/dev/null || true
+            local waited=0
+            while [ "${waited}" -lt 5 ] && kill -0 "${MCP_PID}" 2>/dev/null; do
+                sleep 1
+                waited=$((waited + 1))
+            done
+            if kill -0 "${MCP_PID}" 2>/dev/null; then
+                kill -9 "${MCP_PID}" 2>/dev/null || true
+            fi
+        fi
+    fi
+
+    # Run cleanup for the sync loop, final sync, etc.
+    cleanup "CHILD_EXIT"
+    exit "${EXIT_CODE}"
+done
