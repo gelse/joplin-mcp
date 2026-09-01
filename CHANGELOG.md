@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 > **Live diff:** To see the full commit-level diff between releases, compare
 > the release tags on GitHub (e.g. `v0.1.0...v0.2.0`).
 
+## [Unreleased]
+
+### Documentation
+
+- Record Plan #7 slow-initial-sync investigation verdict: remaining bottleneck is intrinsic to Joplin CLI; Data API contention during initial sync eliminated in 0.2.0 architecture
+
 ## [0.2.0] - 2026-09-01
 
 84 commits on `testing` since `origin/main` at branch cut.

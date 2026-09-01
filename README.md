@@ -346,7 +346,8 @@ Validation error: note_id: Expected 32-character hex ID
 
 ## Sync Behaviour
 
-- **Initial sync**: The entrypoint runs `joplin sync` once before starting the MCP server; no SyncManager is involved
+- **Initial sync**: The entrypoint runs `joplin sync` once before starting the MCP server; no SyncManager is involved. This is a blocking call — a large first-run delays MCP availability. The container healthcheck (`start-period=90s` in [`Dockerfile.combined`](Dockerfile.combined)) may report unhealthy until the initial sync completes.
+- **Initial sync throughput**: Governed by the pinned Joplin CLI's per-item sync algorithm (`joplin@3.6.2`). The historically observed ~12 items/min on the pre-0.2.0 two-container setup had a known contributing factor (Data API contention during sync) that was removed in 0.2.0. Actual post-0.2.0 throughput is unmeasured — see [Plan #7 Resolution](plans/007-slow-initial-sync-followup.md#resolution-2026-09-01-re-investigation-after-v020-combined-container-overhaul).
 - **Periodic sync**: Every 5 minutes (configurable via `SYNC_INTERVAL_SECONDS`)
 - **Scheduled sync**: Every create/update/delete/untag operation is picked up by the periodic scheduler (within ≤ `SYNC_INTERVAL_SECONDS`)
 - **Conflict resolution**: Remote always wins (Joplin CLI built-in behaviour; conflicted copies are flagged in Joplin)
@@ -465,7 +466,7 @@ The internal Joplin Data API HTTP client (`JoplinDataClient`) enforces a configu
 
 | Cause                                     | Fix                                                                                                             |
 | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Large initial sync (many notes/resources) | Increase `SYNC_INTERVAL_SECONDS` or let the initial sync complete — subsequent syncs are incremental            |
+| Large initial sync (many notes/resources) | Let the initial sync complete — subsequent syncs are incremental. See [Sync Behaviour](#sync-behaviour) for details on initial-sync timing and throughput |
 | Joplin Server slow to respond             | Check Joplin Server performance (CPU, memory, database). Ensure network latency is low                          |
 | CLI command timeout too short             | The default timeout is 60 seconds; for extremely large operations, this can be adjusted in `CliExecutor.exec()` |
 
