@@ -330,8 +330,8 @@ Four GitHub Actions workflows automate testing and releases:
 | Workflow | Trigger | Runner | Description |
 | --- | --- | --- | --- |
 | [`unit-tests.yml`](.github/workflows/unit-tests.yml) | Push / PR to `main` | Ubuntu (native) | Installs dependencies via pnpm, runs `pnpm test` |
-| [`integration-tests.yml`](.github/workflows/integration-tests.yml) | PRs to `main` / Push to `testing` | Ubuntu (native) | Runs container integration tests via [`scripts/run-integration-tests.sh`](scripts/run-integration-tests.sh) |
-| [`publish-testing.yml`](.github/workflows/publish-testing.yml) | Push to `testing` | Ubuntu (native) | Runs unit + integration tests, then uploads a Docker image to `ghcr.io/gelse/joplin-mcp:latest-testing` (upload only — no GitHub release) |
+| [`integration-tests.yml`](.github/workflows/integration-tests.yml) | PRs to `main` | Ubuntu (native) | Runs container integration tests via [`scripts/run-integration-tests.sh`](scripts/run-integration-tests.sh) |
+| [`publish-testing.yml`](.github/workflows/publish-testing.yml) | Push to `testing` | Ubuntu (native) | Runs unit **and** integration tests, then uploads a Docker image to `ghcr.io/gelse/joplin-mcp:latest-testing` (upload only if both test jobs pass — no GitHub release) |
 | [`release.yml`](.github/workflows/release.yml) | Release published / manual dispatch | Ubuntu (native) | Verifies lockfile reproducibility, then builds [`Dockerfile.combined`](Dockerfile.combined) and pushes to `ghcr.io/gelse/joplin-mcp` with semver + `latest` tags |
 
 The [`publish-testing.yml`](.github/workflows/publish-testing.yml) workflow gates the image upload behind both the unit and integration test jobs — the `publish` job runs only when both test jobs succeed. It uploads a `linux/amd64` image tagged as `latest-testing`; this is an upload, not a release, so it does not create a GitHub release or use versioned tags. The `release.yml` workflow remains the sole owner of versioned tags and the `latest` tag.
