@@ -1,0 +1,77 @@
+# Upload-only workflow for the testing branch.
+# Builds and pushes a Docker image to ghcr.io with the :latest-testing tag.
+# This is NOT a release — the release workflow (release.yml) owns versioned tags.
+
+name: Testing Publish
+
+on:
+  push:
+    branches: [testing]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run unit tests
+        run: pnpm test
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run integration tests
+        run: bash scripts/run-integration-tests.sh
+
+  # Upload-only — builds the image and pushes to ghcr.io, no GitHub release is created.
+  publish:
+    needs: [unit-tests, integration-tests]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push testing image
+        # Upload-only — no release. The release workflow (release.yml) owns versioned tags.
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.combined
+          push: true
+          platforms: linux/amd64
+          tags: ghcr.io/gelse/joplin-mcp:latest-testing
+          cache-from: type=gha,scope=testing
+          cache-to: type=gha,scope=testing,mode=max

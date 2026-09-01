@@ -1,73 +1,48 @@
+# =============================================================================
+# Migration note:
+#   Existing joplin_data volumes mount unchanged (same uid 1001).  The single
+#   container replaces the previous joplin-core + joplin-mcp pair.  The
+#   two-container topology remains only in the integration-test stack
+#   (docker-compose.test.yml).
+# =============================================================================
+
 services:
   # ===========================================================================
-  # Container A — joplin-core: Joplin CLI + Data API + periodic sync
+  # Single combined service — Joplin CLI + Data API + MCP HTTP server
   # ===========================================================================
-  joplin-core:
+  # Builds from Dockerfile.combined which merges the former joplin-core and
+  # joplin-mcp containers.  The Data API binds to loopback inside the
+  # container; only the MCP port is published to the host.
+  # ===========================================================================
+  joplin-mcp:
     build:
       context: .
-      dockerfile: Dockerfile.core
-    image: joplin-api-core
-    container_name: joplin-core
+      dockerfile: Dockerfile.combined
+    image: joplin-api-combined
+    container_name: joplin-mcp
+    ports:
+      # MCP_HOST_PORT selects the host-side port; the container always
+      # listens on 3000 (any MCP_PORT value is canonicalized to 3000 by
+      # entrypoint-combined.sh with a warning — use MCP_HOST_PORT instead).
+      - '127.0.0.1:${MCP_HOST_PORT:-3000}:3000'
     env_file:
       - .env
     environment:
       - SYNC_INTERVAL_SECONDS=${SYNC_INTERVAL_SECONDS:-300}
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      # Container always listens on 3000; host remapping is done via MCP_HOST_PORT.
     volumes:
       - joplin_data:/home/joplin/.config/joplin
     deploy:
       resources:
+        # Starting points pending profiling — sum of former core + mcp limits.
         limits:
-          cpus: '1.0'
-          memory: 512M
+          cpus: '1.5'
+          memory: 768M
         reservations:
-          cpus: '0.5'
-          memory: 256M
+          cpus: '0.75'
+          memory: 384M
     restart: unless-stopped
-    healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:41184/ping']
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    init: true
-
-  # ===========================================================================
-  # Container B — joplin-mcp: Stateless MCP HTTP server
-  # ===========================================================================
-  joplin-mcp:
-    build:
-      context: .
-      dockerfile: Dockerfile.mcp
-    image: joplin-api-mcp
-    container_name: joplin-mcp-server
-    ports:
-      # Expose MCP HTTP server on localhost only
-      - '127.0.0.1:${MCP_PORT:-3000}:3000'
-    env_file:
-      - .env
-    environment:
-      - JOPLIN_CORE_URL=http://joplin-core:41184
-      - JOPLIN_API_TOKEN=${JOPLIN_API_TOKEN}
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    depends_on:
-      joplin-core:
-        condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 256M
-        reservations:
-          cpus: '0.25'
-          memory: 128M
-    restart: unless-stopped
-    healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:3000/health']
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
     init: true
 
   # ===========================================================================

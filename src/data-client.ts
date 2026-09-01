@@ -25,6 +25,14 @@ import type {
 } from './api-types.js';
 import { clampLimit, buildPageParam, fetchAllPages } from './pagination.js';
 
+// --- SQLITE_BUSY retry configuration ---
+const SQLITE_BUSY_MAX_RETRIES = 3;
+const SQLITE_BUSY_BASE_DELAY_MS = 500;
+const SQLITE_BUSY_MAX_DELAY_MS = 4000;
+
+type RetryableResult<T> =
+  | { ok: false; retryable: true; status: number; body: string };
+
 export class JoplinDataClient {
   private readonly baseUrl: string;
   private readonly apiToken: string;
@@ -187,9 +195,64 @@ export class JoplinDataClient {
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    return this.enqueueRequest(async () => {
-      return this.executeRequest<T>(method, path, body);
-    });
+    let lastError: unknown;
+    const isWriteMethod = method === 'POST' || method === 'PUT' || method === 'DELETE';
+
+    for (let attempt = 0; attempt <= SQLITE_BUSY_MAX_RETRIES; attempt++) {
+      if (attempt > 0) {
+        const delay =
+          Math.min(
+            SQLITE_BUSY_BASE_DELAY_MS * Math.pow(2, attempt - 1),
+            SQLITE_BUSY_MAX_DELAY_MS,
+          ) + Math.floor(Math.random() * SQLITE_BUSY_BASE_DELAY_MS);
+        this.logger.info(
+          { attempt, maxRetries: SQLITE_BUSY_MAX_RETRIES, delay, method, path },
+          `Retrying after SQLITE_BUSY (attempt ${attempt}/${SQLITE_BUSY_MAX_RETRIES})`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+
+      const result = await this.enqueueRequest(async () => {
+        return this.executeRequest<T>(method, path, body, false, attempt);
+      });
+
+      if (
+        result &&
+        typeof result === 'object' &&
+        'retryable' in result &&
+        result.retryable
+      ) {
+        // Only retry GET requests — writes must not be retried (duplicate risk)
+        if (isWriteMethod) {
+          this.logger.warn(
+            { method, path, status: result.status },
+            'SQLITE_BUSY on write operation — not retrying to avoid duplicates',
+          );
+          throw new DataApiError(
+            `Server error (${result.status}) accessing ${path.split('/').filter(Boolean)[0] || 'resource'} — not retrying to avoid duplicates`,
+            result.status,
+            result.body,
+          );
+        }
+        lastError = result;
+        continue; // retry loop
+      }
+
+      return result as T;
+    }
+
+    // All retries exhausted
+    const finalStatus = (lastError as { status?: number } | undefined)?.status ?? 500;
+    const finalBody = (lastError as { body?: string })?.body;
+    this.logger.error(
+      { method, path, retries: SQLITE_BUSY_MAX_RETRIES, status: finalStatus, body: finalBody },
+      'SQLITE_BUSY retries exhausted',
+    );
+    throw new DataApiError(
+      `Server error (${finalStatus}) accessing ${path.split('/').filter(Boolean)[0] || 'resource'} — SQLITE_BUSY after ${SQLITE_BUSY_MAX_RETRIES} retries`,
+      finalStatus,
+      finalBody,
+    );
   }
 
   private async executeRequest<T>(
@@ -197,7 +260,8 @@ export class JoplinDataClient {
     path: string,
     body?: unknown,
     isRetry = false,
-  ): Promise<T> {
+    attempt = 0,
+  ): Promise<T | RetryableResult<T>> {
     const url = `${this.baseUrl}${this.appendToken(path)}`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -262,6 +326,13 @@ export class JoplinDataClient {
     if ([500, 502, 503].includes(response.status)) {
       const resourceType = path.split('/').filter(Boolean)[0] || 'resource';
       const body = await response.text().catch(() => '');
+      if (body.includes('SQLITE_BUSY')) {
+        this.logger.warn(
+          { status: response.status, path, attempt, maxRetries: SQLITE_BUSY_MAX_RETRIES },
+          'SQLITE_BUSY detected, returning retryable result',
+        );
+        return { ok: false, retryable: true, status: response.status, body };
+      }
       this.logger.debug({ status: response.status, path }, 'Request failed');
       throw new DataApiError(
         `Server error (${response.status}) accessing ${resourceType}`,
@@ -280,7 +351,8 @@ export class JoplinDataClient {
 
     const contentType = response.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
-      return response.json() as Promise<T>;
+      const jsonBody = (await response.json()) as T;
+      return jsonBody;
     }
     // Non-JSON response (e.g., /ping returns plain text)
     return response.text() as unknown as T;
@@ -554,9 +626,9 @@ export class JoplinDataClient {
    * @throws {NotFoundError} If the note does not exist
    * @throws {AuthError} If the token is expired or authentication fails
    */
-  async getNoteTags(noteId: string): Promise<Tag[]> {
+  async getNoteTags(noteId: string): Promise<PaginatedResponse<Tag>> {
     this.validateId(noteId, 'note_id');
-    return this.request<Tag[]>('GET', `/notes/${noteId}/tags`);
+    return this.request<PaginatedResponse<Tag>>('GET', `/notes/${noteId}/tags`);
   }
 
   /**
@@ -572,8 +644,8 @@ export class JoplinDataClient {
   async tagNote(noteId: string, tagId: string): Promise<NoteTag> {
     this.validateId(noteId, 'note_id');
     this.validateId(tagId, 'tag_id');
-    return this.request<NoteTag>('POST', `/notes/${noteId}/tags`, {
-      id: tagId,
+    return this.request<NoteTag>('POST', `/tags/${tagId}/notes`, {
+      id: noteId,
     });
   }
 
@@ -589,7 +661,7 @@ export class JoplinDataClient {
   async untagNote(noteId: string, tagId: string): Promise<void> {
     this.validateId(noteId, 'note_id');
     this.validateId(tagId, 'tag_id');
-    await this.request<never>('DELETE', `/notes/${noteId}/tags/${tagId}`);
+    await this.request<never>('DELETE', `/tags/${tagId}/notes/${noteId}`);
   }
 
   // === Resources ===
@@ -660,11 +732,11 @@ export class JoplinDataClient {
    * @throws {AuthError} If the token is expired or authentication fails
    * @throws {DataApiError} On unexpected HTTP errors
    */
-  async search(query: SearchQuery): Promise<SearchResult[]> {
+  async search(query: SearchQuery): Promise<PaginatedResponse<SearchResult>> {
     const params = new URLSearchParams();
     params.set('query', query.query);
     if (query.type) params.set('type', query.type);
 
-    return this.request<SearchResult[]>('GET', `/search?${params.toString()}`);
+    return this.request<PaginatedResponse<SearchResult>>('GET', `/search?${params.toString()}`);
   }
 }
