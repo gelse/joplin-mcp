@@ -323,6 +323,18 @@ The API token is auto-extracted from the Joplin CLI config at startup.
 
 ---
 
+### CI/CD
+
+Three GitHub Actions workflows automate testing and releases:
+
+| Workflow | Trigger | Runner | Description |
+| --- | --- | --- | --- |
+| [`unit-tests.yml`](.github/workflows/unit-tests.yml) | Push / PR to `main` | Ubuntu (native) | Installs dependencies via pnpm, runs `pnpm test` |
+| [`integration-tests.yml`](.github/workflows/integration-tests.yml) | PRs to `main` | Ubuntu (native) | Runs container integration tests via [`scripts/run-integration-tests.sh`](scripts/run-integration-tests.sh) |
+| [`release.yml`](.github/workflows/release.yml) | Release published | Ubuntu (native) | Verifies lockfile reproducibility, then builds [`Dockerfile.combined`](Dockerfile.combined) and pushes to `ghcr.io/gelse/joplin-mcp` with semver + `latest` tags |
+
+The release workflow builds a single `linux/amd64` image and tags it as `{{version}}`, `{{major}}.{{minor}}`, `{{major}}`, and `latest` (when appropriate). A pre-build step runs `pnpm install --frozen-lockfile` to confirm the lockfile is reproducible before the Docker build begins.
+
 ## Architecture
 
 ### Single-Container Deployment (Docker)
