@@ -1,17 +1,17 @@
 {
   "name": "joplin-api-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server for Joplin, synced via Joplin Server backend",
   "license": "MIT",
   "author": "",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/YOUR_USERNAME/joplin-api.git"
+    "url": "git+https://github.com/gelse/joplin-mcp.git"
   },
   "bugs": {
-    "url": "https://github.com/YOUR_USERNAME/joplin-api/issues"
+    "url": "https://github.com/gelse/joplin-mcp/issues"
   },
-  "homepage": "https://github.com/YOUR_USERNAME/joplin-api#readme",
+  "homepage": "https://github.com/gelse/joplin-mcp#readme",
   "keywords": ["joplin", "api", "mcp", "model-context-protocol", "notes", "data-api"],
   "type": "module",
   "main": "dist/mcp/entry.js",
