@@ -54,23 +54,6 @@ The `joplin-mcp` container exposes an **HTTP endpoint** (not stdio). Configure y
 ```
 
 
----
-
-## ⚠️ Important: Two Different Tokens — Do Not Mix
-
-This project involves **two different Joplin tokens** that must not be confused:
-
-| Token                            | Where to find it                                                             | What it's used for                                                                                      |
-| -------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| **Data API token** (`api.token`) | Auto-extracted by the entrypoint on startup (or set via `JOPLIN_API_TOKEN` in `.env`) | Authenticate requests to the Joplin ClipperServer Data API (used as `JOPLIN_API_TOKEN` in this project) |
-| **Web Clipper token**            | Joplin desktop → _Web Clipper → Options_ (shown in the browser extension UI) | Authenticate the Web Clipper browser extension — **this is NOT the same token**                         |
-
-> **⚠️ Do NOT use the Web Clipper token from the Joplin frontend as your `JOPLIN_API_TOKEN`.** They are different values, and using the wrong one will cause authentication failures. In Docker, the token is auto-extracted inside the container — no manual retrieval needed.
-
-There is also a short-lived **session token** (`auth_token`) that the MCP server obtains automatically at runtime via `POST /auth` — you never need to set or manage this token yourself.
-
----
-
 ## ⚠️ End-to-End Encryption (E2EE)
 
 If you have **End-to-End Encryption (E2EE)** enabled on your Joplin Server, the container must know the **master password** before it can encrypt notes for upload. Without it, writes appear to succeed locally but **silently fail to reach the server** — and the sync process will misleadingly report `SYNC_PASS`.
@@ -367,8 +350,6 @@ Validation error: note_id: Expected 32-character hex ID
 ## Security Considerations
 
 ### Token Management
-
-> **⚠️ Reminder:** `JOPLIN_API_TOKEN` is the Data API token (auto-extracted by the entrypoint or set via `.env`), **not** the Web Clipper token from the Joplin frontend. See [Important: Two Different Tokens](#-important-two-different-tokens--do-not-mix) for details.
 
 The Joplin Data API uses **two layers of token authentication**:
 
