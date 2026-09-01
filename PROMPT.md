@@ -145,7 +145,6 @@ search(SearchQuery) → SearchResult[]
 | `MCP_HOST_PORT` | No | 3000 | Host-side MCP port (container always listens on internal 3000) |
 | `LOG_LEVEL` | No | info | `debug`, `info`, `warn`, `error`, `silent` |
 | `SYNC_INTERVAL_SECONDS` | No | 300 | Periodic sync interval in seconds |
-| `NODE_ENV` | No | — | Set to `production` to enforce HTTPS for `JOPLIN_SERVER_URL` |
 
 > **Note:** `JOPLIN_CORE_URL` is no longer operator-facing — the entrypoint sets it internally. `MCP_PORT` is canonicalized to 3000 by the entrypoint with a warning if set; use `MCP_HOST_PORT` for host-side mapping.
 

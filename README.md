@@ -385,7 +385,7 @@ The session token is managed by [`JoplinDataClient`](src/data-client.ts) and sto
 ### TLS Requirements for Production
 
 - The Joplin Data API always binds to `127.0.0.1` (localhost-only inside the container), so TLS between the MCP server and the Data API is unnecessary — traffic never leaves the container
-- **The MCP server accepts any URL scheme for `JOPLIN_SERVER_URL`** — there is no protocol enforcement in the config schema (see [`src/config.ts`](src/config.ts)). If you expose the MCP endpoint beyond loopback, front it with a TLS-terminating reverse proxy yourself
+- **The MCP server accepts any URL scheme for `JOPLIN_SERVER_URL`** — there is no protocol enforcement in the config schema (see [`src/config.ts`](src/config.ts)). `NODE_ENV` is not read by the config and has no effect. If you expose the MCP endpoint beyond loopback, front it with a TLS-terminating reverse proxy yourself
 - Joplin CLI sync traffic to Joplin Server is plain HTTP by default; ensure your Joplin Server is deployed behind a TLS-terminating reverse proxy
 
 ### Localhost-Only Defaults
