@@ -11,8 +11,8 @@ The recommended deployment uses the published container image. No repository clo
 ```bash
 docker run -d \
   --name joplin-mcp \
-  --network host \
   --restart unless-stopped \
+  -p 127.0.0.1:3000:3000 \
   -v joplin_data:/home/joplin/.config/joplin \
   -e JOPLIN_SERVER_URL=https://joplin.example.com/ \
   -e JOPLIN_USERNAME=your-email@example.com \
@@ -22,7 +22,7 @@ docker run -d \
 
 > **Bleeding-edge builds:** To test the latest (unreleased) build, use `ghcr.io/gelse/joplin-mcp:latest-testing` instead of `:latest`.
 
-> **`--network host` note:** On Linux, `--network host` lets the container share the host network stack — the MCP server binds to `127.0.0.1:3000` and is accessible from the host. On Docker Desktop for macOS/Windows, `--network host` only exposes the service from the host; adjust as needed for your platform.
+> **Tip:** If your Joplin Server is running on the same host machine, use `host.docker.internal` as the hostname in `JOPLIN_SERVER_URL` (e.g., `https://host.docker.internal:22300`) so the container can reach it over Docker's built-in DNS.
 
 #### Environment Variables
 
@@ -35,7 +35,7 @@ docker run -d \
 | `JOPLIN_DATA_API_PORT`  | No       | `41184` | Internal Data API listen port (rarely changed)                           |
 | `LOG_LEVEL`             | No       | `info`  | Log level: `debug`, `info`, `warn`, `error`, `silent`                    |
 | `SYNC_INTERVAL_SECONDS` | No       | `300`   | Periodic sync interval in seconds                                        |
-| `MCP_HOST_PORT`         | No       | `3000`  | Host-side MCP port (only used with explicit port mapping, not `--network host`) |
+| `MCP_HOST_PORT`         | No       | `3000`  | Host-side MCP port (mapped via `-p 127.0.0.1:MCP_HOST_PORT:3000`)               |
 
 > **Note:** `JOPLIN_CORE_URL` is no longer an operator-facing variable — the entrypoint sets it internally to `http://127.0.0.1:41184`.
 
@@ -53,7 +53,6 @@ The `joplin-mcp` container exposes an **HTTP endpoint** (not stdio). Configure y
 }
 ```
 
-> `joplin-mcp` exposes an HTTP endpoint on port 3000 (not stdio). See [MCP Client Configuration](#mcp-client-configuration) for other setups.
 
 ---
 
@@ -386,7 +385,7 @@ The session token is managed by [`JoplinDataClient`](src/data-client.ts) and sto
 ### TLS Requirements for Production
 
 - The Joplin Data API always binds to `127.0.0.1` (localhost-only inside the container), so TLS between the MCP server and the Data API is unnecessary — traffic never leaves the container
-- **The Joplin Server URL (`JOPLIN_SERVER_URL`) must use HTTPS in production** — this is enforced by the config schema (see [`src/config.ts`](src/config.ts#L5)). HTTP is only allowed when `NODE_ENV` is not set to `production`
+- **The MCP server accepts any URL scheme for `JOPLIN_SERVER_URL`** — there is no protocol enforcement in the config schema (see [`src/config.ts`](src/config.ts)). If you expose the MCP endpoint beyond loopback, front it with a TLS-terminating reverse proxy yourself
 - Joplin CLI sync traffic to Joplin Server is plain HTTP by default; ensure your Joplin Server is deployed behind a TLS-terminating reverse proxy
 
 ### Localhost-Only Defaults
