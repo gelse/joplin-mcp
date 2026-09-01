@@ -162,6 +162,12 @@ joplin config "sync.10.path" "${JOPLIN_SERVER_URL}"
 joplin config "sync.10.username" "${JOPLIN_USERNAME}"
 joplin config "sync.10.password" "${JOPLIN_PASSWORD}"
 
+# Configure E2EE master password from environment (optional)
+if [ -n "${JOPLIN_MASTER_PASSWORD:-}" ]; then
+    joplin config encryption.masterPassword "${JOPLIN_MASTER_PASSWORD}"
+    log "INFO" "Master password configured from environment"
+fi
+
 log "INFO" "Joplin CLI sync target configured (server reachability will be checked after API token is obtained)"
 
 # -----------------------------------------------------------------------------

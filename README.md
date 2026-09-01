@@ -26,16 +26,17 @@ docker run -d \
 
 #### Environment Variables
 
-| Variable                | Required | Default | Description                                                              |
-| ----------------------- | -------- | ------- | ------------------------------------------------------------------------ |
-| `JOPLIN_SERVER_URL`     | **Yes**  | —       | Joplin Server URL (e.g., `https://joplin.example.com/`)                  |
-| `JOPLIN_USERNAME`       | **Yes**  | —       | Joplin Server username/email                                             |
-| `JOPLIN_PASSWORD`       | **Yes**  | —       | Joplin Server password                                                   |
-| `JOPLIN_API_TOKEN`      | No       | —       | Joplin Data API token (auto-extracted when unset)                        |
-| `JOPLIN_DATA_API_PORT`  | No       | `41184` | Internal Data API listen port (rarely changed)                           |
-| `LOG_LEVEL`             | No       | `info`  | Log level: `debug`, `info`, `warn`, `error`, `silent`                    |
-| `SYNC_INTERVAL_SECONDS` | No       | `300`   | Periodic sync interval in seconds                                        |
-| `MCP_HOST_PORT`         | No       | `3000`  | Host-side MCP port (mapped via `-p 127.0.0.1:MCP_HOST_PORT:3000`)               |
+| Variable                  | Required | Default | Description                                                              |
+| ------------------------- | -------- | ------- | ------------------------------------------------------------------------ |
+| `JOPLIN_SERVER_URL`       | **Yes**  | —       | Joplin Server URL (e.g., `https://joplin.example.com/`)                  |
+| `JOPLIN_USERNAME`         | **Yes**  | —       | Joplin Server username/email                                             |
+| `JOPLIN_PASSWORD`         | **Yes**  | —       | Joplin Server password                                                   |
+| `JOPLIN_API_TOKEN`        | No       | —       | Joplin Data API token (auto-extracted when unset)                        |
+| `JOPLIN_DATA_API_PORT`    | No       | `41184` | Internal Data API listen port (rarely changed)                           |
+| `LOG_LEVEL`               | No       | `info`  | Log level: `debug`, `info`, `warn`, `error`, `silent`                    |
+| `SYNC_INTERVAL_SECONDS`   | No       | `300`   | Periodic sync interval in seconds                                        |
+| `MCP_HOST_PORT`           | No       | `3000`  | Host-side MCP port (mapped via `-p 127.0.0.1:MCP_HOST_PORT:3000`)       |
+| `JOPLIN_MASTER_PASSWORD`  | No       | —       | E2EE master password (leave empty to skip encryption)                    |
 
 > **Note:** `JOPLIN_CORE_URL` is no longer an operator-facing variable — the entrypoint sets it internally to `http://127.0.0.1:<JOPLIN_DATA_API_PORT>` (default `41184`).
 
@@ -64,7 +65,11 @@ When E2EE is enabled, Joplin encrypts all note content on the client before send
 
 ### Setting the master password
 
-After starting the container for the first time (or after enabling E2EE on Joplin Server), run:
+**Preferred (declarative) — set via environment variable:**
+
+Add `JOPLIN_MASTER_PASSWORD` to your `.env` file (or pass it via `docker compose run` / `docker run -e`). The entrypoint configures the password on every fresh container start, before the initial sync.
+
+**Fallback (manual) — configure after container start:**
 
 ```bash
 # Set the master password inside the joplin-mcp container
@@ -76,7 +81,7 @@ docker restart joplin-mcp
 
 Replace `THE_PASSWORD` with the same master password used when enabling E2EE on Joplin Server (or the one you chose if you enabled it from the CLI).
 
-> **Tip:** This only needs to be done once — the password is persisted in the `joplin_data` Docker volume.
+> **Tip:** The password is persisted in the `joplin_data` Docker volume. When using the environment variable, the entrypoint re-applies it on every start — no manual step is needed after the first run.
 
 ### ⚠️ Warning: `joplin e2ee decrypt` does NOT persist the password
 

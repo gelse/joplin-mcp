@@ -30,6 +30,7 @@ services:
     environment:
       - SYNC_INTERVAL_SECONDS=${SYNC_INTERVAL_SECONDS:-300}
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      - JOPLIN_MASTER_PASSWORD=${JOPLIN_MASTER_PASSWORD:-}
       # Container always listens on 3000; host remapping is done via MCP_HOST_PORT.
     volumes:
       - joplin_data:/home/joplin/.config/joplin
