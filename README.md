@@ -6,14 +6,42 @@ An MCP (Model Context Protocol) server that exposes Joplin's note-taking functio
 
 ### Docker (recommended)
 
-The recommended deployment uses a single container ([`joplin-mcp`](#architecture)) orchestrated via [`docker-compose.yml`](docker-compose.yml):
+The recommended deployment uses the published container image. No repository clone required.
 
 ```bash
-cp .env.example .env   # fill in required variables
-docker compose up -d   # starts the combined container with healthchecks
+docker run -d \
+  --name joplin-mcp \
+  --restart unless-stopped \
+  -p 127.0.0.1:3000:3000 \
+  -v joplin_data:/home/joplin/.config/joplin \
+  -e JOPLIN_SERVER_URL=https://joplin.example.com/ \
+  -e JOPLIN_USERNAME=your-email@example.com \
+  -e JOPLIN_PASSWORD=your-password \
+  ghcr.io/gelse/joplin-mcp:latest
 ```
 
-Add this to your MCP client config:
+> **Bleeding-edge builds:** To test the latest (unreleased) build, use `ghcr.io/gelse/joplin-mcp:latest-testing` instead of `:latest`.
+
+> **Tip:** If your Joplin Server is running on the same host machine, use `host.docker.internal` as the hostname in `JOPLIN_SERVER_URL` (e.g., `https://host.docker.internal:22300`) so the container can reach it over Docker's built-in DNS.
+
+#### Environment Variables
+
+| Variable                | Required | Default | Description                                                              |
+| ----------------------- | -------- | ------- | ------------------------------------------------------------------------ |
+| `JOPLIN_SERVER_URL`     | **Yes**  | —       | Joplin Server URL (e.g., `https://joplin.example.com/`)                  |
+| `JOPLIN_USERNAME`       | **Yes**  | —       | Joplin Server username/email                                             |
+| `JOPLIN_PASSWORD`       | **Yes**  | —       | Joplin Server password                                                   |
+| `JOPLIN_API_TOKEN`      | No       | —       | Joplin Data API token (auto-extracted when unset)                        |
+| `JOPLIN_DATA_API_PORT`  | No       | `41184` | Internal Data API listen port (rarely changed)                           |
+| `LOG_LEVEL`             | No       | `info`  | Log level: `debug`, `info`, `warn`, `error`, `silent`                    |
+| `SYNC_INTERVAL_SECONDS` | No       | `300`   | Periodic sync interval in seconds                                        |
+| `MCP_HOST_PORT`         | No       | `3000`  | Host-side MCP port (mapped via `-p 127.0.0.1:MCP_HOST_PORT:3000`)               |
+
+> **Note:** `JOPLIN_CORE_URL` is no longer an operator-facing variable — the entrypoint sets it internally to `http://127.0.0.1:<JOPLIN_DATA_API_PORT>` (default `41184`).
+
+#### MCP Client Configuration
+
+The `joplin-mcp` container exposes an **HTTP endpoint** (not stdio). Configure your MCP client to connect via URL:
 
 ```json
 {
@@ -25,47 +53,6 @@ Add this to your MCP client config:
 }
 ```
 
-> `joplin-mcp` exposes an HTTP endpoint on port 3000 (not stdio). See [MCP Client Configuration](#mcp-client-configuration) for other setups.
-
-### Native Installation
-
-For local development or without Docker, the MCP HTTP server ([`src/mcp/entry.ts`](src/mcp/entry.ts)) connects to a running Joplin Data API:
-
-```bash
-git clone <repo-url> && cd joplin-api
-cp .env.example .env   # fill in JOPLIN_API_TOKEN and JOPLIN_CORE_URL
-pnpm install
-pnpm build && pnpm start
-```
-
-MCP client config (HTTP):
-
-```json
-{
-  "mcpServers": {
-    "joplin": {
-      "url": "http://localhost:3000/mcp"
-    }
-  }
-}
-```
-
----
-
-## ⚠️ Important: Two Different Tokens — Do Not Mix
-
-This project involves **two different Joplin tokens** that must not be confused:
-
-| Token                            | Where to find it                                                             | What it's used for                                                                                      |
-| -------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| **Data API token** (`api.token`) | Auto-extracted by the entrypoint on startup (or set via `JOPLIN_API_TOKEN` in `.env`) | Authenticate requests to the Joplin ClipperServer Data API (used as `JOPLIN_API_TOKEN` in this project) |
-| **Web Clipper token**            | Joplin desktop → _Web Clipper → Options_ (shown in the browser extension UI) | Authenticate the Web Clipper browser extension — **this is NOT the same token**                         |
-
-> **⚠️ Do NOT use the Web Clipper token from the Joplin frontend as your `JOPLIN_API_TOKEN`.** They are different values, and using the wrong one will cause authentication failures. In Docker, the token is auto-extracted inside the container — no manual retrieval needed.
-
-There is also a short-lived **session token** (`auth_token`) that the MCP server obtains automatically at runtime via `POST /auth` — you never need to set or manage this token yourself.
-
----
 
 ## ⚠️ End-to-End Encryption (E2EE)
 
@@ -103,92 +90,6 @@ If you notice notes are missing from Joplin Server despite the container reporti
 
 ## Detailed How-To
 
-### Direct Installation
-
-#### Prerequisites
-
-- **Node.js** 20 or later (the project's [`package.json`](package.json) `engines` field requires `>=22.0.0`)
-- **[pnpm](https://pnpm.io/)** 9 or later (for package management)
-- **Joplin desktop app** running with the **Data API (ClipperServer)** enabled:
-  - In Joplin: _Web Clipper → Options → Enable Clipper Server_
-  - The server binds to `127.0.0.1:41184` by default and ignores `--host`/`--port` flags
-- **Joplin Server** (optional but recommended) — a sync target for multi-device synchronisation. Without it, write-through sync will fail and notes remain local-only
-
-#### Installation
-
-```bash
-git clone <repo-url>
-cd joplin-api
-pnpm install
-pnpm build
-```
-
-#### Configuration
-
-Copy the environment template and fill in your values:
-
-```bash
-cp .env.example .env
-```
-
-All configuration is done via environment variables:
-
-| Variable                | Required | Default | Description                                                            |
-| ----------------------- | -------- | ------- | ---------------------------------------------------------------------- |
-| `JOPLIN_SERVER_URL`     | **Yes**  | —       | Joplin Server URL (e.g., `https://joplin.example.com/`)                |
-| `JOPLIN_USERNAME`       | **Yes**  | —       | Joplin Server username/email                                           |
-| `JOPLIN_PASSWORD`       | **Yes**  | —       | Joplin Server password                                                 |
-| `JOPLIN_DATA_API_PORT`  | No       | `41184` | Internal Data API listen port (Joplin ClipperServer hardcoded default) |
-| `LOG_LEVEL`             | No       | `info`  | Log level: `debug`, `info`, `warn`, `error`, `silent`                  |
-| `SYNC_INTERVAL_SECONDS` | No       | `300`   | Periodic sync interval in seconds                                      |
-| `NODE_ENV`              | No       | —       | Set to `production` to enforce HTTPS for `JOPLIN_SERVER_URL`           |
-
-> **Note:** `JOPLIN_API_TOKEN` is the Joplin **Data API token**. In Docker, the token is auto-extracted inside the container from the Joplin CLI config — no manual retrieval needed. You can optionally set it in `.env` to override auto-detection. This is **not** the same as the "Web Clipper token" shown in Joplin's desktop frontend — see [Important: Two Different Tokens](#-important-two-different-tokens--do-not-mix). If running natively without Docker, you must set `JOPLIN_API_TOKEN` manually in your `.env` file.
-
-#### Running the Server
-
-```bash
-# Production (compiled)
-pnpm build && pnpm start
-
-# Development (hot reload via tsx watch)
-pnpm dev
-```
-
-The MCP HTTP server connects to a running Joplin Data API (via `JOPLIN_CORE_URL`), validates connectivity, then begins serving MCP requests over HTTP on port 3000 (configurable via `MCP_PORT`).
-
-#### MCP Client Configuration (Native / Node.js)
-
-The MCP HTTP server exposes an **HTTP endpoint** (not stdio). Configure your MCP client to connect via URL:
-
-```json
-{
-  "mcpServers": {
-    "joplin": {
-      "url": "http://localhost:3000/mcp"
-    }
-  }
-}
-```
-
-#### Testing
-
-```bash
-# Run all tests
-pnpm test
-
-# Watch mode
-pnpm test:watch
-
-# Lint
-pnpm lint
-
-# Format
-pnpm format
-```
-
-Tests use [Vitest](https://vitest.dev/) and cover all modules: config parsing, CLI executor, data client, error classes, sync manager, pagination, MCP schemas, tool handlers, and integration tests against a live Joplin Data API.
-
 ### Docker
 
 #### Prerequisites
@@ -224,38 +125,6 @@ docker compose logs -f joplin-mcp   # same (single service)
 docker compose down
 ```
 
-#### Environment Variables
-
-Place variables in the `.env` file (automatically picked up by [`docker-compose.yml`](docker-compose.yml)).
-
-| Variable                | Required | Default | Description                                                              |
-| ----------------------- | -------- | ------- | ------------------------------------------------------------------------ |
-| `JOPLIN_SERVER_URL`     | **Yes**  | —       | Joplin Server URL (e.g., `https://joplin.example.com/`)                  |
-| `JOPLIN_USERNAME`       | **Yes**  | —       | Joplin Server username/email                                             |
-| `JOPLIN_PASSWORD`       | **Yes**  | —       | Joplin Server password                                                   |
-| `JOPLIN_API_TOKEN`      | No       | —       | Joplin Data API token (auto-extracted when unset)                        |
-| `JOPLIN_DATA_API_PORT`  | No       | `41184` | Internal Data API listen port (rarely changed)                           |
-| `MCP_HOST_PORT`         | No       | `3000`  | Host-side MCP port (container always listens on internal port 3000)      |
-| `LOG_LEVEL`             | No       | `info`  | Log level: `debug`, `info`, `warn`, `error`, `silent`                    |
-| `SYNC_INTERVAL_SECONDS` | No       | `300`   | Periodic sync interval in seconds                                        |
-| `NODE_ENV`              | No       | —       | Set to `production` to enforce HTTPS for `JOPLIN_SERVER_URL`             |
-
-> **Note:** `JOPLIN_CORE_URL` is no longer an operator-facing variable — the entrypoint sets it internally to `http://127.0.0.1:41184`. If `MCP_PORT` is present in `.env`, the entrypoint canonicalizes it to `3000` with a warning (use `MCP_HOST_PORT` for host-side mapping instead).
-
-#### MCP Client Configuration (Docker)
-
-The `joplin-mcp` container exposes an **HTTP endpoint** (not stdio). Configure your MCP client to connect via URL:
-
-```json
-{
-  "mcpServers": {
-    "joplin": {
-      "url": "http://localhost:3000/mcp"
-    }
-  }
-}
-```
-
 #### How It Works
 
 - **Single container**: `joplin-mcp` — one combined container runs the Joplin CLI + Data API (loopback-only), a bash periodic-sync loop, and the Node.js MCP HTTP server
@@ -267,7 +136,7 @@ The `joplin-mcp` container exposes an **HTTP endpoint** (not stdio). Configure y
 - **Healthchecks**: The container healthcheck probes both `127.0.0.1:41184/ping` (Data API) and `127.0.0.1:3000/health` (MCP server)
 - **Graceful shutdown**: The entrypoint traps `SIGTERM`, drains the sync loop process group, stops the MCP server, performs a final sync, and exits cleanly
 
-#### Testing with Docker
+### Testing
 
 A dedicated [`Dockerfile.tests`](Dockerfile.tests) and `test` service in [`docker-compose.yml`](docker-compose.yml) allow running the test suite in a container:
 
@@ -472,7 +341,7 @@ Validation error: note_id: Expected 32-character hex ID
 
 ## Sync Behaviour
 
-- **Initial sync**: Runs on startup via SyncManager before accepting MCP requests
+- **Initial sync**: The entrypoint runs `joplin sync` once before starting the MCP server; no SyncManager is involved
 - **Periodic sync**: Every 5 minutes (configurable via `SYNC_INTERVAL_SECONDS`)
 - **Write-triggered sync**: After every create/update/delete/untag operation (immediate, blocking until sync completes)
 - **Conflict resolution**: Remote always wins (Joplin CLI built-in behaviour; conflicted copies are flagged in Joplin)
@@ -481,8 +350,6 @@ Validation error: note_id: Expected 32-character hex ID
 ## Security Considerations
 
 ### Token Management
-
-> **⚠️ Reminder:** `JOPLIN_API_TOKEN` is the Data API token (auto-extracted by the entrypoint or set via `.env`), **not** the Web Clipper token from the Joplin frontend. See [Important: Two Different Tokens](#-important-two-different-tokens--do-not-mix) for details.
 
 The Joplin Data API uses **two layers of token authentication**:
 
@@ -499,7 +366,7 @@ The session token is managed by [`JoplinDataClient`](src/data-client.ts) and sto
 ### TLS Requirements for Production
 
 - The Joplin Data API always binds to `127.0.0.1` (localhost-only inside the container), so TLS between the MCP server and the Data API is unnecessary — traffic never leaves the container
-- **The Joplin Server URL (`JOPLIN_SERVER_URL`) must use HTTPS in production** — this is enforced by the config schema (see [`src/config.ts`](src/config.ts#L5)). HTTP is only allowed when `NODE_ENV` is not set to `production`
+- **The MCP server accepts any URL scheme for `JOPLIN_SERVER_URL`** — there is no protocol enforcement in the config schema (see [`src/config.ts`](src/config.ts)). `NODE_ENV` is not read by the config and has no effect. If you expose the MCP endpoint beyond loopback, front it with a TLS-terminating reverse proxy yourself
 - Joplin CLI sync traffic to Joplin Server is plain HTTP by default; ensure your Joplin Server is deployed behind a TLS-terminating reverse proxy
 
 ### Localhost-Only Defaults
@@ -640,7 +507,7 @@ src/
 ├── config.ts              # Zod-based environment config parsing
 ├── logger.ts              # Pino structured logger
 ├── cli-executor.ts        # Joplin CLI subprocess wrapper
-├── sync-manager.ts        # Serialized sync queue orchestrator
+├── sync-manager.ts        # Serialized sync queue orchestrator (legacy — not used in combined container; sync is handled by the bash loop)
 ├── data-client.ts         # Joplin Data API HTTP client (26 methods, token auth)
 ├── api-types.ts           # TypeScript type definitions for Joplin API
 ├── errors.ts              # Typed error class hierarchy
@@ -706,12 +573,12 @@ The integration-test stack ([`docker-compose.test.yml`](docker-compose.test.yml)
 
 1. **Data API over CLI for data operations** — Avoids fragile CLI output parsing; uses structured HTTP API with typed responses
 2. **Single combined container** — All components (Data API, MCP server, sync scheduler) run in one container. Communication happens over loopback (`127.0.0.1:41184`), eliminating the need for Docker internal networking or a socat proxy. Only port 3000 is published to the host.
-4. **Bash-based sync scheduler** — Replaces the TypeScript SyncManager with a simple, reliable bash `while true` loop. Logs every sync with PASS/FAIL to `/var/log/joplin/sync.log`.
-5. **Write-through sync** — Write tools trigger immediate sync so Joplin Server is always up-to-date
-6. **Serialized sync queue** — Prevents concurrent sync calls causing `SQLITE_BUSY` errors
-7. **Remote-wins conflict resolution** — Delegated to Joplin CLI built-in behaviour; local changes always yield to remote
-8. **Token lifecycle** — Auth token obtained via `POST /auth`, reused with 60-second proactive refresh buffer before 55-minute expiry, re-fetched on 401 responses
-9. **Token auto-extraction** — The entrypoint extracts the API token from the Joplin CLI config, eliminating the manual `docker logs` retrieval ceremony
+3. **Bash-based sync scheduler** — Replaces the TypeScript SyncManager with a simple, reliable bash `while true` loop. Logs every sync with PASS/FAIL to `/var/log/joplin/sync.log`.
+4. **Write-through sync** — Write tools trigger immediate sync so Joplin Server is always up-to-date
+5. **Serialized sync queue** — The combined container's bash sync loop serializes sync calls sequentially, preventing `SQLITE_BUSY` errors (the legacy TypeScript `SyncManager` provided the same guarantee but is not invoked in the combined container)
+6. **Remote-wins conflict resolution** — Delegated to Joplin CLI built-in behaviour; local changes always yield to remote
+7. **Token lifecycle** — Auth token obtained via `POST /auth`, reused with 60-second proactive refresh buffer before 55-minute expiry, re-fetched on 401 responses
+8. **Token auto-extraction** — The entrypoint extracts the API token from the Joplin CLI config, eliminating the manual `docker logs` retrieval ceremony
 
 ## License
 
