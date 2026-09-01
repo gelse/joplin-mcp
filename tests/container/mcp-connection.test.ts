@@ -21,6 +21,9 @@ describe('MCP connection and tool discovery', () => {
 
   it('discovers all 17 tools', async () => {
     const { tools } = await client.listTools();
+    // Intentionally brittle (see PR review): if a legitimate MCP tool is added,
+    // this test failing is the reminder that the tool count must also be updated
+    // in README.md, PROMPT.md, SBOM.md and the other tests/docs referencing it.
     expect(tools).toHaveLength(17);
   });
 
