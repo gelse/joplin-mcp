@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CONTAINER_NAME="joplin-mcp-server"
-HEALTH_PORT="${JOPLIN_DATA_API_PORT:-41100}"
-HEALTH_URL="http://localhost:${HEALTH_PORT}/ping"
+CONTAINER_NAME="joplin-mcp"
+HEALTH_PORT="${MCP_HOST_PORT:-${MCP_PORT:-3000}}"
+HEALTH_URL="http://localhost:${HEALTH_PORT}/health"
 MAX_WAIT=60
 INTERVAL=5
 
@@ -19,7 +19,7 @@ else
   exit 1
 fi
 
-# 2. Wait for health check endpoint
+# 2. Wait for MCP health check endpoint (host-side, MCP port is published)
 echo "Waiting for health check endpoint at ${HEALTH_URL}..."
 elapsed=0
 while [ "${elapsed}" -lt "${MAX_WAIT}" ]; do
@@ -37,6 +37,14 @@ if [ "${elapsed}" -ge "${MAX_WAIT}" ]; then
   exit 1
 fi
 
-# 3. Report success
+# 3. Verify Data API is reachable inside the container (loopback-only)
+echo -n "Checking Data API via docker exec... "
+if docker exec "${CONTAINER_NAME}" curl -sf "http://127.0.0.1:${JOPLIN_DATA_API_PORT:-41184}/ping" > /dev/null 2>&1; then
+  echo "OK"
+else
+  echo "WARN: Data API not responding inside container (may still be starting)"
+fi
+
+# 4. Report success
 echo "=== Smoke Test PASSED ==="
 exit 0

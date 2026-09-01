@@ -17,11 +17,15 @@ describe('ToolRegistry', () => {
 
   it('getAllTools returns all 17 registered tools', () => {
     const tools = registry.getAllTools();
+    // Intentionally brittle (see PR review): if a legitimate MCP tool is added,
+    // this test failing is the reminder that the tool count must also be updated
+    // in README.md, PROMPT.md, SBOM.md and the other tests/docs referencing it.
     expect(tools).toHaveLength(17);
   });
 
   it('getToolNames returns all 17 tool names', () => {
     const names = registry.getToolNames();
+    // Intentionally brittle: tool count changed — update docs and other tests.
     expect(names).toHaveLength(17);
     expect(names).toContain('list_notebooks');
     expect(names).toContain('search_notes');

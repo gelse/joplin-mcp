@@ -8,27 +8,28 @@
 - **Lang**: TypeScript 5.7, compiled via `tsc -p tsconfig.build.json`
 - **Entry**: `src/mcp/entry.ts` → `dist/mcp/entry.js`
 
-## Architecture: Two-Container (Docker) / Single-Process (Native)
+## Architecture: Single-Container (Docker Production) / Single-Process (Native)
 
-### Container A: `joplin-core` (stateful)
-- Runs Joplin CLI + Data API server on port 41184
-- `entrypoint-core.sh`: bash sync scheduler (`while true; do joplin sync; sleep N; done`)
+### Production: `joplin-mcp` (single combined container)
+- Runs Joplin CLI + Data API (loopback `127.0.0.1:41184`), bash sync scheduler, and Node.js MCP HTTP server in one container
+- `entrypoint-combined.sh`: starts Data API, periodic sync loop (own process group via `setsid`), MCP server; liveness monitor via `wait -n`
+- Data API binds to `127.0.0.1:41184` (loopback-only) — no socat proxy
+- MCP server on port 3000 (StreamableHTTPServerTransport, sessionless: `sessionIdGenerator: undefined`)
+- Auto-extracts API token from Joplin CLI config (or honours `JOPLIN_API_TOKEN` override)
+- `JOPLIN_CORE_URL` set internally to `http://127.0.0.1:41184` (not operator-facing)
+- Graceful shutdown on SIGTERM: drain sync loop, stop MCP, stop Data API, final sync, reentrancy guard
 - Persistent SQLite DB at `/home/joplin/.config/joplin` (Docker volume: `joplin_data`)
-- Syncs against `JOPLIN_SERVER_URL` with `JOPLIN_USERNAME`/`JOPLIN_PASSWORD`
-- Healthcheck: `curl http://localhost:41184/ping`
+- Healthcheck: `curl 127.0.0.1:41184/ping && curl 127.0.0.1:3000/health` (90s start-period)
 
-### Container B: `joplin-mcp` (stateless)
-- Node.js MCP HTTP server on port 3000 (StreamableHTTPServerTransport, sessionless: `sessionIdGenerator: undefined`)
-- Proxies ALL data operations to Container A via `JoplinDataClient` → `JOPLIN_CORE_URL`
-- NO SyncManager, NO Joplin CLI, NO filesystem access
-- Graceful shutdown on SIGTERM/SIGINT (5s force timeout)
-- Entry: `entrypoint-mcp.sh` → `node dist/mcp/entry.js`
+### Integration-Test Stack
+- Uses `Dockerfile.combined` via `docker-compose.test.yml` (same image as production)
+- Built with dummy sync credentials; no real Joplin Server needed
 
 ## Source File Map
 
 | File | Role |
 |------|------|
-| `src/config.ts` | Zod env parser: `JOPLIN_SERVER_URL`, `JOPLIN_USERNAME`, `JOPLIN_PASSWORD`, `JOPLIN_API_TOKEN`, `JOPLIN_CORE_URL`, `JOPLIN_DATA_API_PORT`(41184), `LOG_LEVEL`(info), `SYNC_INTERVAL_SECONDS`(300) |
+| `src/config.ts` | Zod env parser: `JOPLIN_SERVER_URL`, `JOPLIN_USERNAME`, `JOPLIN_PASSWORD`, `JOPLIN_API_TOKEN`, `JOPLIN_CORE_URL`, `JOPLIN_DATA_API_PORT`(41184), `LOG_LEVEL`(info), `SYNC_INTERVAL_SECONDS`(300); `MCP_PORT`(3000) read directly from `process.env` in `src/mcp/entry.ts`, unvalidated |
 | `src/logger.ts` | Pino structured logger (`pino` + `pino-pretty`), `createLogger(config)` |
 | `src/guarded-string.ts` | `GuardedString` class — `#value` private field, `toString()`/`toJSON()` return `'[REDACTED]'`, only `.value` exposes raw |
 | `src/errors.ts` | Hierarchy: `ConfigError`, `DataApiError(statusCode,responseBody?)`, `NotFoundError(404)`, `ConflictError(409)`, `ValidationError(400)`, `AuthError(401)`, `FatalError(cause?,exitCode)` |
@@ -36,11 +37,11 @@
 | `src/pagination.ts` | `clampLimit(n)` → 1–100, `buildPageParam(p)` → `&page=N`, `fetchAllPages(fn)` → loop `has_more` |
 | `src/data-client.ts` | `JoplinDataClient` — HTTP client for Joplin Data API; 26 methods; auth via `POST /auth` (Bearer token, 55min expiry, 60s proactive refresh, 401 retry); concurrency limiter (max 5); ID validation (`/^[a-zA-Z0-9_-]+$/`) |
 | `src/cli-executor.ts` | `CliExecutor` — wraps `joplin` CLI via `execFile`; whitelist of subcommands; shell metacharacter blocking |
-| `src/sync-manager.ts` | `SyncManager` — serialized sync queue (`triggerSync`), periodic timer, status: idle/syncing/error; **NOT used in Container B** |
-| `src/mcp/entry.ts` | Container B entrypoint: parseConfig → createLogger → `JoplinDataClient(joplinCoreUrl, token)` → ping → `new ToolRegistry()` → `startMCPHttpServer()` |
+| `src/sync-manager.ts` | `SyncManager` — serialized sync queue (`triggerSync`), periodic timer, status: idle/syncing/error; **NOT used in the combined container** |
+| `src/mcp/entry.ts` | MCP server entrypoint: parseConfig → createLogger → `JoplinDataClient(joplinCoreUrl, token)` → ping → `new ToolRegistry()` → `startMCPHttpServer()` |
 | `src/mcp/server.ts` | MCP server factory: `createMCPServer()` registers tools, `startMCPServer()` (stdio), `startMCPHttpServer()` (HTTP + `/health` endpoint) |
 | `src/mcp/tool-registry.ts` | `ToolRegistry` — static `TOOLS` record of 17 `RegisteredTool`; `executeTool(name,input,ctx)` does Zod parse → handler |
-| `src/mcp/tools.ts` | 17 `ToolHandler` functions; write tools call `ctx.syncManager?.triggerSync()` (no-op in Container B); `ToolContext = { client, syncManager?, logger }` |
+| `src/mcp/tools.ts` | 17 `ToolHandler` functions; write tools call `ctx.syncManager?.triggerSync()` (no-op when omitted); `ToolContext = { client, syncManager?, logger }` |
 | `src/mcp/schemas.ts` | 17 Zod schemas; `joplinId = /^[0-9a-f]{32}$/`; `booleanNum = z.union([boolean, number→bool])`; `extractSchemaShape()` helper |
 
 ## 17 MCP Tools
@@ -76,7 +77,7 @@
 ### Sync (1)
 | Tool | Input | Output |
 |------|-------|--------|
-| `sync` | `{}` | `{status, lastSyncTime}` — with syncManager: triggers sync; without: returns "managed by core container" |
+| `sync` | `{}` | `{status, lastSyncTime}` — returns static status when no SyncManager (combined container); triggers sync via SyncManager otherwise |
 
 ## Dependencies
 ```json
@@ -113,38 +114,39 @@ search(SearchQuery) → SearchResult[]
 ```
 
 ## Key Patterns & Decisions
-1. **Two-container separation**: stateful sync backend vs stateless MCP frontend
+1. **Single combined container (production)**: Data API + MCP server + sync scheduler in one container; loopback-only communication
 2. **Data API over CLI**: structured HTTP with typed responses, not CLI output parsing
 3. **Write-through sync**: write tools trigger `syncManager.triggerSync()` (serialized, prevents SQLITE_BUSY)
 4. **Remote-wins conflict resolution**: delegated to Joplin CLI
 5. **Token lifecycle**: `POST /auth` → Bearer token, 55min expiry, 60s proactive refresh, re-auth on 401
 6. **GuardedString**: private `#value` field, all coercions → `'[REDACTED]'`
 7. **Stateless HTTP transport**: `sessionIdGenerator: undefined` → no session state between requests
-8. **Bash sync scheduler** in Container A replaces TypeScript SyncManager for periodic sync
+8. **Bash sync scheduler** replaces TypeScript SyncManager for periodic sync; runs in its own process group via `setsid`
 9. **ID validation**: `/^[a-zA-Z0-9_-]+$/` on all user-supplied IDs before HTTP calls
 10. **Concurrency limiter**: max 5 concurrent Data API requests, queue overflow
 
 ## Docker Files
 | File | Purpose |
 |------|---------|
-| `Dockerfile.core` | Container A: node:22-bookworm-slim, Joplin CLI, socat, bash entrypoint |
-| `Dockerfile.mcp` | Container B: multi-stage build, `mcp` user, dist-only prod stage |
+| `Dockerfile.combined` | Production: combined Joplin CLI + Data API + MCP HTTP server (node:22-bookworm-slim, multi-stage) |
 | `Dockerfile.tests` | Test runner: vitest with v8 coverage, JUnit XML to `./reports/` |
-| `docker-compose.yml` | 3 services: joplin-core, joplin-mcp, test; volume: `joplin_data` |
+| `docker-compose.yml` | Single service: `joplin-mcp` (combined container); test runner; volume: `joplin_data` |
+| `docker-compose.test.yml` | Integration-test stack: uses `Dockerfile.combined` (same as production) for `make test-integration` |
+| `entrypoint-combined.sh` | Production + test-stack entrypoint: Data API + sync loop + MCP server with SIGTERM cleanup |
 
 ## Config Env Vars
-| Var | Required | Default | Used By |
-|-----|----------|---------|---------|
-| `JOPLIN_SERVER_URL` | Core only | — | Container A |
-| `JOPLIN_USERNAME` | Core only | — | Container A |
-| `JOPLIN_PASSWORD` | Core only | — | Container A |
-| `JOPLIN_API_TOKEN` | Both | — | Both |
-| `JOPLIN_CORE_URL` | MCP only | — | Container B |
-| `JOPLIN_DATA_API_PORT` | No | 41184 | Container A |
-| `MCP_PORT` | No | 3000 | Container B |
-| `LOG_LEVEL` | No | info | Both |
-| `SYNC_INTERVAL_SECONDS` | No | 300 | Container A |
-| `NODE_ENV` | No | — | Enforces HTTPS for JOPLIN_SERVER_URL in production |
+| Var | Required | Default | Notes |
+|-----|----------|---------|-------|
+| `JOPLIN_SERVER_URL` | Yes | — | Joplin Server URL |
+| `JOPLIN_USERNAME` | Yes | — | Joplin Server username/email |
+| `JOPLIN_PASSWORD` | Yes | — | Joplin Server password |
+| `JOPLIN_API_TOKEN` | No | — | Optional override; auto-extracted from CLI config when unset |
+| `JOPLIN_DATA_API_PORT` | No | 41184 | Internal Data API port (loopback-only, rarely changed) |
+| `MCP_HOST_PORT` | No | 3000 | Host-side MCP port (container always listens on internal 3000) |
+| `LOG_LEVEL` | No | info | `debug`, `info`, `warn`, `error`, `silent` |
+| `SYNC_INTERVAL_SECONDS` | No | 300 | Periodic sync interval in seconds |
+
+> **Note:** `JOPLIN_CORE_URL` is no longer operator-facing — the entrypoint sets it internally. `MCP_PORT` is canonicalized to 3000 by the entrypoint with a warning if set; use `MCP_HOST_PORT` for host-side mapping.
 
 ## Testing
 - **Framework**: Vitest 2.x with v8 coverage (thresholds: 70% stmts, 60% branches, 70% funcs, 70% lines)

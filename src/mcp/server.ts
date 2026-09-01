@@ -5,8 +5,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { Logger } from '../logger.js';
 import { ToolRegistry } from './tool-registry.js';
 import type { ToolContext } from './tools.js';
-import { ZodError } from 'zod';
 import { extractSchemaShape } from './schemas.js';
+import { ZodError } from 'zod';
 
 /**
  * Unified error handler for MCP tool execution.
@@ -62,7 +62,6 @@ export async function createMCPServer(
     server.tool(
       tool.name,
       tool.description,
-      // Convert Zod schema to a plain object shape for MCP SDK
       extractSchemaShape(tool.schema),
       async (input: unknown) => {
         logger.debug({ tool: tool.name, input }, 'MCP tool called');
