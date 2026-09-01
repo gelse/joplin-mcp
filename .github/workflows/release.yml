@@ -3,6 +3,8 @@ name: Release Docker Image
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    # Can be used for the initial publish if the GHCR package does not yet exist.
 
 jobs:
   release:
@@ -47,6 +49,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
+            type=raw,value=latest,enable={{is_default_branch}}
           flavor: |
             latest=auto
 

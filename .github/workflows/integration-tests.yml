@@ -15,12 +15,17 @@ jobs:
       - name: Run integration tests
         run: bash scripts/run-integration-tests.sh
 
+      - name: Check for JUnit report
+        if: always()
+        run: test -f reports/container/junit.xml && echo "JUnit report found" || echo "::warning::JUnit report missing at reports/container/junit.xml"
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: integration-test-results
           path: reports/container/junit.xml
+          if-no-files-found: ignore
 
       - name: Publish test report
         if: always()
@@ -29,3 +34,4 @@ jobs:
           name: Integration Test Results
           path: reports/container/junit.xml
           reporter: java-junit
+          fail-on-error: false

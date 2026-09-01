@@ -331,9 +331,13 @@ Three GitHub Actions workflows automate testing and releases:
 | --- | --- | --- | --- |
 | [`unit-tests.yml`](.github/workflows/unit-tests.yml) | Push / PR to `main` | Ubuntu (native) | Installs dependencies via pnpm, runs `pnpm test` |
 | [`integration-tests.yml`](.github/workflows/integration-tests.yml) | PRs to `main` | Ubuntu (native) | Runs container integration tests via [`scripts/run-integration-tests.sh`](scripts/run-integration-tests.sh) |
-| [`release.yml`](.github/workflows/release.yml) | Release published | Ubuntu (native) | Verifies lockfile reproducibility, then builds [`Dockerfile.combined`](Dockerfile.combined) and pushes to `ghcr.io/gelse/joplin-mcp` with semver + `latest` tags |
+| [`release.yml`](.github/workflows/release.yml) | Release published / manual dispatch | Ubuntu (native) | Verifies lockfile reproducibility, then builds [`Dockerfile.combined`](Dockerfile.combined) and pushes to `ghcr.io/gelse/joplin-mcp` with semver + `latest` tags |
 
 The release workflow builds a single `linux/amd64` image and tags it as `{{version}}`, `{{major}}.{{minor}}`, `{{major}}`, and `latest` (when appropriate). A pre-build step runs `pnpm install --frozen-lockfile` to confirm the lockfile is reproducible before the Docker build begins.
+
+The release workflow also supports `workflow_dispatch` for manual triggers — useful for the initial GHCR publish when the package does not yet exist (semver tags won't resolve on manual dispatch, but the `latest` fallback tag ensures the image is always pushed with at least one valid tag).
+
+> **Branch protection:** If branch protection rules are configured on `main`, add the required status checks `unit-tests` and `integration-tests` (the previous `test` job name no longer exists).
 
 ## Architecture
 

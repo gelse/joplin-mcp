@@ -45,3 +45,4 @@ jobs:
           name: Unit Test Results
           path: reports/junit.xml
           reporter: java-junit
+          fail-on-error: false
