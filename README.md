@@ -341,7 +341,7 @@ Validation error: note_id: Expected 32-character hex ID
 
 ## Sync Behaviour
 
-- **Initial sync**: Runs on startup via SyncManager before accepting MCP requests
+- **Initial sync**: The entrypoint runs `joplin sync` once before starting the MCP server; no SyncManager is involved
 - **Periodic sync**: Every 5 minutes (configurable via `SYNC_INTERVAL_SECONDS`)
 - **Write-triggered sync**: After every create/update/delete/untag operation (immediate, blocking until sync completes)
 - **Conflict resolution**: Remote always wins (Joplin CLI built-in behaviour; conflicted copies are flagged in Joplin)
@@ -573,12 +573,12 @@ The integration-test stack ([`docker-compose.test.yml`](docker-compose.test.yml)
 
 1. **Data API over CLI for data operations** — Avoids fragile CLI output parsing; uses structured HTTP API with typed responses
 2. **Single combined container** — All components (Data API, MCP server, sync scheduler) run in one container. Communication happens over loopback (`127.0.0.1:41184`), eliminating the need for Docker internal networking or a socat proxy. Only port 3000 is published to the host.
-4. **Bash-based sync scheduler** — Replaces the TypeScript SyncManager with a simple, reliable bash `while true` loop. Logs every sync with PASS/FAIL to `/var/log/joplin/sync.log`.
-5. **Write-through sync** — Write tools trigger immediate sync so Joplin Server is always up-to-date
-6. **Serialized sync queue** — The combined container's bash sync loop serializes sync calls sequentially, preventing `SQLITE_BUSY` errors (the legacy TypeScript `SyncManager` provided the same guarantee but is not invoked in the combined container)
-7. **Remote-wins conflict resolution** — Delegated to Joplin CLI built-in behaviour; local changes always yield to remote
-8. **Token lifecycle** — Auth token obtained via `POST /auth`, reused with 60-second proactive refresh buffer before 55-minute expiry, re-fetched on 401 responses
-9. **Token auto-extraction** — The entrypoint extracts the API token from the Joplin CLI config, eliminating the manual `docker logs` retrieval ceremony
+3. **Bash-based sync scheduler** — Replaces the TypeScript SyncManager with a simple, reliable bash `while true` loop. Logs every sync with PASS/FAIL to `/var/log/joplin/sync.log`.
+4. **Write-through sync** — Write tools trigger immediate sync so Joplin Server is always up-to-date
+5. **Serialized sync queue** — The combined container's bash sync loop serializes sync calls sequentially, preventing `SQLITE_BUSY` errors (the legacy TypeScript `SyncManager` provided the same guarantee but is not invoked in the combined container)
+6. **Remote-wins conflict resolution** — Delegated to Joplin CLI built-in behaviour; local changes always yield to remote
+7. **Token lifecycle** — Auth token obtained via `POST /auth`, reused with 60-second proactive refresh buffer before 55-minute expiry, re-fetched on 401 responses
+8. **Token auto-extraction** — The entrypoint extracts the API token from the Joplin CLI config, eliminating the manual `docker logs` retrieval ceremony
 
 ## License
 
