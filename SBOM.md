@@ -622,7 +622,7 @@ When connecting over stdio, the MCP client communicates directly with the server
 | CLI argument sanitization | [`validateArgs()`](src/cli-executor.ts:65) blocks shell metacharacters (`;`, `|`, `&`, `$`, `` ` ``, `(`, `)`) |
 | Token management | Auto-extraction from Joplin CLI config in entrypoint-combined.sh; auto-refresh on expiry |
 | Rate limiting | Serial request queue in `JoplinDataClient` prevents API overload |
-| Frozen lockfile | `pnpm install --no-frozen-lockfile` in build; reproducible builds via CI |
+| Frozen lockfile | `pnpm install --frozen-lockfile` in Docker builds — images are reproducible without extra CI steps |
 | Graceful shutdown | Entrypoint traps SIGTERM, drains sync loop, stops MCP server, performs final sync |
 
 ---
