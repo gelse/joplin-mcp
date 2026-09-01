@@ -232,7 +232,7 @@ graph TD
 3. **JoplinDataClient** in the MCP server issues HTTP requests to the **Data API** over loopback (`127.0.0.1:41184`) — no network proxy needed
 4. **Data API** binds to `127.0.0.1:41184` (loopback-only) inside the container, backed by a persistent SQLite volume
 5. **Bash sync scheduler** handles periodic sync via the Joplin CLI against Joplin Server
-6. Write operations from the MCP server trigger sync via the Data API; bash scheduler provides periodic backup sync
+6. Write operations persist to the local Joplin Data API and reach Joplin Server on the next scheduled sync (every `SYNC_INTERVAL_SECONDS`)
 7. The container uses a **single healthcheck** probing both the Data API (`/ping`) and the MCP server (`/health`)
 
 > **Note: SQLITE_BUSY during sync** — During periodic sync windows, the Joplin CLI holds a
@@ -275,7 +275,7 @@ If migrating from the previous two-container deployment:
 | `untag_note`     | Remove a tag from a note                       | **Yes** |
 | `delete_note`    | Delete a note                                  | **Yes** |
 | `delete_folder`  | Delete a folder                                | **Yes** |
-| `sync`           | Manually trigger sync                          | No      |
+| `sync`           | Report current sync status                     | No      |
 
 ### Input / Output Schemas
 
@@ -343,7 +343,7 @@ Validation error: note_id: Expected 32-character hex ID
 
 - **Initial sync**: The entrypoint runs `joplin sync` once before starting the MCP server; no SyncManager is involved
 - **Periodic sync**: Every 5 minutes (configurable via `SYNC_INTERVAL_SECONDS`)
-- **Write-triggered sync**: After every create/update/delete/untag operation (immediate, blocking until sync completes)
+- **Scheduled sync**: Every create/update/delete/untag operation is picked up by the periodic scheduler (within ≤ `SYNC_INTERVAL_SECONDS`)
 - **Conflict resolution**: Remote always wins (Joplin CLI built-in behaviour; conflicted copies are flagged in Joplin)
 - **Serialized queue**: Prevents `SQLITE_BUSY` errors by serializing sync operations
 
@@ -574,7 +574,7 @@ The integration-test stack ([`docker-compose.test.yml`](docker-compose.test.yml)
 1. **Data API over CLI for data operations** — Avoids fragile CLI output parsing; uses structured HTTP API with typed responses
 2. **Single combined container** — All components (Data API, MCP server, sync scheduler) run in one container. Communication happens over loopback (`127.0.0.1:41184`), eliminating the need for Docker internal networking or a socat proxy. Only port 3000 is published to the host.
 3. **Bash-based sync scheduler** — Replaces the TypeScript SyncManager with a simple, reliable bash `while true` loop. Logs every sync with PASS/FAIL to `/var/log/joplin/sync.log`.
-4. **Write-through sync** — Write tools trigger immediate sync so Joplin Server is always up-to-date
+4. **Scheduled sync** — Write tools persist to the local Data API; the bash scheduler (sole sync mechanism in the combined container) pushes changes to Joplin Server within `SYNC_INTERVAL_SECONDS`
 5. **Serialized sync queue** — The combined container's bash sync loop serializes sync calls sequentially, preventing `SQLITE_BUSY` errors (the legacy TypeScript `SyncManager` provided the same guarantee but is not invoked in the combined container)
 6. **Remote-wins conflict resolution** — Delegated to Joplin CLI built-in behaviour; local changes always yield to remote
 7. **Token lifecycle** — Auth token obtained via `POST /auth`, reused with 60-second proactive refresh buffer before 55-minute expiry, re-fetched on 401 responses
