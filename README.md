@@ -6,14 +6,42 @@ An MCP (Model Context Protocol) server that exposes Joplin's note-taking functio
 
 ### Docker (recommended)
 
-The recommended deployment uses a single container ([`joplin-mcp`](#architecture)) orchestrated via [`docker-compose.yml`](docker-compose.yml):
+The recommended deployment uses the published container image. No repository clone required.
 
 ```bash
-cp .env.example .env   # fill in required variables
-docker compose up -d   # starts the combined container with healthchecks
+docker run -d \
+  --name joplin-mcp \
+  --network host \
+  --restart unless-stopped \
+  -v joplin_data:/home/joplin/.config/joplin \
+  -e JOPLIN_SERVER_URL=https://joplin.example.com/ \
+  -e JOPLIN_USERNAME=your-email@example.com \
+  -e JOPLIN_PASSWORD=your-password \
+  ghcr.io/gelse/joplin-mcp:latest
 ```
 
-Add this to your MCP client config:
+> **Bleeding-edge builds:** To test the latest (unreleased) build, use `ghcr.io/gelse/joplin-mcp:latest-testing` instead of `:latest`.
+
+> **`--network host` note:** On Linux, `--network host` lets the container share the host network stack — the MCP server binds to `127.0.0.1:3000` and is accessible from the host. On Docker Desktop for macOS/Windows, `--network host` only exposes the service from the host; adjust as needed for your platform.
+
+#### Environment Variables
+
+| Variable                | Required | Default | Description                                                              |
+| ----------------------- | -------- | ------- | ------------------------------------------------------------------------ |
+| `JOPLIN_SERVER_URL`     | **Yes**  | —       | Joplin Server URL (e.g., `https://joplin.example.com/`)                  |
+| `JOPLIN_USERNAME`       | **Yes**  | —       | Joplin Server username/email                                             |
+| `JOPLIN_PASSWORD`       | **Yes**  | —       | Joplin Server password                                                   |
+| `JOPLIN_API_TOKEN`      | No       | —       | Joplin Data API token (auto-extracted when unset)                        |
+| `JOPLIN_DATA_API_PORT`  | No       | `41184` | Internal Data API listen port (rarely changed)                           |
+| `LOG_LEVEL`             | No       | `info`  | Log level: `debug`, `info`, `warn`, `error`, `silent`                    |
+| `SYNC_INTERVAL_SECONDS` | No       | `300`   | Periodic sync interval in seconds                                        |
+| `MCP_HOST_PORT`         | No       | `3000`  | Host-side MCP port (only used with explicit port mapping, not `--network host`) |
+
+> **Note:** `JOPLIN_CORE_URL` is no longer an operator-facing variable — the entrypoint sets it internally to `http://127.0.0.1:41184`.
+
+#### MCP Client Configuration
+
+The `joplin-mcp` container exposes an **HTTP endpoint** (not stdio). Configure your MCP client to connect via URL:
 
 ```json
 {
@@ -26,29 +54,6 @@ Add this to your MCP client config:
 ```
 
 > `joplin-mcp` exposes an HTTP endpoint on port 3000 (not stdio). See [MCP Client Configuration](#mcp-client-configuration) for other setups.
-
-### Native Installation
-
-For local development or without Docker, the MCP HTTP server ([`src/mcp/entry.ts`](src/mcp/entry.ts)) connects to a running Joplin Data API:
-
-```bash
-git clone <repo-url> && cd joplin-api
-cp .env.example .env   # fill in JOPLIN_API_TOKEN and JOPLIN_CORE_URL
-pnpm install
-pnpm build && pnpm start
-```
-
-MCP client config (HTTP):
-
-```json
-{
-  "mcpServers": {
-    "joplin": {
-      "url": "http://localhost:3000/mcp"
-    }
-  }
-}
-```
 
 ---
 
@@ -103,92 +108,6 @@ If you notice notes are missing from Joplin Server despite the container reporti
 
 ## Detailed How-To
 
-### Direct Installation
-
-#### Prerequisites
-
-- **Node.js** 20 or later (the project's [`package.json`](package.json) `engines` field requires `>=22.0.0`)
-- **[pnpm](https://pnpm.io/)** 9 or later (for package management)
-- **Joplin desktop app** running with the **Data API (ClipperServer)** enabled:
-  - In Joplin: _Web Clipper → Options → Enable Clipper Server_
-  - The server binds to `127.0.0.1:41184` by default and ignores `--host`/`--port` flags
-- **Joplin Server** (optional but recommended) — a sync target for multi-device synchronisation. Without it, write-through sync will fail and notes remain local-only
-
-#### Installation
-
-```bash
-git clone <repo-url>
-cd joplin-api
-pnpm install
-pnpm build
-```
-
-#### Configuration
-
-Copy the environment template and fill in your values:
-
-```bash
-cp .env.example .env
-```
-
-All configuration is done via environment variables:
-
-| Variable                | Required | Default | Description                                                            |
-| ----------------------- | -------- | ------- | ---------------------------------------------------------------------- |
-| `JOPLIN_SERVER_URL`     | **Yes**  | —       | Joplin Server URL (e.g., `https://joplin.example.com/`)                |
-| `JOPLIN_USERNAME`       | **Yes**  | —       | Joplin Server username/email                                           |
-| `JOPLIN_PASSWORD`       | **Yes**  | —       | Joplin Server password                                                 |
-| `JOPLIN_DATA_API_PORT`  | No       | `41184` | Internal Data API listen port (Joplin ClipperServer hardcoded default) |
-| `LOG_LEVEL`             | No       | `info`  | Log level: `debug`, `info`, `warn`, `error`, `silent`                  |
-| `SYNC_INTERVAL_SECONDS` | No       | `300`   | Periodic sync interval in seconds                                      |
-| `NODE_ENV`              | No       | —       | Set to `production` to enforce HTTPS for `JOPLIN_SERVER_URL`           |
-
-> **Note:** `JOPLIN_API_TOKEN` is the Joplin **Data API token**. In Docker, the token is auto-extracted inside the container from the Joplin CLI config — no manual retrieval needed. You can optionally set it in `.env` to override auto-detection. This is **not** the same as the "Web Clipper token" shown in Joplin's desktop frontend — see [Important: Two Different Tokens](#-important-two-different-tokens--do-not-mix). If running natively without Docker, you must set `JOPLIN_API_TOKEN` manually in your `.env` file.
-
-#### Running the Server
-
-```bash
-# Production (compiled)
-pnpm build && pnpm start
-
-# Development (hot reload via tsx watch)
-pnpm dev
-```
-
-The MCP HTTP server connects to a running Joplin Data API (via `JOPLIN_CORE_URL`), validates connectivity, then begins serving MCP requests over HTTP on port 3000 (configurable via `MCP_PORT`).
-
-#### MCP Client Configuration (Native / Node.js)
-
-The MCP HTTP server exposes an **HTTP endpoint** (not stdio). Configure your MCP client to connect via URL:
-
-```json
-{
-  "mcpServers": {
-    "joplin": {
-      "url": "http://localhost:3000/mcp"
-    }
-  }
-}
-```
-
-#### Testing
-
-```bash
-# Run all tests
-pnpm test
-
-# Watch mode
-pnpm test:watch
-
-# Lint
-pnpm lint
-
-# Format
-pnpm format
-```
-
-Tests use [Vitest](https://vitest.dev/) and cover all modules: config parsing, CLI executor, data client, error classes, sync manager, pagination, MCP schemas, tool handlers, and integration tests against a live Joplin Data API.
-
 ### Docker
 
 #### Prerequisites
@@ -224,38 +143,6 @@ docker compose logs -f joplin-mcp   # same (single service)
 docker compose down
 ```
 
-#### Environment Variables
-
-Place variables in the `.env` file (automatically picked up by [`docker-compose.yml`](docker-compose.yml)).
-
-| Variable                | Required | Default | Description                                                              |
-| ----------------------- | -------- | ------- | ------------------------------------------------------------------------ |
-| `JOPLIN_SERVER_URL`     | **Yes**  | —       | Joplin Server URL (e.g., `https://joplin.example.com/`)                  |
-| `JOPLIN_USERNAME`       | **Yes**  | —       | Joplin Server username/email                                             |
-| `JOPLIN_PASSWORD`       | **Yes**  | —       | Joplin Server password                                                   |
-| `JOPLIN_API_TOKEN`      | No       | —       | Joplin Data API token (auto-extracted when unset)                        |
-| `JOPLIN_DATA_API_PORT`  | No       | `41184` | Internal Data API listen port (rarely changed)                           |
-| `MCP_HOST_PORT`         | No       | `3000`  | Host-side MCP port (container always listens on internal port 3000)      |
-| `LOG_LEVEL`             | No       | `info`  | Log level: `debug`, `info`, `warn`, `error`, `silent`                    |
-| `SYNC_INTERVAL_SECONDS` | No       | `300`   | Periodic sync interval in seconds                                        |
-| `NODE_ENV`              | No       | —       | Set to `production` to enforce HTTPS for `JOPLIN_SERVER_URL`             |
-
-> **Note:** `JOPLIN_CORE_URL` is no longer an operator-facing variable — the entrypoint sets it internally to `http://127.0.0.1:41184`. If `MCP_PORT` is present in `.env`, the entrypoint canonicalizes it to `3000` with a warning (use `MCP_HOST_PORT` for host-side mapping instead).
-
-#### MCP Client Configuration (Docker)
-
-The `joplin-mcp` container exposes an **HTTP endpoint** (not stdio). Configure your MCP client to connect via URL:
-
-```json
-{
-  "mcpServers": {
-    "joplin": {
-      "url": "http://localhost:3000/mcp"
-    }
-  }
-}
-```
-
 #### How It Works
 
 - **Single container**: `joplin-mcp` — one combined container runs the Joplin CLI + Data API (loopback-only), a bash periodic-sync loop, and the Node.js MCP HTTP server
@@ -267,7 +154,7 @@ The `joplin-mcp` container exposes an **HTTP endpoint** (not stdio). Configure y
 - **Healthchecks**: The container healthcheck probes both `127.0.0.1:41184/ping` (Data API) and `127.0.0.1:3000/health` (MCP server)
 - **Graceful shutdown**: The entrypoint traps `SIGTERM`, drains the sync loop process group, stops the MCP server, performs a final sync, and exits cleanly
 
-#### Testing with Docker
+### Testing
 
 A dedicated [`Dockerfile.tests`](Dockerfile.tests) and `test` service in [`docker-compose.yml`](docker-compose.yml) allow running the test suite in a container:
 
