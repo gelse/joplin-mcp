@@ -29,7 +29,9 @@ INTERVAL_SECONDS="${INTERVAL_SECONDS:-60}"
 IMAGE_NAME="joplin-api-combined"
 VOLUME_NAME="joplin-measure-$(date +%s)"
 CONTAINER_NAME="joplin-measure-$$"
-TMPFILE="$(mktemp)"
+POLL_TMPFILE="$(mktemp)"
+ENVFILE="$(mktemp)"
+chmod 600 "${ENVFILE}"
 
 # ---------------------------------------------------------------------------
 # Cleanup trap
@@ -38,7 +40,7 @@ cleanup() {
     echo "Cleaning up container and volume..."
     docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true
     docker volume rm "${VOLUME_NAME}" 2>/dev/null || true
-    rm -f "${TMPFILE}"
+    rm -f "${POLL_TMPFILE}" "${ENVFILE}"
 }
 trap cleanup EXIT
 
@@ -48,15 +50,15 @@ trap cleanup EXIT
 get_item_count() {
     local count=0
     # Count folders
-    if docker exec "${CONTAINER_NAME}" joplin ls /folders -l 99999 > "${TMPFILE}" 2>/dev/null; then
+    if docker exec "${CONTAINER_NAME}" joplin ls /folders -l 99999 > "${POLL_TMPFILE}" 2>/dev/null; then
         local fc
-        fc="$(wc -l < "${TMPFILE}")"
+        fc="$(wc -l < "${POLL_TMPFILE}")"
         count=$((count + fc))
     fi
     # Count notes
-    if docker exec "${CONTAINER_NAME}" joplin ls /notes -l 99999 > "${TMPFILE}" 2>/dev/null; then
+    if docker exec "${CONTAINER_NAME}" joplin ls /notes -l 99999 > "${POLL_TMPFILE}" 2>/dev/null; then
         local nc
-        nc="$(wc -l < "${TMPFILE}")"
+        nc="$(wc -l < "${POLL_TMPFILE}")"
         count=$((count + nc))
     fi
     echo "${count}"
@@ -64,7 +66,15 @@ get_item_count() {
 
 # ---------------------------------------------------------------------------
 # Start container with throwaway volume
+# Credentials are passed via an env-file (not -e KEY=VALUE) to avoid
+# exposing the plaintext password in the process list.
 # ---------------------------------------------------------------------------
+printf 'JOPLIN_SERVER_URL=%s\n' "${JOPLIN_SERVER_URL}" >> "${ENVFILE}"
+printf 'JOPLIN_USERNAME=%s\n'   "${JOPLIN_USERNAME}"   >> "${ENVFILE}"
+printf 'JOPLIN_PASSWORD=%s\n'   "${JOPLIN_PASSWORD}"   >> "${ENVFILE}"
+printf 'LOG_LEVEL=%s\n'         "${LOG_LEVEL:-warn}"   >> "${ENVFILE}"
+printf 'SYNC_INTERVAL_SECONDS=%s\n' "99999"             >> "${ENVFILE}"
+
 echo "=== Initial Sync Measurement ==="
 echo "Image:       ${IMAGE_NAME}"
 echo "Volume:      ${VOLUME_NAME}"
@@ -75,83 +85,59 @@ echo ""
 docker run -d \
     --name "${CONTAINER_NAME}" \
     -v "${VOLUME_NAME}:/home/joplin/.config/joplin" \
-    -e "JOPLIN_SERVER_URL=${JOPLIN_SERVER_URL}" \
-    -e "JOPLIN_USERNAME=${JOPLIN_USERNAME}" \
-    -e "JOPLIN_PASSWORD=${JOPLIN_PASSWORD}" \
-    -e "LOG_LEVEL=${LOG_LEVEL:-warn}" \
-    -e "SYNC_INTERVAL_SECONDS=99999" \
+    --env-file "${ENVFILE}" \
     "${IMAGE_NAME}"
 
-echo "Container started. Waiting for initial sync to complete..."
+# ---------------------------------------------------------------------------
+# Poll item counts DURING the initial sync; the completion log line
+# terminates the loop (it is not a precondition).
+# ---------------------------------------------------------------------------
+LAUNCH_TIME="$(date +%s)"
+SYNC_TIMEOUT_SECONDS=$((MAX_MINUTES * 60))
+LAST_COUNT=0
+LAST_TIME="${LAUNCH_TIME}"
+POLL=0
+SYNC_OUTCOME="timed-out"  # will be overwritten on completion
+
+echo "Container started. Polling item count during initial sync..."
 echo "(This may take a while for large libraries.)"
 echo ""
-
-# ---------------------------------------------------------------------------
-# Wait for initial sync to finish
-# ---------------------------------------------------------------------------
-WAIT_ELAPSED=0
-SYNC_TIMEOUT_SECONDS=$((MAX_MINUTES * 60))
-sync_done=0
-while [ "${WAIT_ELAPSED}" -lt "${SYNC_TIMEOUT_SECONDS}" ]; do
-    if docker logs "${CONTAINER_NAME}" 2>&1 | grep -q "Initial sync completed\|Initial sync failed"; then
-        sync_done=1
-        break
-    fi
-    sleep 10
-    WAIT_ELAPSED=$((WAIT_ELAPSED + 10))
-    if [ $((WAIT_ELAPSED % 30)) -eq 0 ]; then
-        echo -n "."
-    fi
-done
-echo ""
-
-if [ "${sync_done}" -eq 0 ]; then
-    echo "ERROR: Initial sync did not complete within ${MAX_MINUTES} minutes." >&2
-    exit 1
-fi
-
-echo "Initial sync finished. Starting measurement polling..."
-echo ""
-
-# ---------------------------------------------------------------------------
-# Poll item count at intervals
-# ---------------------------------------------------------------------------
-START_TIME="$(date +%s)"
-LAST_COUNT=0
-LAST_TIME="${START_TIME}"
-POLL=0
-MAX_SECONDS=$((MAX_MINUTES * 60))
-
 echo "Poll | Elapsed  | Items | Delta | items/min | Avg items/min"
 echo "-----|----------|-------|-------|-----------|--------------"
 
 while true; do
-    NOW="$(date +%s)"
-    ELAPSED=$((NOW - START_TIME))
+    sleep "${INTERVAL_SECONDS}"
 
-    if [ "${ELAPSED}" -ge "${MAX_SECONDS}" ]; then
-        echo ""
-        echo "Maximum measurement time (${MAX_MINUTES} min) reached."
-        break
+    NOW="$(date +%s)"
+    ELAPSED=$((NOW - LAUNCH_TIME))
+    POLL=$((POLL + 1))
+
+    # --- Check for sync completion / failure / error in container logs ---
+    if docker logs "${CONTAINER_NAME}" 2>&1 | grep -q "Initial sync completed"; then
+        SYNC_OUTCOME="completed"
+    elif docker logs "${CONTAINER_NAME}" 2>&1 | grep -q "Initial sync failed"; then
+        SYNC_OUTCOME="failed"
+    elif docker logs "${CONTAINER_NAME}" 2>&1 | grep -q "Initial sync reported errors"; then
+        SYNC_OUTCOME="errored"
     fi
 
+    # --- Poll item count ---
     CURRENT_COUNT="$(get_item_count)"
     DELTA=$((CURRENT_COUNT - LAST_COUNT))
 
     if [ "${LAST_COUNT}" -gt 0 ]; then
         INTERVAL_ELAPSED=$((NOW - LAST_TIME))
         if [ "${INTERVAL_ELAPSED}" -gt 0 ]; then
-            RATE="$(echo "scale=1; ${DELTA} * 60 / ${INTERVAL_ELAPSED}" | bc)"
+            RATE="$(awk -v d="${DELTA}" -v i="${INTERVAL_ELAPSED}" 'BEGIN { printf "%.1f", d*60/i }')"
         else
             RATE="0.0"
         fi
-        AVG_RATE="$(echo "scale=1; ${CURRENT_COUNT} * 60 / ${ELAPSED}" | bc)"
+        AVG_RATE="$(awk -v c="${CURRENT_COUNT}" -v e="${ELAPSED}" 'BEGIN { printf "%.1f", c*60/e }')"
     else
         RATE="-"
         AVG_RATE="-"
     fi
 
-    POLL=$((POLL + 1))
     printf "%4d | %2dm%02ds   | %5d | %5d | %9s | %s\n" \
         "${POLL}" \
         "$((ELAPSED / 60))" "$((ELAPSED % 60))" \
@@ -163,31 +149,54 @@ while true; do
     LAST_COUNT="${CURRENT_COUNT}"
     LAST_TIME="${NOW}"
 
-    if [ "${CURRENT_COUNT}" -gt 0 ] && [ "${DELTA}" -eq 0 ] && [ "${POLL}" -gt 2 ]; then
-        echo ""
-        echo "Item count stabilised (no change for 2 consecutive polls). Stopping."
+    # --- Termination: sync finished or timed out ---
+    if [ "${SYNC_OUTCOME}" != "timed-out" ]; then
         break
     fi
 
-    sleep "${INTERVAL_SECONDS}"
+    if [ "${ELAPSED}" -ge "${SYNC_TIMEOUT_SECONDS}" ]; then
+        break
+    fi
 done
+
+echo ""
 
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 END_TIME="$(date +%s)"
-TOTAL_ELAPSED=$((END_TIME - START_TIME))
+TOTAL_ELAPSED=$((END_TIME - LAUNCH_TIME))
 FINAL_COUNT="$(get_item_count)"
+
 if [ "${TOTAL_ELAPSED}" -gt 0 ]; then
-    OVERALL_RATE="$(echo "scale=1; ${FINAL_COUNT} * 60 / ${TOTAL_ELAPSED}" | bc)"
+    OVERALL_RATE="$(awk -v c="${FINAL_COUNT}" -v e="${TOTAL_ELAPSED}" 'BEGIN { printf "%.1f", c*60/e }')"
 else
     OVERALL_RATE="N/A"
 fi
 
-echo ""
 echo "=== Summary ==="
+
+case "${SYNC_OUTCOME}" in
+    completed)
+        echo "Outcome:     Initial sync completed successfully."
+        ;;
+    failed)
+        echo "Outcome:     Initial sync FAILED (non-zero exit code)."
+        ;;
+    errored)
+        echo "Outcome:     Initial sync reported ERRORS despite exit code 0."
+        ;;
+    timed-out)
+        echo "Outcome:     Timed out after ${MAX_MINUTES} minutes — sync did NOT complete."
+        ;;
+esac
+
 echo "Total elapsed: $((TOTAL_ELAPSED / 60))m$((TOTAL_ELAPSED % 60))s"
 echo "Total items:   ${FINAL_COUNT}"
 echo "Overall rate:  ${OVERALL_RATE} items/min"
 echo ""
 echo "Container and volume will be cleaned up on exit."
+
+if [ "${SYNC_OUTCOME}" = "timed-out" ]; then
+    exit 0
+fi
