@@ -10,7 +10,7 @@ log_sync() { :; }
 JOPLIN_PROFILE_DIR="${JOPLIN_PROFILE_DIR:-/home/joplin/.config/joplin}"
 JOPLIN_LOG_FILE="${JOPLIN_PROFILE_DIR}/log.txt"
 
-# --- Copy check_sync_errors() exactly from entrypoint-combined.sh (lines 66-105) ---
+# --- Copy check_sync_errors() exactly from entrypoint-combined.sh (lines 69-108) ---
 check_sync_errors() {
     local label="$1"
     local log_offset="${2:-0}"
