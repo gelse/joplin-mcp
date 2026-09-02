@@ -7,6 +7,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 > **Live diff:** To see the full commit-level diff between releases, compare
 > the release tags on GitHub (e.g. `v0.1.0...v0.2.0`).
 
+## [Unreleased]
+
+### Documentation
+
+- Record Plan #7 slow-initial-sync investigation verdict: remaining bottleneck is intrinsic to Joplin CLI; Data API contention during initial sync eliminated in 0.2.0 architecture
+
+## [0.2.1] - 2026-09-02
+
+### Fixed
+
+- Sync error diagnostics resolved `log.txt` from `LOG_DIR`, which is not set in the combined container — the path now derives from `JOPLIN_PROFILE_DIR` ([Fixes #18](https://github.com/gelse/joplin-mcp/issues/18))
+
+### Added
+
+- `scripts/measure-initial-sync.sh` — measures initial-sync throughput (items/min) against a live Joplin Server
+
+### Documentation
+
+- Record Plan #7 slow-initial-sync investigation verdict: remaining bottleneck is intrinsic to the Joplin CLI; Data API contention during initial sync eliminated in the 0.2.0 architecture
+- Document initial-sync timing expectations in README
+
+### Changed (dev environment)
+
+- Add shellcheck to devcontainer
+
 ## [0.2.0] - 2026-09-01
 
 84 commits on `testing` since `origin/main` at branch cut.

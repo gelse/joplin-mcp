@@ -27,6 +27,9 @@ LOG_DIR="/var/log/joplin"
 LOG_FILE="${LOG_DIR}/joplin-core.log"
 SYNC_LOG_FILE="${LOG_DIR}/sync.log"
 
+JOPLIN_PROFILE_DIR="${JOPLIN_PROFILE_DIR:-/home/joplin/.config/joplin}"
+JOPLIN_LOG_FILE="${JOPLIN_PROFILE_DIR}/log.txt"
+
 # Ensure log directory exists (should be created in Dockerfile, but be safe)
 mkdir -p "${LOG_DIR}"
 
@@ -69,7 +72,7 @@ check_sync_errors() {
     local combined_pattern='\[error\]|There was some errors|Could not encrypt item|Master key is not loaded'
 
     local files=(
-        "${LOG_DIR}/log.txt"
+        "${JOPLIN_LOG_FILE}"
         "${LOG_DIR}/sync-stdout.log"
         "${LOG_DIR}/sync-stderr.log"
     )
@@ -77,13 +80,13 @@ check_sync_errors() {
     local match=false
     for f in "${files[@]}"; do
         if [ ! -f "${f}" ]; then
-            if [ "${f}" = "${LOG_DIR}/log.txt" ]; then
+            if [ "${f}" = "${JOPLIN_LOG_FILE}" ]; then
                 log "WARN" "[${label}] ${f} not found — sync error detection limited to stdout/stderr logs"
             fi
             continue
         fi
 
-        if [ "${f}" = "${LOG_DIR}/log.txt" ] && [ "${log_offset}" -gt 0 ]; then
+        if [ "${f}" = "${JOPLIN_LOG_FILE}" ] && [ "${log_offset}" -gt 0 ]; then
             if grep -i -q -E "${combined_pattern}" <(tail -n +"${log_offset}" "${f}" 2>/dev/null) 2>/dev/null; then
                 match=true
                 break
@@ -292,7 +295,7 @@ log "INFO" "Starting periodic sync loop (interval: ${SYNC_INTERVAL_SECONDS}s)...
 
 # Perform an initial sync immediately
 log_sync "START" "Performing initial sync..."
-LOG_TAIL_START=$(( $(wc -l < "${LOG_DIR}/log.txt" 2>/dev/null || echo 0) + 1 ))
+LOG_TAIL_START=$(( $(wc -l < "${JOPLIN_LOG_FILE}" 2>/dev/null || echo 0) + 1 ))
 SYNC_EXIT=0
 joplin sync > "${LOG_DIR}/sync-stdout.log" 2> "${LOG_DIR}/sync-stderr.log" || SYNC_EXIT=$?
 
@@ -301,7 +304,7 @@ if [ "${SYNC_EXIT}" -ne 0 ]; then
     log "ERROR" "Sync stderr output:"
     cat "${LOG_DIR}/sync-stderr.log" >&2
     log "ERROR" "Last 20 lines of Joplin log (log.txt):"
-    tail -n 20 "${LOG_DIR}/log.txt" >&2 || log "WARN" "log.txt not found or empty"
+    tail -n 20 "${JOPLIN_LOG_FILE}" >&2 || log "WARN" "log.txt not found or empty"
 elif ! check_sync_errors "Initial" "${LOG_TAIL_START}"; then
     log_sync "FAIL" "Initial sync reported errors despite exit code 0"
 else
@@ -313,9 +316,10 @@ fi
 #
 # `bash -c` children do not inherit shell functions or non-exported variables,
 # so we must export everything the loop body references:
-#   - variables: SYNC_INTERVAL_SECONDS, LOG_DIR, LOG_FILE, SYNC_LOG_FILE
+#   - variables: SYNC_INTERVAL_SECONDS, LOG_DIR, LOG_FILE, SYNC_LOG_FILE, JOPLIN_LOG_FILE
 #   - functions: log, log_sync, check_sync_errors
-export SYNC_INTERVAL_SECONDS LOG_DIR LOG_FILE SYNC_LOG_FILE
+# Note: JOPLIN_PROFILE_DIR is intentionally not exported — JOPLIN_LOG_FILE is fully resolved at declaration time.
+export SYNC_INTERVAL_SECONDS LOG_DIR LOG_FILE SYNC_LOG_FILE JOPLIN_LOG_FILE
 export -f log log_sync check_sync_errors
 setsid bash -c '
     while true; do
@@ -325,7 +329,7 @@ setsid bash -c '
         SYNC_STDOUT="${LOG_DIR}/sync-stdout.log"
         SYNC_STDERR="${LOG_DIR}/sync-stderr.log"
 
-        LOG_TAIL_START=$(( $(wc -l < "${LOG_DIR}/log.txt" 2>/dev/null || echo 0) + 1 ))
+        LOG_TAIL_START=$(( $(wc -l < "${JOPLIN_LOG_FILE}" 2>/dev/null || echo 0) + 1 ))
         SYNC_EXIT=0
         joplin sync > "${SYNC_STDOUT}" 2> "${SYNC_STDERR}" || SYNC_EXIT=$?
 
@@ -334,7 +338,7 @@ setsid bash -c '
             log "ERROR" "Sync stderr output (exit code ${SYNC_EXIT}):"
             cat "${SYNC_STDERR}" >&2
             log "ERROR" "Last 20 lines of Joplin log (log.txt):"
-            tail -n 20 "${LOG_DIR}/log.txt" >&2 || log "WARN" "log.txt not found or empty"
+            tail -n 20 "${JOPLIN_LOG_FILE}" >&2 || log "WARN" "log.txt not found or empty"
         elif ! check_sync_errors "Periodic" "${LOG_TAIL_START}"; then
             log_sync "FAIL" "Periodic sync reported errors despite exit code 0"
         else
