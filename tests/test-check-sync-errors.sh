@@ -6,6 +6,10 @@ set -euo pipefail
 log() { :; }
 log_sync() { :; }
 
+# --- Joplin profile / log path (mirrors entrypoint-combined.sh) ---
+JOPLIN_PROFILE_DIR="${JOPLIN_PROFILE_DIR:-/home/joplin/.config/joplin}"
+JOPLIN_LOG_FILE="${JOPLIN_PROFILE_DIR}/log.txt"
+
 # --- Copy check_sync_errors() exactly from entrypoint-combined.sh (lines 66-105) ---
 check_sync_errors() {
     local label="$1"
@@ -13,7 +17,7 @@ check_sync_errors() {
     local combined_pattern='\[error\]|There was some errors|Could not encrypt item|Master key is not loaded'
 
     local files=(
-        "${LOG_DIR}/log.txt"
+        "${JOPLIN_LOG_FILE}"
         "${LOG_DIR}/sync-stdout.log"
         "${LOG_DIR}/sync-stderr.log"
     )
@@ -21,13 +25,13 @@ check_sync_errors() {
     local match=false
     for f in "${files[@]}"; do
         if [ ! -f "${f}" ]; then
-            if [ "${f}" = "${LOG_DIR}/log.txt" ]; then
+            if [ "${f}" = "${JOPLIN_LOG_FILE}" ]; then
                 log "WARN" "[${label}] ${f} not found — sync error detection limited to stdout/stderr logs"
             fi
             continue
         fi
 
-        if [ "${f}" = "${LOG_DIR}/log.txt" ] && [ "${log_offset}" -gt 0 ]; then
+        if [ "${f}" = "${JOPLIN_LOG_FILE}" ] && [ "${log_offset}" -gt 0 ]; then
             if grep -i -q -E "${combined_pattern}" <(tail -n +"${log_offset}" "${f}" 2>/dev/null) 2>/dev/null; then
                 match=true
                 break
@@ -51,6 +55,7 @@ check_sync_errors() {
 # --- Test harness ---
 TEST_DIR="$(mktemp -d)"
 export LOG_DIR="${TEST_DIR}"
+export JOPLIN_LOG_FILE="${TEST_DIR}/log.txt"
 PASS_COUNT=0
 FAIL_COUNT=0
 
@@ -76,7 +81,7 @@ run_test() {
 }
 
 # Helper: remove all log files in LOG_DIR
-clean_logs() { rm -f "${LOG_DIR}/log.txt" "${LOG_DIR}/sync-stdout.log" "${LOG_DIR}/sync-stderr.log"; }
+clean_logs() { rm -f "${JOPLIN_LOG_FILE}" "${LOG_DIR}/sync-stdout.log" "${LOG_DIR}/sync-stderr.log"; }
 
 # --- Test 1: No files exist ---
 clean_logs
@@ -84,19 +89,19 @@ run_test "No files exist" 0
 
 # --- Test 2: Clean logs ---
 clean_logs
-echo "All good" > "${LOG_DIR}/log.txt"
+echo "All good" > "${JOPLIN_LOG_FILE}"
 echo "Sync complete" > "${LOG_DIR}/sync-stdout.log"
 : > "${LOG_DIR}/sync-stderr.log"
 run_test "Clean logs" 0
 
 # --- Test 3: [error] in log.txt ---
 clean_logs
-printf '[error] Something failed\n' > "${LOG_DIR}/log.txt"
+printf '[error] Something failed\n' > "${JOPLIN_LOG_FILE}"
 run_test "Error in log.txt" 1
 
 # --- Test 4: Case-insensitive [ERROR] ---
 clean_logs
-printf '[ERROR] Case test\n' > "${LOG_DIR}/log.txt"
+printf '[ERROR] Case test\n' > "${JOPLIN_LOG_FILE}"
 run_test "Case-insensitive ERROR in log.txt" 1
 
 # --- Test 5: 'There was some errors' in stdout ---
@@ -111,18 +116,18 @@ run_test "Could not encrypt item in stderr" 1
 
 # --- Test 7: 'Master key is not loaded' in log.txt ---
 clean_logs
-echo "Master key is not loaded" > "${LOG_DIR}/log.txt"
+echo "Master key is not loaded" > "${JOPLIN_LOG_FILE}"
 run_test "Master key is not loaded in log.txt" 1
 
 # --- Test 8: Error before log_offset (should PASS) ---
 clean_logs
-printf 'line1\n[error] old error\nline3\n' > "${LOG_DIR}/log.txt"
+printf 'line1\n[error] old error\nline3\n' > "${JOPLIN_LOG_FILE}"
 # log_offset=3 means tail from line 3 onward, which skips the [error] on line 2
 run_test "Error before log_offset" 0 3
 
 # --- Test 9: Error after log_offset (should FAIL) ---
 clean_logs
-printf 'line1\nline2\nline3\n[error] new error\n' > "${LOG_DIR}/log.txt"
+printf 'line1\nline2\nline3\n[error] new error\n' > "${JOPLIN_LOG_FILE}"
 # log_offset=3 means tail from line 3 onward — line 4 has the error
 run_test "Error after log_offset" 1 3
 
@@ -138,7 +143,7 @@ run_test "Error in stderr only" 1
 
 # --- Test 12: Unrelated 'error' without brackets (should PASS) ---
 clean_logs
-echo "This is an error-handling module" > "${LOG_DIR}/log.txt"
+echo "This is an error-handling module" > "${JOPLIN_LOG_FILE}"
 run_test "Unrelated lowercase error without brackets" 0
 
 # --- Summary ---

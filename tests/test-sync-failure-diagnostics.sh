@@ -40,7 +40,7 @@ echo "=== Group 1: Script structure validation ==="
 
 # --- Test 1: log.txt tail pattern in initial sync failure branch ---
 run_test "Initial sync failure contains tail -n 20 log.txt" 0 \
-    grep -q 'tail -n 20 "${LOG_DIR}/log.txt" >&2' "${ENTRYPOINT}"
+    grep -q 'tail -n 20 "${JOPLIN_LOG_FILE}" >&2' "${ENTRYPOINT}"
 
 # --- Test 2: log.txt tail pattern in periodic sync failure branch ---
 # Both branches use the same pattern; confirm it appears at least twice
@@ -109,7 +109,7 @@ echo "=== Group 2: Log tail fallback behavior ==="
     rm -f "${TEST_DIR}/log.txt"
 
     # Replicate the exact pattern from entrypoint-combined.sh:
-    #   tail -n 20 "${LOG_DIR}/log.txt" 2>/dev/null || log "WARN" "log.txt not found or empty"
+    #   tail -n 20 "${JOPLIN_LOG_FILE}" 2>/dev/null || log "WARN" "log.txt not found or empty"
     # We use a stub log function and capture stderr
     log() { :; }
     tail -n 20 "${TEST_DIR}/log.txt" 2>/dev/null || log "WARN" "log.txt not found or empty"
