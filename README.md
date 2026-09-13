@@ -26,17 +26,17 @@ docker run -d \
 
 #### Environment Variables
 
-| Variable                  | Required | Default | Description                                                              |
-| ------------------------- | -------- | ------- | ------------------------------------------------------------------------ |
-| `JOPLIN_SERVER_URL`       | **Yes**  | —       | Joplin Server URL (e.g., `https://joplin.example.com/`)                  |
-| `JOPLIN_USERNAME`         | **Yes**  | —       | Joplin Server username/email                                             |
-| `JOPLIN_PASSWORD`         | **Yes**  | —       | Joplin Server password                                                   |
-| `JOPLIN_API_TOKEN`        | No       | —       | Joplin Data API token (auto-extracted when unset)                        |
-| `JOPLIN_DATA_API_PORT`    | No       | `41184` | Internal Data API listen port (rarely changed)                           |
-| `LOG_LEVEL`               | No       | `info`  | Log level: `debug`, `info`, `warn`, `error`, `silent`                    |
-| `SYNC_INTERVAL_SECONDS`   | No       | `300`   | Periodic sync interval in seconds                                        |
-| `MCP_HOST_PORT`           | No       | `3000`  | Host-side MCP port (mapped via `-p 127.0.0.1:MCP_HOST_PORT:3000`)       |
-| `JOPLIN_MASTER_PASSWORD`  | No       | —       | E2EE master password (leave empty to skip encryption)                    |
+| Variable                 | Required | Default | Description                                                       |
+| ------------------------ | -------- | ------- | ----------------------------------------------------------------- |
+| `JOPLIN_SERVER_URL`      | **Yes**  | —       | Joplin Server URL (e.g., `https://joplin.example.com/`)           |
+| `JOPLIN_USERNAME`        | **Yes**  | —       | Joplin Server username/email                                      |
+| `JOPLIN_PASSWORD`        | **Yes**  | —       | Joplin Server password                                            |
+| `JOPLIN_API_TOKEN`       | No       | —       | Joplin Data API token (auto-extracted when unset)                 |
+| `JOPLIN_DATA_API_PORT`   | No       | `41184` | Internal Data API listen port (rarely changed)                    |
+| `LOG_LEVEL`              | No       | `info`  | Log level: `debug`, `info`, `warn`, `error`, `silent`             |
+| `SYNC_INTERVAL_SECONDS`  | No       | `300`   | Periodic sync interval in seconds                                 |
+| `MCP_HOST_PORT`          | No       | `3000`  | Host-side MCP port (mapped via `-p 127.0.0.1:MCP_HOST_PORT:3000`) |
+| `JOPLIN_MASTER_PASSWORD` | No       | —       | E2EE master password (leave empty to skip encryption)             |
 
 > **Note:** `JOPLIN_CORE_URL` is no longer an operator-facing variable — the entrypoint sets it internally to `http://127.0.0.1:<JOPLIN_DATA_API_PORT>` (default `41184`).
 
@@ -53,7 +53,6 @@ The `joplin-mcp` container exposes an **HTTP endpoint** (not stdio). Configure y
   }
 }
 ```
-
 
 ## ⚠️ End-to-End Encryption (E2EE)
 
@@ -201,12 +200,12 @@ The API token is auto-extracted from the Joplin CLI config at startup.
 
 Four GitHub Actions workflows automate testing and releases:
 
-| Workflow | Trigger | Runner | Description |
-| --- | --- | --- | --- |
-| [`unit-tests.yml`](.github/workflows/unit-tests.yml) | Push / PR to `main` | Ubuntu (native) | Installs dependencies via pnpm, runs `pnpm test` |
-| [`integration-tests.yml`](.github/workflows/integration-tests.yml) | PRs to `main` | Ubuntu (native) | Runs container integration tests via [`scripts/run-integration-tests.sh`](scripts/run-integration-tests.sh) |
-| [`publish-testing.yml`](.github/workflows/publish-testing.yml) | Push to `testing` | Ubuntu (native) | Runs unit **and** integration tests, then uploads a Docker image to `ghcr.io/gelse/joplin-mcp:latest-testing` (upload only if both test jobs pass — no GitHub release) |
-| [`release.yml`](.github/workflows/release.yml) | Release published / manual dispatch | Ubuntu (native) | Verifies lockfile reproducibility, then builds [`Dockerfile.combined`](Dockerfile.combined) and pushes to `ghcr.io/gelse/joplin-mcp` with semver + `latest` tags |
+| Workflow                                                           | Trigger                             | Runner          | Description                                                                                                                                                            |
+| ------------------------------------------------------------------ | ----------------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`unit-tests.yml`](.github/workflows/unit-tests.yml)               | Push / PR to `main`                 | Ubuntu (native) | Installs dependencies via pnpm, runs `pnpm test`                                                                                                                       |
+| [`integration-tests.yml`](.github/workflows/integration-tests.yml) | PRs to `main`                       | Ubuntu (native) | Runs container integration tests via [`scripts/run-integration-tests.sh`](scripts/run-integration-tests.sh)                                                            |
+| [`publish-testing.yml`](.github/workflows/publish-testing.yml)     | Push to `testing`                   | Ubuntu (native) | Runs unit **and** integration tests, then uploads a Docker image to `ghcr.io/gelse/joplin-mcp:latest-testing` (upload only if both test jobs pass — no GitHub release) |
+| [`release.yml`](.github/workflows/release.yml)                     | Release published / manual dispatch | Ubuntu (native) | Verifies lockfile reproducibility, then builds [`Dockerfile.combined`](Dockerfile.combined) and pushes to `ghcr.io/gelse/joplin-mcp` with semver + `latest` tags       |
 
 The [`publish-testing.yml`](.github/workflows/publish-testing.yml) workflow gates the image upload behind both the unit and integration test jobs — the `publish` job runs only when both test jobs succeed. It uploads a `linux/amd64` image tagged as `latest-testing`; this is an upload, not a release, so it does not create a GitHub release or use versioned tags. The `release.yml` workflow remains the sole owner of versioned tags and the `latest` tag.
 
@@ -347,11 +346,13 @@ Validation error: note_id: Expected 32-character hex ID
 ## Sync Behaviour
 
 - **Initial sync**: The entrypoint runs `joplin sync` once before starting the MCP server; no SyncManager is involved. This is a blocking call — a large first-run delays MCP availability. The container healthcheck (`start-period=90s` in [`Dockerfile.combined`](Dockerfile.combined)) may report unhealthy until the initial sync completes.
-- **Initial sync throughput**: Governed by the pinned Joplin CLI's per-item sync algorithm (`joplin@3.6.2`). The historically observed ~12 items/min on the pre-0.2.0 two-container setup had a known contributing factor (Data API contention during sync) that was removed in 0.2.0. Actual post-0.2.0 throughput is unmeasured — see [Plan #7 Resolution](plans/007-slow-initial-sync-followup.md#resolution-2026-09-01-re-investigation-after-v020-combined-container-overhaul).
+- **Initial sync throughput**: Governed by the pinned Joplin CLI's per-item sync algorithm (`joplin@3.7.1`). The historically observed ~12 items/min on the pre-0.2.0 two-container setup had a known contributing factor (Data API contention during sync) that was removed in 0.2.0. Actual post-0.2.0 throughput is unmeasured — see [Plan #7 Resolution](plans/007-slow-initial-sync-followup.md#resolution-2026-09-01-re-investigation-after-v020-combined-container-overhaul).
 - **Periodic sync**: Every 5 minutes (configurable via `SYNC_INTERVAL_SECONDS`)
 - **Scheduled sync**: Every create/update/delete/untag operation is picked up by the periodic scheduler (within ≤ `SYNC_INTERVAL_SECONDS`)
 - **Conflict resolution**: Remote always wins (Joplin CLI built-in behaviour; conflicted copies are flagged in Joplin)
 - **Serialized queue**: Prevents `SQLITE_BUSY` errors by serializing sync operations
+
+> **⚠️ Joplin Server minimum client version**: Joplin Server enforces a minimum client version for sync compatibility. The pinned Joplin CLI version in this image (`joplin@3.7.1` in [`Dockerfile.combined`](Dockerfile.combined)) is therefore a compatibility constraint — upgrading Joplin Server may require a matching image upgrade if the server's minimum client version exceeds the pinned CLI version. A mismatch causes sync to silently fail (the CLI still exits 0).
 
 ## Security Considerations
 
@@ -464,11 +465,11 @@ The internal Joplin Data API HTTP client (`JoplinDataClient`) enforces a configu
 
 **Causes and fixes:**
 
-| Cause                                     | Fix                                                                                                             |
-| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Cause                                     | Fix                                                                                                                                                       |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Large initial sync (many notes/resources) | Let the initial sync complete — subsequent syncs are incremental. See [Sync Behaviour](#sync-behaviour) for details on initial-sync timing and throughput |
-| Joplin Server slow to respond             | Check Joplin Server performance (CPU, memory, database). Ensure network latency is low                          |
-| CLI command timeout too short             | The default timeout is 60 seconds; for extremely large operations, this can be adjusted in `CliExecutor.exec()` |
+| Joplin Server slow to respond             | Check Joplin Server performance (CPU, memory, database). Ensure network latency is low                                                                    |
+| CLI command timeout too short             | The default timeout is 60 seconds; for extremely large operations, this can be adjusted in `CliExecutor.exec()`                                           |
 
 ### CLI Execution Errors
 
@@ -546,12 +547,12 @@ scripts/
 
 Root-level deployment files:
 
-| File                                         | Purpose                                                                          |
-| -------------------------------------------- | -------------------------------------------------------------------------------- |
-| [`Dockerfile.combined`](Dockerfile.combined) | Production: combined Joplin CLI + Data API + MCP HTTP server                     |
-| [`Dockerfile.tests`](Dockerfile.tests)       | Test runner container                                                            |
-| [`entrypoint-combined.sh`](entrypoint-combined.sh) | Production entrypoint: Data API + sync loop + MCP server with graceful shutdown |
-| [`docker-compose.yml`](docker-compose.yml)   | Single-service orchestration with healthchecks                                   |
+| File                                                 | Purpose                                                                              |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| [`Dockerfile.combined`](Dockerfile.combined)         | Production: combined Joplin CLI + Data API + MCP HTTP server                         |
+| [`Dockerfile.tests`](Dockerfile.tests)               | Test runner container                                                                |
+| [`entrypoint-combined.sh`](entrypoint-combined.sh)   | Production entrypoint: Data API + sync loop + MCP server with graceful shutdown      |
+| [`docker-compose.yml`](docker-compose.yml)           | Single-service orchestration with healthchecks                                       |
 | [`docker-compose.test.yml`](docker-compose.test.yml) | Integration-test stack (uses `Dockerfile.combined`, used by `make test-integration`) |
 
 ## Startup & Shutdown Pipeline
