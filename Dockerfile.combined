@@ -41,7 +41,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Pin Joplin CLI version identically to Dockerfile.core
-ARG JOPLIN_CLI_VERSION=3.6.2
+ARG JOPLIN_CLI_VERSION=3.7.1
 
 # Install pnpm and Joplin CLI globally
 RUN npm install -g "pnpm@9" "joplin@${JOPLIN_CLI_VERSION}"
