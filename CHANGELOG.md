@@ -9,6 +9,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-09-13
+
+### Changed
+
+- Bump pinned Joplin CLI to 3.7.1 in the combined container image
+- Document Joplin Server version coupling in README; regenerate SBOM
+
 ### Documentation
 
 - Record Plan #7 slow-initial-sync investigation verdict: remaining bottleneck is intrinsic to Joplin CLI; Data API contention during initial sync eliminated in 0.2.0 architecture
