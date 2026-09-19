@@ -359,3 +359,26 @@ In [`README.md`](../README.md), fix the sqlite-busy repro section:
   pass.
 - **`docker.sock` in test-runner:** security trade-off accepted — test-infra
   only; the compose file is never used in production.
+
+---
+
+## Post-implementation addendum (branch `testing`, HEAD ca00441)
+
+Two residual defects were fixed after the initial implementation:
+
+1. **Lock holder robustness (Defect 1):** The `LOCK_SCRIPT` now sets
+   `PRAGMA busy_timeout = 10000` before `BEGIN EXCLUSIVE` and retries the
+   `BEGIN EXCLUSIVE` with exponential backoff (500ms × 1.5^n, up to ~30s
+   total) on `SQLITE_BUSY`. Previously, the holder failed instantly when
+   another suite had an in-flight write, aborting the test at the gate.
+
+2. **Isolated invocation (Defect 2):** The gated repro now runs in its own
+   `vitest run` invocation (targeting only `sqlite-busy-repro.test.ts`) after
+   the regular suite completes. The destructive `joplin sync` re-runs
+   migrations from version 0 under the held exclusive lock, which kills the
+   shared `joplin-mcp` container's Data API. Running it in the same vitest
+   invocation as other suites caused sibling failures (`fetch failed /
+   ENOTFOUND joplin-mcp`) because `vitest.config.container.ts` disables
+   `sequence.concurrent` but file parallelism remained on, allowing suite
+   overlap during the lock window. The isolated invocation eliminates this
+   race. `vitest.config.container.ts` was not modified.

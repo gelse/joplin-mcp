@@ -19,10 +19,31 @@ echo "=== Running container integration tests ==="
 mkdir -p "$REPORTS_DIR"
 TEST_EXIT=0
 docker compose -f "$COMPOSE_FILE" run --rm \
-  -e "RUN_SYNC_LOCK_TESTS=${RUN_SYNC_LOCK_TESTS:-0}" \
+  -e "RUN_SYNC_LOCK_TESTS=0" \
   test-runner \
   pnpm vitest run --config vitest.config.container.ts \
   || TEST_EXIT=$?
+
+# When RUN_SYNC_LOCK_TESTS=1, run the destructive repro in a SEPARATE
+# vitest invocation targeting only the repro test file.  The destructive
+# sync re-runs migrations from version 0 under the held exclusive lock,
+# which kills the shared joplin-mcp container's Data API — running it in
+# the same invocation as the other suites would cause sibling failures
+# (fetch failed / ENOTFOUND joplin-mcp) due to file parallelism overlap.
+# The repro is EXPECTED TO FAIL until the M2 fix lands; propagate its
+# exit code so the caller can distinguish "expected assertion failure"
+# from "unexpected error".
+REPRO_EXIT=0
+if [ "${RUN_SYNC_LOCK_TESTS:-0}" -eq 1 ]; then
+  echo "=== Running SQLITE_BUSY repro (destructive — runs in isolation) ==="
+  docker compose -f "$COMPOSE_FILE" run --rm \
+    -e "RUN_SYNC_LOCK_TESTS=1" \
+    test-runner \
+    pnpm vitest run --config vitest.config.container.ts \
+      tests/container/sqlite-busy-repro.test.ts \
+    || REPRO_EXIT=$?
+  echo "=== Repro exit code: ${REPRO_EXIT} (expected non-zero until M2) ==="
+fi
 
 echo "=== Collecting logs ==="
 docker compose -f "$COMPOSE_FILE" logs joplin-mcp > "${REPORTS_DIR}/joplin-mcp.log" 2>&1 || true
@@ -38,4 +59,14 @@ else
     echo "Check reports in: ${REPORTS_DIR}"
 fi
 
+if [ "${RUN_SYNC_LOCK_TESTS:-0}" -eq 1 ]; then
+    if [ "$REPRO_EXIT" -eq 0 ]; then
+        echo "SQLITE_BUSY repro passed (unexpected — should fail until M2)."
+    else
+        echo "SQLITE_BUSY repro failed as expected (exit code: ${REPRO_EXIT}) — issue #27 until M2."
+    fi
+fi
+
+# Exit with the regular suite's exit code; repro exit is informational only
+# (expected to be non-zero until M2 lands).
 exit "$TEST_EXIT"

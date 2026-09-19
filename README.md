@@ -196,11 +196,11 @@ The API token is auto-extracted from the Joplin CLI config at startup.
 
 #### SQLITE_BUSY Reproduction Tests
 
-A dedicated test suite reproduces the destructive `SQLITE_BUSY` migration bug described in [issue #27](https://github.com/gelse/joplin-mcp/issues/27). The test spawns a plain Node process inside the `joplin-mcp` container that holds an exclusive SQLite write lock using the image's built-in `sqlite3` module (`BEGIN EXCLUSIVE` plus a statement inside the transaction to actually acquire the lock). After the test confirms the lock is held via an independent probe (a second `docker exec` node one-liner that fails with `SQLITE_BUSY`), it triggers `joplin sync` while the lock is still held. The upstream Joplin CLI retries for ~43 seconds on `SQLITE_BUSY`; the lock holder outlasts this window at 120 seconds, then self-rolls back.
+A dedicated test suite reproduces the destructive `SQLITE_BUSY` migration bug described in [issue #27](https://github.com/gelse/joplin-mcp/issues/27). The test spawns a plain Node process inside the `joplin-mcp` container that holds an exclusive SQLite write lock using the image's built-in `sqlite3` module (`BEGIN EXCLUSIVE` plus a statement inside the transaction to actually acquire the lock). The lock holder sets `PRAGMA busy_timeout = 10000` and retries `BEGIN EXCLUSIVE` with exponential backoff (500ms × 1.5^n, up to ~30s) to survive transient contention. After the test confirms the lock is held via an independent probe (a second `docker exec` node one-liner that fails with `SQLITE_BUSY`), it triggers `joplin sync` while the lock is still held. The upstream Joplin CLI retries for ~43 seconds on `SQLITE_BUSY`; the lock holder outlasts this window at 120 seconds, then self-rolls back.
 
-The test asserts destructive log signatures — read from `/home/joplin/.config/joplin/log.txt` (not docker logs) — that prove the CLI concluded the database version was null and re-ran schema migrations from version 0, destroying all data. These assertions are **safe-behaviour checks** that currently **fail** on the buggy code and will flip to **pass** once the M2 fix lands, with zero assertion edits required.
+The test asserts safe-behaviour checks — read from `/home/joplin/.config/joplin/log.txt` (not docker logs) — that currently **fail** on the buggy code and will flip to **pass** once the M2 fix lands, with zero assertion edits required.
 
-This test is **gated behind a separate environment variable** and does **not** run in the default integration test suite:
+This test is **gated behind a separate environment variable** and does **not** run in the default integration test suite. When enabled, the repro runs as a **separate vitest invocation** after the regular suite completes — the destructive `joplin sync` re-runs migrations from version 0 under the held lock, which kills the shared `joplin-mcp` container's Data API. Running it in the same invocation as the other suites would cause sibling failures due to file-parallelism overlap.
 
 ```bash
 RUN_SYNC_LOCK_TESTS=1 ./scripts/run-integration-tests.sh
@@ -208,7 +208,7 @@ RUN_SYNC_LOCK_TESTS=1 ./scripts/run-integration-tests.sh
 
 The test requires the test-runner container to have Docker socket access (`/var/run/docker.sock`), which is mounted automatically by [`docker-compose.test.yml`](docker-compose.test.yml).
 
-> **Note:** This test is deliberately destructive to its throwaway volume and is designed to **fail** on the current code (proving the bug exists per issue #27). It will flip to **pass** once the M2 fix lands.
+> **Note:** This test is deliberately destructive to its throwaway volume and is **expected to fail** on the current code (proving the bug exists per issue #27). It will flip to **pass** once the M2 fix lands. The joplin-mcp container may exit or become unresponsive during the repro by design.
 
 ---
 

@@ -175,13 +175,33 @@ const LOCK_SCRIPT = `const s = require('/usr/local/lib/node_modules/joplin/node_
 const db = new s.Database('/home/joplin/.config/joplin/database.sqlite', s.OPEN_READWRITE, (err) => {
   if (err) { console.error('OPEN_FAIL', err.message); process.exit(1); }
   require('fs').writeFileSync('/tmp/lock-holder.pid', String(process.pid));
-  db.serialize(() => {
-    db.run('BEGIN EXCLUSIVE', (e) => { if (e) { console.error('BEGIN_FAIL', e.message); process.exit(1); } });
-    // CRITICAL: bare BEGIN EXCLUSIVE holds no lock; a statement inside the txn does.
-    db.get('SELECT count(*) AS n FROM sqlite_master', (e) => {
-      if (e) { console.error('STMT_FAIL', e.message); process.exit(1); }
-      console.log('LOCK_HELD');
-      setTimeout(() => db.run('ROLLBACK', () => db.close()), Number(process.env.HOLD_MS || ${HOLDER_LIFETIME_MS}));
+  // Allow up to 10s busy-wait per SQLite call so transient contention from
+  // concurrent suites doesn't immediately fail BEGIN EXCLUSIVE.
+  db.run('PRAGMA busy_timeout = 10000', (pe) => {
+    if (pe) { console.error('OPEN_FAIL', pe.message); process.exit(1); }
+    db.serialize(() => {
+      // Retry BEGIN EXCLUSIVE with exponential backoff (500ms ×1.5^n, up to ~30s)
+      // to survive transient SQLITE_BUSY from in-flight writes by other suites.
+      let delay = 500;
+      const MAX_TOTAL_MS = 30000;
+      const startTime = Date.now();
+      function tryBegin() {
+        db.run('BEGIN EXCLUSIVE', (e) => {
+          if (e && e.message && e.message.includes('SQLITE_BUSY') && (Date.now() - startTime) < MAX_TOTAL_MS) {
+            setTimeout(tryBegin, delay);
+            delay = Math.round(delay * 1.5);
+            return;
+          }
+          if (e) { console.error('BEGIN_FAIL', e.message); process.exit(1); }
+          // CRITICAL: bare BEGIN EXCLUSIVE holds no lock; a statement inside the txn does.
+          db.get('SELECT count(*) AS n FROM sqlite_master', (e2) => {
+            if (e2) { console.error('STMT_FAIL', e2.message); process.exit(1); }
+            console.log('LOCK_HELD');
+            setTimeout(() => db.run('ROLLBACK', () => db.close()), Number(process.env.HOLD_MS || ${HOLDER_LIFETIME_MS}));
+          });
+        });
+      }
+      tryBegin();
     });
   });
 });
