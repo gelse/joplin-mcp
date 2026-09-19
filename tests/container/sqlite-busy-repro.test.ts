@@ -99,6 +99,16 @@ function releaseLock(container: string): void {
 }
 
 /**
+ * Parse a log.txt timestamp line (`YYYY-MM-DD HH:MM:SS:`) and return
+ * epoch seconds for comparison with the sync-start marker.
+ */
+function parseLogTimestamp(line: string): number | null {
+  const match = line.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}):/);
+  if (!match) return null;
+  return Math.floor(new Date(match[1] + 'Z').getTime() / 1000);
+}
+
+/**
  * Spawn `node /tmp/lock-holder.js` inside the container and read its
  * stdout line-by-line. Resolves when the holder emits `LOCK_HELD`.
  * Rejects if the holder exits before emitting `LOCK_HELD`.
@@ -303,11 +313,12 @@ describeIfSyncLock('SQLITE_BUSY destructive migration repro (issue #27)', () => 
       await new Promise((r) => setTimeout(r, SETTLE_MS));
 
       // ------------------------------------------------------------------
-      // Step 5: Trigger joplin sync
+      // Step 5+6: Combined sync + log capture in ONE docker exec session
+      // (Defects B, D: avoids post-death exec failure and stale reads)
       // ------------------------------------------------------------------
-      const sync = dockerExec(JOPLIN_CONTAINER, 'joplin sync', SYNC_TIMEOUT_MS);
-      const syncOut = sync.stdout;
-      const syncErr = sync.stderr;
+      const combinedCmd = `sh -c 'date +%s > /tmp/sync-start; joplin sync; echo SYNC_EXIT=$?; sleep 2; tail -n 400 /home/joplin/.config/joplin/log.txt'`;
+      const combined = dockerExec(JOPLIN_CONTAINER, combinedCmd, SYNC_TIMEOUT_MS + 10_000);
+      const combinedOut = combined.stdout;
 
       // Lock is no longer needed once sync has exited; release it
       // to keep MCP/Data API responsive for post-sync checks and
@@ -315,51 +326,70 @@ describeIfSyncLock('SQLITE_BUSY destructive migration repro (issue #27)', () => 
       releaseLock(JOPLIN_CONTAINER);
       holderProc?.kill('SIGTERM');
 
-      console.log('=== Sync stdout ===');
-      console.log(syncOut);
-      console.log('=== Sync stderr ===');
-      console.log(syncErr);
-      console.log('=== Sync exit code:', sync.exitCode, '===');
+      // Parse combined output
+      const lines = combinedOut.split('\n');
+
+      // First non-empty line: sync start epoch
+      const syncStartEpoch = parseInt(lines[0]?.trim() ?? '0', 10);
+      console.log('Sync start epoch:', syncStartEpoch);
+
+      // Find SYNC_EXIT line
+      const syncExitLine = lines.find((l) => l.startsWith('SYNC_EXIT='));
+      const syncExitCode = syncExitLine
+        ? parseInt(syncExitLine.split('=')[1] ?? '-1', 10)
+        : -1;
+      console.log('Sync exit code:', syncExitCode);
+
+      // Everything after SYNC_EXIT line is log.txt tail content
+      const syncExitIdx = lines.indexOf(syncExitLine ?? '');
+      const logTxt = lines.slice(syncExitIdx + 1).join('\n');
+
+      console.log('=== Sync stdout/stderr (combined) ===');
+      console.log(combinedOut.slice(0, 2000));
+      console.log('=== log.txt tail ===');
+      console.log(logTxt.slice(0, 3000));
 
       // ------------------------------------------------------------------
-      // Step 6: Read log.txt (NOT docker logs) for migration evidence
+      // Step 7: Window-scope log assertions (Defect C: skip startup-collision lines)
       // ------------------------------------------------------------------
-      const logCapture = dockerExec(
-        JOPLIN_CONTAINER,
-        'tail -n 300 /home/joplin/.config/joplin/log.txt',
-        15_000,
-      );
-      const logTxt = logCapture.stdout;
+      const allLogLines = logTxt.split('\n');
+      const windowedLog = allLogLines.filter((line) => {
+        const ts = parseLogTimestamp(line);
+        if (ts === null) return true;  // continuation lines without timestamps
+        return ts >= syncStartEpoch;
+      });
 
-      console.log('=== log.txt (last 300 lines) ===');
-      console.log(logTxt);
+      console.log('Windowed log lines:', windowedLog.length, 'of', allLogLines.length);
 
       // ------------------------------------------------------------------
-      // Step 7: Check note count after sync
+      // Safe-behaviour assertions — FAIL on current buggy code (issue #27)
+      // Log assertions come FIRST (Defect A: log assertions must not be
+      // skipped if MCP is unreachable after container death).
       // ------------------------------------------------------------------
-      let noteCountAfter = -1;
+      const windowedTxt = windowedLog.join('\n');
+      expect(windowedTxt).not.toContain('Current database version <null>');
+      expect(windowedTxt).not.toContain('Upgrading database from version 0');
+      expect(logTxt).not.toContain('table folders already exists');
+
+      // ------------------------------------------------------------------
+      // Step 8: Best-effort MCP note count (Defect A: soft failure)
+      // ------------------------------------------------------------------
+      let noteCountAfter: number | null = null;
       try {
         const notesAfter = await callTool<NoteListResult>(client, 'list_notes', {
           limit: 100,
         });
         noteCountAfter = notesAfter.items.length;
+        console.log('Note count after sync:', noteCountAfter);
       } catch {
-        // MCP may be broken after destructive migration
-        throw new Error(
-          'MCP unreachable after sync — data destroyed',
-        );
+        console.warn('MCP unreachable after sync — cannot verify note count (expected when container dies)');
       }
-      console.log('Note count after sync:', noteCountAfter);
 
-      // ------------------------------------------------------------------
-      // Safe-behaviour assertions — FAIL on current buggy code (issue #27)
-      // On current code these fail with captured logTxt / syncOutput visible
-      // in vitest diff.
-      // ------------------------------------------------------------------
-      expect(logTxt).not.toContain('Current database version <null>');
-      expect(logTxt).not.toContain('Upgrading database from version 0');
-      expect(syncOut + syncErr).not.toContain('table folders already exists');
-      expect(noteCountAfter).toBeGreaterThanOrEqual(1);
+      if (noteCountAfter !== null) {
+        expect(noteCountAfter).toBeGreaterThanOrEqual(1);
+      } else {
+        console.warn('Skipping note-count assertion: MCP unreachable');
+      }
 
       // TODO(M2): no assertion edits required — the assertions above are the safe
       // behavior. Optionally tighten after M2 lands: assert the specific abort

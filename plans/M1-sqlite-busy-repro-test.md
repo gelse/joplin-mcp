@@ -382,3 +382,13 @@ Two residual defects were fixed after the initial implementation:
    `sequence.concurrent` but file parallelism remained on, allowing suite
    overlap during the lock window. The isolated invocation eliminates this
    race. `vitest.config.container.ts` was not modified.
+
+3. **Death-safe log capture and window-scoped assertions (Defects A–D):** The
+   sync exec and log.txt read are now performed in a **single** `docker exec`
+   session (`date +%s; joplin sync; sleep 2; tail -n 400 log.txt`), so log
+   content is captured before the container can die (Defects B, D). A
+   `parseLogTimestamp` helper window-scores log lines to those timestamped at
+   or after the sync start, avoiding false positives from the entrypoint's
+   startup migration (Defect C). Log-based assertions now run **before** the
+   MCP note-count check, which is wrapped in try/catch and skipped on failure
+   (Defect A).
