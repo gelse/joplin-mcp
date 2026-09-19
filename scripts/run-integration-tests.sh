@@ -18,7 +18,9 @@ docker compose -f "$COMPOSE_FILE" up -d --wait joplin-mcp
 echo "=== Running container integration tests ==="
 mkdir -p "$REPORTS_DIR"
 TEST_EXIT=0
-docker compose -f "$COMPOSE_FILE" run --rm test-runner \
+docker compose -f "$COMPOSE_FILE" run --rm \
+  -e "RUN_SYNC_LOCK_TESTS=${RUN_SYNC_LOCK_TESTS:-0}" \
+  test-runner \
   pnpm vitest run --config vitest.config.container.ts \
   || TEST_EXIT=$?
 

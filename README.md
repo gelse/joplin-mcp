@@ -194,6 +194,20 @@ The API token is auto-extracted from the Joplin CLI config at startup.
 - JUnit XML: `reports/container/junit.xml`
 - Container logs: `reports/container/*.log`
 
+#### SQLITE_BUSY Reproduction Tests
+
+A dedicated test suite reproduces the destructive `SQLITE_BUSY` migration bug described in [issue #27](https://github.com/gelse/joplin-mcp/issues/27). The test holds an exclusive SQLite write lock via a second Joplin CLI process, triggers `joplin sync`, and asserts the destructive log signatures that prove the CLI concluded the database version was null and re-ran schema migrations from version 0 — destroying all data.
+
+This test is **gated behind a separate environment variable** and does **not** run in the default integration test suite:
+
+```bash
+RUN_SYNC_LOCK_TESTS=1 ./scripts/run-integration-tests.sh
+```
+
+The test requires the test-runner container to have Docker socket access (`/var/run/docker.sock`), which is mounted automatically by [`docker-compose.test.yml`](docker-compose.test.yml). The lock holder runs for 90 seconds while `joplin sync` is triggered concurrently, creating a deterministic `SQLITE_BUSY` contention window.
+
+> **Note:** This test is deliberately destructive to its throwaway volume and is designed to **fail** on the current code (proving the bug exists). It will flip to **pass** once the M2 fix lands.
+
 ---
 
 ### CI/CD

@@ -12,4 +12,9 @@ COPY tests/ tests/
 
 RUN pnpm run build
 RUN mkdir -p /app/reports
+
+# Install Docker CLI for container-to-container docker exec in integration tests
+# (used by sqlite-busy-repro.test.ts to hold SQLite write locks via docker exec)
+RUN apt-get update && apt-get install -y --no-install-recommends docker.io && rm -rf /var/lib/apt/lists/*
+
 CMD ["pnpm", "run", "test"]

@@ -4,6 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile.combined
     image: joplin-mcp-combined:test
+    container_name: joplin-mcp
     environment:
       - JOPLIN_SERVER_URL=https://dummy-joplin-server.example.com
       - JOPLIN_USERNAME=test-user
@@ -27,9 +28,12 @@ services:
     image: joplin-api-tests:test
     environment:
       - MCP_URL=http://joplin-mcp:3000/
+      - RUN_SYNC_LOCK_TESTS=${RUN_SYNC_LOCK_TESTS:-0}
     volumes:
       - ./vitest.config.container.ts:/app/vitest.config.container.ts:ro
       - ./reports/container:/app/reports
+      # Docker socket for container-to-container docker exec (sqlite-busy-repro tests)
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       joplin-mcp:
         condition: service_healthy

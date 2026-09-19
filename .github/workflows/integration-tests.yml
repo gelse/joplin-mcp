@@ -3,6 +3,13 @@ name: Integration Tests
 on:
   pull_request:
     branches: [main, testing]
+  workflow_dispatch:
+    inputs:
+      run_sync_lock_tests:
+        description: 'Run SQLITE_BUSY destructive migration repro test (issue #27)'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   integration-tests:
@@ -35,3 +42,27 @@ jobs:
           path: reports/container/junit.xml
           reporter: java-junit
           fail-on-error: false
+
+  # Reproduces the SQLITE_BUSY destructive migration bug (GitHub issue #27).
+  # Manually triggered only — slow and deliberately destructive to its
+  # throwaway volume. Does NOT run on every PR.
+  sqlite-busy-repro:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_sync_lock_tests == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run SQLITE_BUSY repro test
+        run: bash scripts/run-integration-tests.sh
+        env:
+          RUN_SYNC_LOCK_TESTS: '1'
+
+      - name: Collect container logs
+        if: always()
+        run: docker compose -f docker-compose.test.yml logs joplin-mcp > reports/container/joplin-mcp.log 2>&1 || true
+
+      - name: Cleanup test stack
+        if: always()
+        run: docker compose -f docker-compose.test.yml down -v --remove-orphans
