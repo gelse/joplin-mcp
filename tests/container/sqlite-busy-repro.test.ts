@@ -17,7 +17,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execSync, spawn, type ChildProcess } from 'child_process';
 import { createInterface } from 'readline';
-import { writeFileSync, unlinkSync } from 'fs';
 import { createTestClient, callTool, uid, CleanupTracker } from './helpers.js';
 
 // ---------------------------------------------------------------------------
@@ -95,6 +94,38 @@ function releaseLock(container: string): void {
     );
   } catch {
     /* best-effort cleanup */
+  }
+}
+
+/** Check whether a named Docker container is in running state. */
+function isContainerRunning(name: string): boolean {
+  try {
+    const out = execSync(
+      `docker inspect --format '{{.State.Running}}' ${name}`,
+      { encoding: 'utf-8', timeout: 5_000 },
+    ).trim();
+    return out === 'true';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Read a file from the joplin data volume via a throwaway alpine container.
+ * The volume is shared with the joplin-mcp service (joplin_data).
+ */
+function readVolumeFile(
+  volumePath: string,
+  filePath: string,
+  timeoutMs = 30_000,
+): string {
+  try {
+    return execSync(
+      `docker run --rm -v ${volumePath}:/vol alpine cat ${filePath}`,
+      { encoding: 'utf-8', timeout: timeoutMs, stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+  } catch {
+    return '';
   }
 }
 
@@ -268,19 +299,11 @@ describeIfSyncLock('SQLITE_BUSY destructive migration repro (issue #27)', () => 
       // ------------------------------------------------------------------
       // Step 1: Write lock-holder script into container
       // ------------------------------------------------------------------
-      const tmpFile = '/tmp/sqlite-lock-holder.js';
-      writeFileSync(tmpFile, LOCK_SCRIPT);
-      try {
-        execSync(`docker cp ${tmpFile} ${JOPLIN_CONTAINER}:/tmp/lock-holder.js`, {
-          encoding: 'utf-8',
-        });
-      } finally {
-        try {
-          unlinkSync(tmpFile);
-        } catch {
-          /* ignore */
-        }
-      }
+      // Pipe the lock-holder script directly into the container (no temp file needed)
+      execSync(
+        `docker exec ${JOPLIN_CONTAINER} sh -c "cat > /tmp/lock-holder.js"`,
+        { input: LOCK_SCRIPT, encoding: 'utf-8', timeout: 10_000 },
+      );
 
       // ------------------------------------------------------------------
       // Step 2: Spawn lock holder and await LOCK_HELD
@@ -313,12 +336,41 @@ describeIfSyncLock('SQLITE_BUSY destructive migration repro (issue #27)', () => 
       await new Promise((r) => setTimeout(r, SETTLE_MS));
 
       // ------------------------------------------------------------------
-      // Step 5+6: Combined sync + log capture in ONE docker exec session
-      // (Defects B, D: avoids post-death exec failure and stale reads)
+      // Step 5+6: Volume-backed capture — exec stdout is unreliable because
+      // the entrypoint liveness monitor tears down the container when the
+      // Data API dies during the destructive migration, killing the exec
+      // (rc 137) before output reaches the pipe. Volume writes survive
+      // container death, so we capture to a file on the data volume and
+      // read it back via a helper container.
       // ------------------------------------------------------------------
-      const combinedCmd = `sh -c 'date +%s > /tmp/sync-start; joplin sync; echo SYNC_EXIT=$?; sleep 2; tail -n 400 /home/joplin/.config/joplin/log.txt'`;
-      const combined = dockerExec(JOPLIN_CONTAINER, combinedCmd, SYNC_TIMEOUT_MS + 10_000);
-      const combinedOut = combined.stdout;
+      const CAPTURE_FILE = '/home/joplin/.config/joplin/sync-capture.txt';
+      const CAPTURE_POLL_INTERVAL_MS = 3_000;
+      const CAPTURE_POLL_MAX_ATTEMPTS = 40; // 40 × 3s = 120s
+
+      // Resolve the data volume name for the helper container mount.
+      // The joplin_data volume is mounted at /home/joplin/.config/joplin.
+      let volumePath = '';
+      try {
+        volumePath = execSync(
+          `docker inspect --format '{{range .Mounts}}{{if eq .Destination "/home/joplin/.config/joplin"}}{{.Name}}{{end}}{{end}}' ${JOPLIN_CONTAINER}`,
+          { encoding: 'utf-8', timeout: 10_000 },
+        ).trim();
+      } catch { /* fallback below */ }
+      if (!volumePath) volumePath = 'joplin_data';
+      console.log('Data volume:', volumePath);
+
+      // Combined sync + log capture — everything written to the capture file
+      // on the data volume; exec stdout is ignored (will die with container).
+      const combinedCmd = [
+        '{ date +%s; echo SYNC_START;',
+        'joplin sync;',
+        'echo "SYNC_EXIT=$?";',
+        'sleep 2;',
+        'tail -n 1000 /home/joplin/.config/joplin/log.txt;',
+        'echo CAPTURE_DONE; }',
+        `> ${CAPTURE_FILE} 2>&1`,
+      ].join(' ');
+      dockerExec(JOPLIN_CONTAINER, combinedCmd, SYNC_TIMEOUT_MS + 10_000);
 
       // Lock is no longer needed once sync has exited; release it
       // to keep MCP/Data API responsive for post-sync checks and
@@ -326,31 +378,59 @@ describeIfSyncLock('SQLITE_BUSY destructive migration repro (issue #27)', () => 
       releaseLock(JOPLIN_CONTAINER);
       holderProc?.kill('SIGTERM');
 
-      // Parse combined output
-      const lines = combinedOut.split('\n');
+      // Poll for the capture file (bounded, 120s max)
+      let captureTxt = '';
+      const deadline = Date.now() + CAPTURE_POLL_MAX_ATTEMPTS * CAPTURE_POLL_INTERVAL_MS;
+      while (Date.now() < deadline) {
+        captureTxt = readVolumeFile(volumePath, CAPTURE_FILE);
+        if (captureTxt.includes('CAPTURE_DONE')) break;
+        // Container may be dead — if file has SYNC_EXIT, treat as sufficient
+        if (!isContainerRunning(JOPLIN_CONTAINER) && captureTxt.includes('SYNC_EXIT')) break;
+        await new Promise((r) => setTimeout(r, CAPTURE_POLL_INTERVAL_MS));
+      }
+      if (!captureTxt) {
+        captureTxt = readVolumeFile(volumePath, CAPTURE_FILE);
+      }
+
+      console.log('=== Volume capture ===');
+      console.log(captureTxt.slice(0, 4000));
+
+      const captureLines = captureTxt.split('\n');
 
       // First non-empty line: sync start epoch
-      const syncStartEpoch = parseInt(lines[0]?.trim() ?? '0', 10);
+      const syncStartEpoch = parseInt(captureLines[0]?.trim() ?? '0', 10);
       console.log('Sync start epoch:', syncStartEpoch);
 
       // Find SYNC_EXIT line
-      const syncExitLine = lines.find((l) => l.startsWith('SYNC_EXIT='));
+      const syncExitLine = captureLines.find((l) => l.startsWith('SYNC_EXIT='));
       const syncExitCode = syncExitLine
         ? parseInt(syncExitLine.split('=')[1] ?? '-1', 10)
         : -1;
       console.log('Sync exit code:', syncExitCode);
 
       // Everything after SYNC_EXIT line is log.txt tail content
-      const syncExitIdx = lines.indexOf(syncExitLine ?? '');
-      const logTxt = lines.slice(syncExitIdx + 1).join('\n');
+      const syncExitIdx = captureLines.indexOf(syncExitLine ?? '');
+      const logTxt = captureLines.slice(syncExitIdx + 1).join('\n');
 
-      console.log('=== Sync stdout/stderr (combined) ===');
-      console.log(combinedOut.slice(0, 2000));
       console.log('=== log.txt tail ===');
       console.log(logTxt.slice(0, 3000));
 
       // ------------------------------------------------------------------
-      // Step 7: Window-scope log assertions (Defect C: skip startup-collision lines)
+      // Capture preconditions — a missing or empty capture must be an honest
+      // test failure, never a vacuous pass.
+      // ------------------------------------------------------------------
+      expect(
+        Number.isFinite(syncStartEpoch),
+        `Capture missing or corrupt: syncStartEpoch=${syncStartEpoch} (expected a finite integer)`,
+      ).toBe(true);
+      expect(
+        logTxt.trim().length,
+        `Captured log text is empty — capture file may be missing or truncated`,
+      ).toBeGreaterThan(0);
+
+      // ------------------------------------------------------------------
+      // Step 7: Window-scope log assertions — volume-backed capture reads
+      // survived container death (Defect C: skip startup-collision lines)
       // ------------------------------------------------------------------
       const allLogLines = logTxt.split('\n');
       const windowedLog = allLogLines.filter((line) => {

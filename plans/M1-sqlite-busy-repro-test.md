@@ -392,3 +392,13 @@ Two residual defects were fixed after the initial implementation:
    startup migration (Defect C). Log-based assertions now run **before** the
    MCP note-count check, which is wrapped in try/catch and skipped on failure
    (Defect A).
+
+4. **Volume-backed capture (capture-channel defect):** The combined exec's
+   stdout is unreliable because the entrypoint liveness monitor tears down
+   the container when the Data API dies during the destructive migration,
+   killing the exec (rc 137) before `tail` output reaches the FIFO. The
+   sync exec now writes everything to a capture file on the `joplin_data`
+   volume (`sync-capture.txt`); a helper container mounting the same volume
+   polls for `CAPTURE_DONE` and reads the file. Capture preconditions
+   (`Number.isFinite(syncStartEpoch)`, non-empty log) assert before the
+   signature checks, preventing vacuous passes.
