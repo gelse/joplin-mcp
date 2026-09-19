@@ -83,6 +83,22 @@ function dockerExec(
 }
 
 /**
+ * Release the in-container lock holder by killing the PID written to
+ * /tmp/lock-holder.pid.  The joplin-mcp image lacks pkill/pgrep, so
+ * the holder writes its own PID to a file instead.
+ */
+function releaseLock(container: string): void {
+  try {
+    execSync(
+      `docker exec ${container} sh -c 'kill -9 "$(cat /tmp/lock-holder.pid)" 2>/dev/null; exit 0'`,
+      { encoding: 'utf-8', timeout: 5_000 },
+    );
+  } catch {
+    /* best-effort cleanup */
+  }
+}
+
+/**
  * Spawn `node /tmp/lock-holder.js` inside the container and read its
  * stdout line-by-line. Resolves when the holder emits `LOCK_HELD`.
  * Rejects if the holder exits before emitting `LOCK_HELD`.
@@ -158,6 +174,7 @@ function spawnLockHolder(
 const LOCK_SCRIPT = `const s = require('/usr/local/lib/node_modules/joplin/node_modules/sqlite3').verbose();
 const db = new s.Database('/home/joplin/.config/joplin/database.sqlite', s.OPEN_READWRITE, (err) => {
   if (err) { console.error('OPEN_FAIL', err.message); process.exit(1); }
+  require('fs').writeFileSync('/tmp/lock-holder.pid', String(process.pid));
   db.serialize(() => {
     db.run('BEGIN EXCLUSIVE', (e) => { if (e) { console.error('BEGIN_FAIL', e.message); process.exit(1); } });
     // CRITICAL: bare BEGIN EXCLUSIVE holds no lock; a statement inside the txn does.
@@ -208,10 +225,7 @@ describeIfSyncLock('SQLITE_BUSY destructive migration repro (issue #27)', () => 
       holderProc.kill('SIGTERM');
       await new Promise((r) => setTimeout(r, 1_000));
     }
-    execSync(
-      `docker exec ${JOPLIN_CONTAINER} pkill -f lock-holder.js || true`,
-      { encoding: 'utf-8', timeout: 5_000 },
-    );
+    releaseLock(JOPLIN_CONTAINER);
     // Best-effort — MCP may be broken after destructive migration
     await cleanup.cleanup(client).catch(() => {});
     await client?.close().catch(() => {});
@@ -248,9 +262,11 @@ describeIfSyncLock('SQLITE_BUSY destructive migration repro (issue #27)', () => 
       // ------------------------------------------------------------------
       // Step 3: Mechanism self-validation — probe confirms lock is held
       // ------------------------------------------------------------------
+      // node-sqlite3's open callback receives only (err) — NOT (err, db).
+      // The Database instance must come from the enclosing scope.
       const probe = dockerExec(
         JOPLIN_CONTAINER,
-        `node -e "const s=require('/usr/local/lib/node_modules/joplin/node_modules/sqlite3').verbose();s.verbose(true);new s.Database('/home/joplin/.config/joplin/database.sqlite',s.OPEN_READWRITE,(e,d)=>{if(e){process.exit(1)}d.run('BEGIN EXCLUSIVE',(e)=>{if(e){console.log('PROBE_BUSY');process.exit(0)}d.run('ROLLBACK',()=>{d.close(()=>process.exit(1))})})})"`,
+        `node -e "const s=require('/usr/local/lib/node_modules/joplin/node_modules/sqlite3');const db=new s.Database('/home/joplin/.config/joplin/database.sqlite',s.OPEN_READWRITE,(e)=>{if(e){console.error('OPEN_ERR',e.message);process.exit(1)}db.run('BEGIN EXCLUSIVE',(e)=>{if(e){console.log('PROBE_BUSY',e.message);process.exit(0)}db.run('ROLLBACK',()=>db.close(()=>{console.log('PROBE_ACQUIRED');process.exit(2)}))})})"`,
         15_000,
       );
       // PROBE_BUSY in stdout = lock is held (desired)
@@ -272,6 +288,12 @@ describeIfSyncLock('SQLITE_BUSY destructive migration repro (issue #27)', () => 
       const sync = dockerExec(JOPLIN_CONTAINER, 'joplin sync', SYNC_TIMEOUT_MS);
       const syncOut = sync.stdout;
       const syncErr = sync.stderr;
+
+      // Lock is no longer needed once sync has exited; release it
+      // to keep MCP/Data API responsive for post-sync checks and
+      // to avoid leaking into subsequent test files.
+      releaseLock(JOPLIN_CONTAINER);
+      holderProc?.kill('SIGTERM');
 
       console.log('=== Sync stdout ===');
       console.log(syncOut);
