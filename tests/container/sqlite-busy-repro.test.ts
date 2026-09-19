@@ -17,6 +17,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execSync, spawn, type ChildProcess } from 'child_process';
 import { createInterface } from 'readline';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { basename, join } from 'path';
 import { createTestClient, callTool, uid, CleanupTracker } from './helpers.js';
 
 // ---------------------------------------------------------------------------
@@ -32,6 +35,11 @@ const JOPLIN_CONTAINER = process.env['JOPLIN_CONTAINER'] || 'joplin-mcp';
 const HOLDER_LIFETIME_MS = 120_000; // outlasts joplin's ~43s retry budget
 const SETTLE_MS = 2_000;
 const SYNC_TIMEOUT_MS = 150_000;
+
+/** Data directory inside the joplin-mcp container (also the volume mountpoint). */
+const DATA_DIR = '/home/joplin/.config/joplin';
+const HOLDER_SCRIPT_IN_CONTAINER = '/tmp/lock-holder.js';
+const CAPTURE_SCRIPT_IN_CONTAINER = '/tmp/sync-capture.sh';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -111,22 +119,108 @@ function isContainerRunning(name: string): boolean {
 }
 
 /**
+ * Translate an in-container data-directory path into the equivalent path
+ * inside the helper container's `/vol` mount.
+ *
+ * The helper's CWD is *not* the data directory, so reading the absolute
+ * in-container path (e.g. `/home/joplin/.config/joplin/x.txt`) fails with
+ * "No such file or directory" and the capture is silently lost.
+ */
+function toVolumeMountPath(filePath: string): string {
+  if (filePath === DATA_DIR) return '/vol';
+  if (filePath.startsWith(`${DATA_DIR}/`)) {
+    return `/vol/${filePath.slice(DATA_DIR.length + 1)}`;
+  }
+  throw new Error(
+    `Path ${filePath} is not inside the data directory ${DATA_DIR}`,
+  );
+}
+
+/**
  * Read a file from the joplin data volume via a throwaway alpine container.
- * The volume is shared with the joplin-mcp service (joplin_data).
+ * The volume is shared with the joplin-mcp service and mounted at `/vol`.
  */
 function readVolumeFile(
-  volumePath: string,
+  volumeName: string,
   filePath: string,
   timeoutMs = 30_000,
 ): string {
+  const mountPath = toVolumeMountPath(filePath);
   try {
     return execSync(
-      `docker run --rm -v ${volumePath}:/vol alpine cat ${filePath}`,
+      `docker run --rm -v ${volumeName}:/vol alpine cat ${mountPath}`,
       { encoding: 'utf-8', timeout: timeoutMs, stdio: ['ignore', 'pipe', 'pipe'] },
     );
   } catch {
     return '';
   }
+}
+
+/**
+ * Write `content` to a temp file in the test-runner and `docker cp` it into
+ * the container, then verify it arrived non-empty.
+ *
+ * `docker exec` without `-i` does not forward the client's stdin, so piping a
+ * script produced a 0-byte file in the container. Returns the byte count.
+ */
+function copyIntoContainer(
+  container: string,
+  content: string,
+  destPath: string,
+  label: string,
+): number {
+  const dir = mkdtempSync(join(tmpdir(), 'joplin-repro-'));
+  const localPath = join(dir, basename(destPath));
+  try {
+    writeFileSync(localPath, content, 'utf-8');
+    execSync(`docker cp ${localPath} ${container}:${destPath}`, {
+      encoding: 'utf-8',
+      timeout: 15_000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  const sizeOut = execSync(
+    `docker exec ${container} sh -c 'wc -c < ${destPath}'`,
+    { encoding: 'utf-8', timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'] },
+  ).trim();
+  const bytes = parseInt(sizeOut, 10);
+  if (!Number.isFinite(bytes) || bytes === 0) {
+    throw new Error(
+      `${label} is empty in ${container} (${sizeOut || '0'} bytes at ${destPath}) — delivery failed`,
+    );
+  }
+  return bytes;
+}
+
+/**
+ * Resolve the named docker volume backing the data directory.
+ *
+ * Compose prefixes the project name (`joplin-mcp_joplin_data`); silently
+ * falling back to the unprefixed `joplin_data` mounts a nonexistent volume and
+ * yields an empty read, so this fails loudly instead.
+ */
+function resolveDataVolumeName(container: string): string {
+  let name = '';
+  try {
+    name = execSync(
+      `docker inspect --format '{{range .Mounts}}{{if eq .Destination "${DATA_DIR}"}}{{.Name}}{{end}}{{end}}' ${container}`,
+      { encoding: 'utf-8', timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'] },
+    ).trim();
+  } catch (err: unknown) {
+    const message = (err as { message?: string }).message ?? String(err);
+    throw new Error(
+      `Could not inspect ${container} to resolve the ${DATA_DIR} volume: ${message}`,
+    );
+  }
+  if (!name) {
+    throw new Error(
+      `No volume mounted at ${DATA_DIR} in ${container} — cannot read the capture file`,
+    );
+  }
+  return name;
 }
 
 /**
@@ -147,7 +241,7 @@ function parseLogTimestamp(line: string): number | null {
 function spawnLockHolder(
   container: string,
 ): { result: Promise<void>; proc: ChildProcess } {
-  const proc = spawn('docker', ['exec', container, 'node', '/tmp/lock-holder.js'], {
+  const proc = spawn('docker', ['exec', container, 'node', HOLDER_SCRIPT_IN_CONTAINER], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -248,6 +342,45 @@ const db = new s.Database('/home/joplin/.config/joplin/database.sqlite', s.OPEN_
 });
 `;
 
+/**
+ * Capture script executed INSIDE the joplin-mcp container. Written with
+ * `docker cp` and run as `sh /tmp/sync-capture.sh` — a single script avoids
+ * the double-shell quoting bug that made the joined `{ ... } > file` command
+ * list a syntax error.
+ *
+ * Containment: the entrypoint's liveness monitor kills the whole process tree
+ * as soon as the destructive migration takes the Data API down, which is
+ * ~44s into the sync — long before any post-sync `tail` could run. The log is
+ * therefore streamed live into the capture file for the whole window, and the
+ * caller redirects stdout to the capture file on the data volume so the
+ * content survives container death.
+ *
+ * `$SYNC_STATUS` is captured immediately after `timeout ... joplin sync`, so
+ * it is joplin's own exit code and SYNC_EXIT stays parseable. The watchdog
+ * `timeout` also guarantees the finalize segment runs if joplin hangs under
+ * the held lock; its rc 124 maps to 137 so a watchdog kill is not mistaken
+ * for joplin's own exit code.
+ *
+ * `exec` is used for the redirect so every child (including the streamed tail)
+ * inherits the capture file on fd 1; the shell's own writes are line-buffered
+ * and the `sync` call flushes the streamed data to the volume before teardown.
+ */
+const CAPTURE_SCRIPT = `#!/bin/sh
+exec > ${DATA_DIR}/sync-capture.txt 2>&1
+date +%s
+echo SYNC_START
+tail -n +1 -F ${DATA_DIR}/log.txt &
+TAIL_PID=$!
+timeout ${SYNC_TIMEOUT_MS / 1000} joplin sync
+SYNC_STATUS=$?
+if [ "$SYNC_STATUS" -eq 124 ]; then SYNC_STATUS=137; fi
+kill $TAIL_PID 2>/dev/null
+date +%s
+echo SYNC_EXIT=$SYNC_STATUS
+sync
+echo CAPTURE_DONE
+`;
+
 // ---------------------------------------------------------------------------
 // Suite
 // ---------------------------------------------------------------------------
@@ -299,11 +432,17 @@ describeIfSyncLock('SQLITE_BUSY destructive migration repro (issue #27)', () => 
       // ------------------------------------------------------------------
       // Step 1: Write lock-holder script into container
       // ------------------------------------------------------------------
-      // Pipe the lock-holder script directly into the container (no temp file needed)
-      execSync(
-        `docker exec ${JOPLIN_CONTAINER} sh -c "cat > /tmp/lock-holder.js"`,
-        { input: LOCK_SCRIPT, encoding: 'utf-8', timeout: 10_000 },
+      // `docker exec` without `-i` does not forward the client's stdin, so
+      // piping the script produced a 0-byte file. docker cp from a temp file in
+      // the test-runner is reliable, and the size is verified before we rely
+      // on the holder ever emitting LOCK_HELD.
+      const holderBytes = copyIntoContainer(
+        JOPLIN_CONTAINER,
+        LOCK_SCRIPT,
+        HOLDER_SCRIPT_IN_CONTAINER,
+        'lock-holder script',
       );
+      console.log('Lock-holder script bytes:', holderBytes);
 
       // ------------------------------------------------------------------
       // Step 2: Spawn lock holder and await LOCK_HELD
@@ -343,34 +482,32 @@ describeIfSyncLock('SQLITE_BUSY destructive migration repro (issue #27)', () => 
       // container death, so we capture to a file on the data volume and
       // read it back via a helper container.
       // ------------------------------------------------------------------
-      const CAPTURE_FILE = '/home/joplin/.config/joplin/sync-capture.txt';
+      const CAPTURE_FILE = `${DATA_DIR}/sync-capture.txt`;
       const CAPTURE_POLL_INTERVAL_MS = 3_000;
       const CAPTURE_POLL_MAX_ATTEMPTS = 40; // 40 × 3s = 120s
 
-      // Resolve the data volume name for the helper container mount.
-      // The joplin_data volume is mounted at /home/joplin/.config/joplin.
-      let volumePath = '';
-      try {
-        volumePath = execSync(
-          `docker inspect --format '{{range .Mounts}}{{if eq .Destination "/home/joplin/.config/joplin"}}{{.Name}}{{end}}{{end}}' ${JOPLIN_CONTAINER}`,
-          { encoding: 'utf-8', timeout: 10_000 },
-        ).trim();
-      } catch { /* fallback below */ }
-      if (!volumePath) volumePath = 'joplin_data';
+      // Resolve the data volume name for the helper container mount. Compose
+      // prefixes the project name (joplin-mcp_joplin_data); never fall back to
+      // an unprefixed name — that mounts a nonexistent volume and the read
+      // silently returns empty.
+      const volumePath = resolveDataVolumeName(JOPLIN_CONTAINER);
       console.log('Data volume:', volumePath);
 
-      // Combined sync + log capture — everything written to the capture file
-      // on the data volume; exec stdout is ignored (will die with container).
-      const combinedCmd = [
-        '{ date +%s; echo SYNC_START;',
-        'joplin sync;',
-        'echo "SYNC_EXIT=$?";',
-        'sleep 2;',
-        'tail -n 1000 /home/joplin/.config/joplin/log.txt;',
-        'echo CAPTURE_DONE; }',
-        `> ${CAPTURE_FILE} 2>&1`,
-      ].join(' ');
-      dockerExec(JOPLIN_CONTAINER, combinedCmd, SYNC_TIMEOUT_MS + 10_000);
+      // Combined sync + log capture. The script redirects its own stdout to the
+      // capture file on the data volume (survives container death — the
+      // entrypoint's liveness monitor tears the container down and kills the
+      // exec), so the exec's own output is deliberately not piped anywhere.
+      copyIntoContainer(
+        JOPLIN_CONTAINER,
+        CAPTURE_SCRIPT,
+        CAPTURE_SCRIPT_IN_CONTAINER,
+        'sync capture script',
+      );
+      dockerExec(
+        JOPLIN_CONTAINER,
+        `sh ${CAPTURE_SCRIPT_IN_CONTAINER}`,
+        SYNC_TIMEOUT_MS + 10_000,
+      );
 
       // Lock is no longer needed once sync has exited; release it
       // to keep MCP/Data API responsive for post-sync checks and
@@ -384,8 +521,16 @@ describeIfSyncLock('SQLITE_BUSY destructive migration repro (issue #27)', () => 
       while (Date.now() < deadline) {
         captureTxt = readVolumeFile(volumePath, CAPTURE_FILE);
         if (captureTxt.includes('CAPTURE_DONE')) break;
-        // Container may be dead — if file has SYNC_EXIT, treat as sufficient
-        if (!isContainerRunning(JOPLIN_CONTAINER) && captureTxt.includes('SYNC_EXIT')) break;
+        if (captureTxt.includes('SYNC_EXIT')) break;
+        // A dead container cannot append anything more to the volume, so a
+        // capture that already has content is final — polling on would burn the
+        // remaining ~120s and race the 180s test timeout. One extra poll lets a
+        // last flush land.
+        if (!isContainerRunning(JOPLIN_CONTAINER) && captureTxt.includes('SYNC_START')) {
+          await new Promise((r) => setTimeout(r, CAPTURE_POLL_INTERVAL_MS));
+          captureTxt = readVolumeFile(volumePath, CAPTURE_FILE);
+          break;
+        }
         await new Promise((r) => setTimeout(r, CAPTURE_POLL_INTERVAL_MS));
       }
       if (!captureTxt) {
@@ -401,16 +546,36 @@ describeIfSyncLock('SQLITE_BUSY destructive migration repro (issue #27)', () => 
       const syncStartEpoch = parseInt(captureLines[0]?.trim() ?? '0', 10);
       console.log('Sync start epoch:', syncStartEpoch);
 
-      // Find SYNC_EXIT line
+      // Upper bound of the capture window, derived from the container-written
+      // SYNC_START marker rather than the test-runner clock: log.txt timestamps
+      // are produced inside the container, and comparing them against a
+      // test-runner epoch would silently widen or collapse the window whenever
+      // the two clocks disagree.
+      const captureEndEpoch =
+        syncStartEpoch + Math.ceil(SYNC_TIMEOUT_MS / 1000) + 60;
+
+      // Find SYNC_EXIT line (parsed independently of its position)
       const syncExitLine = captureLines.find((l) => l.startsWith('SYNC_EXIT='));
       const syncExitCode = syncExitLine
         ? parseInt(syncExitLine.split('=')[1] ?? '-1', 10)
         : -1;
       console.log('Sync exit code:', syncExitCode);
 
-      // Everything after SYNC_EXIT line is log.txt tail content
-      const syncExitIdx = captureLines.indexOf(syncExitLine ?? '');
-      const logTxt = captureLines.slice(syncExitIdx + 1).join('\n');
+      // The log is streamed BETWEEN the SYNC_START and SYNC_EXIT markers (the
+      // tail runs for the whole sync, the markers bracket it), so the log is
+      // everything after SYNC_START with the capture's own control lines
+      // removed. Position-independent, so a capture cut short by container
+      // death still yields a usable log.
+      const syncStartIdx = captureLines.findIndex((l) => l.trim() === 'SYNC_START');
+      const logTxt = captureLines
+        .slice(syncStartIdx + 1)
+        .filter(
+          (l) =>
+            !/^\d{10}$/.test(l.trim()) &&
+            !l.startsWith('SYNC_EXIT=') &&
+            l.trim() !== 'CAPTURE_DONE',
+        )
+        .join('\n');
 
       console.log('=== log.txt tail ===');
       console.log(logTxt.slice(0, 3000));
@@ -436,7 +601,14 @@ describeIfSyncLock('SQLITE_BUSY destructive migration repro (issue #27)', () => 
       const windowedLog = allLogLines.filter((line) => {
         const ts = parseLogTimestamp(line);
         if (ts === null) return true;  // continuation lines without timestamps
-        return ts >= syncStartEpoch;
+        // Window-scope to the sync run captured here: lines before the sync
+        // start belong to the container entrypoint's own startup initialisation
+        // (which legitimately logs `Current database version <null>` and
+        // `Upgrading database from version 0` when it creates the database on a
+        // fresh volume) and are excluded to avoid a startup-collision false
+        // positive. The start tolerance absorbs the sub-second gap between the
+        // `date +%s` marker and the first log line of the sync.
+        return ts >= syncStartEpoch - 5 && ts <= captureEndEpoch;
       });
 
       console.log('Windowed log lines:', windowedLog.length, 'of', allLogLines.length);

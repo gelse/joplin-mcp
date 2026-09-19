@@ -402,3 +402,69 @@ Two residual defects were fixed after the initial implementation:
    polls for `CAPTURE_DONE` and reads the file. Capture preconditions
    (`Number.isFinite(syncStartEpoch)`, non-empty log) assert before the
    signature checks, preventing vacuous passes.
+
+## Post-implementation addendum 2 (branch `testing`, HEAD 182bb4c)
+
+Three harness defects were reproduced empirically, fixed, and then re-verified
+by running the gated acceptance suite twice and the ungated suite once.
+
+### Harness defects fixed
+
+1. **Lock-holder script arrived empty.** `docker exec` without `-i` does not
+   forward the client's stdin, so piping `LOCK_SCRIPT` into
+   `sh -c "cat > /tmp/lock-holder.js"` produced a 0-byte file and the holder
+   exited before `LOCK_HELD`. The script is now written to a temp file in the
+   test-runner and delivered with `docker cp`, and its byte count is asserted
+   before the holder is spawned.
+2. **Volume read-back used the wrong path.** The helper container read the
+   absolute in-container path (`/home/joplin/.config/joplin/sync-capture.txt`)
+   while its own CWD is not the data directory, so `cat` failed and the read
+   silently returned `''`. Reads now resolve to the helper's mount point
+   (`/vol/<name>`). The volume name is resolved from `docker inspect`; the
+   unprefixed `joplin_data` fallback is gone, because Compose names the volume
+   `joplin-mcp_joplin_data` and an unresolved name now fails loudly instead of
+   mounting a nonexistent volume.
+3. **Capture command was a shell syntax error.** The joined command list was
+   passed without `sh -c`, so the outer shell parsed the leading `{` as a word
+   (`syntax error near unexpected token '}'`, rc 2) and nothing ran — no
+   capture file was ever created. The container-side commands now live in a
+   `docker cp`-delivered script executed as `sh /tmp/sync-capture.sh`, which
+   removes the double-shell quoting hazard entirely.
+
+### Containment defect found while verifying the fixes
+
+Fixing the three defects exposed a fourth problem that blocked the
+acceptance signature: the capture file stopped at 22 bytes (epoch +
+`SYNC_START`).
+
+- **Cause:** the entrypoint's liveness monitor SIGKILLs the container's
+  process tree roughly 44s into the sync, as soon as the destructive migration
+  takes the Data API down. The script's post-sync `sleep 2; tail -n 1000` is
+  killed with it, so the log was never written. The 150s watchdog `timeout` is
+  irrelevant here because it never gets to fire.
+- **Fix:** the capture script now streams `log.txt` for the whole sync window
+  instead of reading it afterwards, and `exec` redirects the script's stdout to
+  the capture file so the streamed tail inherits it. It emits `SYNC_EXIT` from
+  the sync's own exit code, then `sync` flushes to the volume before teardown.
+  A watchdog rc of 124 maps to 137 so a watchdog kill is not mistaken for
+  joplin's exit code.
+- **Consequence:** because the log now precedes `SYNC_EXIT` in the file, log
+  extraction changed to "everything after `SYNC_START`, minus the capture's own
+  control lines" (position-independent), and the window's upper bound derives
+  from the container-written `SYNC_START` epoch rather than the test-runner
+  clock. A dead container with content is now treated as a final capture, so
+  the poll loop no longer burns its remaining budget.
+
+### Verification results
+
+- `tsc --noEmit` in the test image: exit 0.
+- Gated run (`RUN_SYNC_LOCK_TESTS=1`), twice from a fresh volume: regular phase
+  5 suites passed / 1 skipped (30 tests passed / 4 skipped), then the repro
+  failed on the window-scoped `Current database version <null>` assertion with a
+  visible vitest diff, and the runner reported the expected non-zero repro exit.
+- Ungated run: all green, repro skipped, no repro-phase banner.
+
+The window's lower bound is load-bearing: the entrypoint legitimately logs
+`Current database version <null>` and `Upgrading database from version 0` when
+it creates the database on a fresh volume, so an unbounded match would fail
+even against safe code.
