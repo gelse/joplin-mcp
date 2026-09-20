@@ -29,6 +29,8 @@ SYNC_LOG_FILE="${LOG_DIR}/sync.log"
 
 JOPLIN_PROFILE_DIR="${JOPLIN_PROFILE_DIR:-/home/joplin/.config/joplin}"
 JOPLIN_LOG_FILE="${JOPLIN_PROFILE_DIR}/log.txt"
+SYNC_HALT_MARKER="${JOPLIN_PROFILE_DIR}/.sync-halt"
+SYNC_LOCK_FILE="${JOPLIN_PROFILE_DIR}/.sync-flock"
 
 # Ensure log directory exists (should be created in Dockerfile, but be safe)
 mkdir -p "${LOG_DIR}"
@@ -69,7 +71,7 @@ log_sync() {
 check_sync_errors() {
     local label="$1"
     local log_offset="${2:-0}"
-    local combined_pattern='\[error\]|There was some errors|Could not encrypt item|Master key is not loaded'
+    local combined_pattern='\[error\]|There was some errors|Could not encrypt item|Master key is not loaded|SQLITE_BUSY|database is locked|Upgrading database from version 0|Current database version.*null'
 
     local files=(
         "${JOPLIN_LOG_FILE}"
@@ -108,6 +110,120 @@ check_sync_errors() {
 }
 
 # -----------------------------------------------------------------------------
+# Check log files for specifically DANGEROUS sync signatures (issue #27)
+# Returns 0 if no dangerous patterns found, 2 if destructive signatures detected
+# Usage: check_sync_danger <label> [log_offset]
+# -----------------------------------------------------------------------------
+check_sync_danger() {
+    local label="$1"
+    local log_offset="${2:-0}"
+    local dangerous_pattern='SQLITE_BUSY|database is locked|Upgrading database from version 0|Current database version.*null'
+
+    local files=(
+        "${JOPLIN_LOG_FILE}"
+        "${LOG_DIR}/sync-stdout.log"
+        "${LOG_DIR}/sync-stderr.log"
+    )
+
+    for f in "${files[@]}"; do
+        [ -f "${f}" ] || continue
+        if [ "${f}" = "${JOPLIN_LOG_FILE}" ] && [ "${log_offset}" -gt 0 ]; then
+            if grep -i -q -E "${dangerous_pattern}" <(tail -n +"${log_offset}" "${f}" 2>/dev/null) 2>/dev/null; then
+                log "ERROR" "[${label}] DANGEROUS sync signature detected in ${f} — sync halted to limit data destruction"
+                log "ERROR" "[${label}] Issue #27: ${f} contains destructive pattern; refusing further syncs"
+                return 2
+            fi
+        else
+            if grep -i -q -E "${dangerous_pattern}" "${f}" 2>/dev/null; then
+                log "ERROR" "[${label}] DANGEROUS sync signature detected in ${f} — sync halted to limit data destruction"
+                log "ERROR" "[${label}] Issue #27: ${f} contains destructive pattern; refusing further syncs"
+                return 2
+            fi
+        fi
+    done
+    return 0
+}
+
+# -----------------------------------------------------------------------------
+# Pre-sync item-count snapshot for the deletion circuit-breaker
+# Returns counts on stdout; echoes "skip" and returns nonzero on failure.
+# Caller treats a failed count as skip-with-WARN, never as 0.
+# Each joplin ls is flock-wrapped with SYNC_LOCK_FILE.
+# -----------------------------------------------------------------------------
+get_sync_item_count() {
+    local notes folders
+    if ! notes=$(flock -w 60 "${SYNC_LOCK_FILE}" joplin ls -n 99999 2>/dev/null | wc -l); then
+        log "WARN" "get_sync_item_count: note count failed — skipping check"
+        echo "skip"
+        return 1
+    fi
+    if ! folders=$(flock -w 60 "${SYNC_LOCK_FILE}" joplin ls / 2>/dev/null | wc -l); then
+        log "WARN" "get_sync_item_count: folder count failed — skipping check"
+        echo "skip"
+        return 1
+    fi
+    echo "$((notes + folders))"
+}
+
+# -----------------------------------------------------------------------------
+# Post-sync deletion circuit-breaker
+# Return-code contract: 0 = check passed, 1 = check skipped (WARN), 2 = breaker tripped
+# SYNC_MAX_DELETE_COUNT = -1 disables the circuit breaker.
+# Every invocation MUST be in a conditional context (set -e invariant).
+# -----------------------------------------------------------------------------
+check_deletion_circuit_breaker() {
+    local label="$1"
+    local pre_count="$2"
+
+    # SYNC_MAX_DELETE_COUNT = -1 disables the circuit breaker.
+    if [ "${SYNC_MAX_DELETE_COUNT}" -lt 0 ]; then
+        return 0
+    fi
+
+    # Validate BOTH counts BEFORE any arithmetic (set -e: a "skip" or
+    # non-numeric operand in $(( )) would be a fatal arithmetic error).
+    if [ -z "${pre_count}" ] || [ "${pre_count}" = "skip" ] || ! [ "${pre_count}" -ge 0 ] 2>/dev/null; then
+        log "WARN" "[${label}] Pre-sync item count invalid ('${pre_count}') — skipping deletion circuit-breaker check"
+        return 1
+    fi
+
+    local post_count
+    post_count=$(get_sync_item_count) || post_count="skip"  # guarded: skip path must not kill the caller
+    if [ -z "${post_count}" ] || [ "${post_count}" = "skip" ] || ! [ "${post_count}" -ge 0 ] 2>/dev/null; then
+        log "WARN" "[${label}] Post-sync item count failed — skipping deletion circuit-breaker check"
+        return 1
+    fi
+
+    # Suspicious-zero guard (F3): `joplin ls` can fail silently (exit 0,
+    # empty output). A post-count of exactly 0 when pre_count > 0 must NOT
+    # trip the breaker — retry once; if still 0, WARN and skip.
+    if [ "${post_count}" -eq 0 ] && [ "${pre_count}" -gt 0 ]; then
+        log "WARN" "[${label}] Post-sync count is 0 with pre-sync count ${pre_count} — suspicious (possible joplin ls failure); retrying once"
+        post_count=$(get_sync_item_count) || post_count="skip"
+        if [ -z "${post_count}" ] || [ "${post_count}" = "skip" ] || ! [ "${post_count}" -ge 0 ] 2>/dev/null || [ "${post_count}" -eq 0 ]; then
+            log "WARN" "[${label}] Post-sync count still 0/failed after retry — skipping deletion circuit-breaker check (no trip)"
+            return 1
+        fi
+    fi
+
+    local deleted=$((pre_count - post_count))
+    if [ "${deleted}" -lt 0 ]; then
+        deleted=0  # Items were added, not deleted
+    fi
+
+    if [ "${deleted}" -gt "${SYNC_MAX_DELETE_COUNT}" ]; then
+        log "ERROR" "[${label}] CIRCUIT BREAKER TRIPPED: sync deleted ${deleted} items (threshold: ${SYNC_MAX_DELETE_COUNT})"
+        log "ERROR" "[${label}] Pre-sync count: ${pre_count}, post-sync count: ${post_count}"
+        log "ERROR" "[${label}] Writing halt marker to prevent further syncs (see ${SYNC_HALT_MARKER})"
+        echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') [CIRCUIT_BREAKER] ${deleted} items deleted (threshold: ${SYNC_MAX_DELETE_COUNT}). Pre-sync: ${pre_count}, post-sync: ${post_count}. Sync halted. See issue #27." > "${SYNC_HALT_MARKER}"
+        return 2
+    fi
+
+    log "INFO" "[${label}] Deletion check passed: ${deleted} items deleted (threshold: ${SYNC_MAX_DELETE_COUNT})"
+    return 0
+}
+
+# -----------------------------------------------------------------------------
 # Validate required environment variables (from core entrypoint)
 # -----------------------------------------------------------------------------
 log "INFO" "============================================="
@@ -133,6 +249,7 @@ fi
 JOPLIN_DATA_API_PORT="${JOPLIN_DATA_API_PORT:-41184}"
 SYNC_INTERVAL_SECONDS="${SYNC_INTERVAL_SECONDS:-300}"
 LOG_LEVEL="${LOG_LEVEL:-info}"
+SYNC_MAX_DELETE_COUNT="${SYNC_MAX_DELETE_COUNT:-100}"
 # Canonicalize MCP port — the container always binds to 3000.
 # env_file may inject a non-3000 MCP_PORT from .env; ignore it.
 if [ "${MCP_PORT:-3000}" != "3000" ]; then
@@ -164,6 +281,12 @@ joplin config sync.target 10
 joplin config "sync.10.path" "${JOPLIN_SERVER_URL}"
 joplin config "sync.10.username" "${JOPLIN_USERNAME}"
 joplin config "sync.10.password" "${JOPLIN_PASSWORD}"
+
+# database.busyTimeout is NOT supported by Joplin CLI 3.7.1 (`joplin config
+# database.busyTimeout` → "Unknown key"). The container relies on flock
+# serialization (sync-vs-sync) plus detection + halt-marker circuit-breaking
+# for the Data API contention race (issue #27).
+log "WARN" "database.busyTimeout not supported by Joplin CLI 3.7.1 — relying on flock serialization + detection circuit-breaker (see issue #27)"
 
 # Configure E2EE master password from environment (optional)
 if [ -n "${JOPLIN_MASTER_PASSWORD:-}" ]; then
@@ -293,62 +416,137 @@ fi
 # -----------------------------------------------------------------------------
 log "INFO" "Starting periodic sync loop (interval: ${SYNC_INTERVAL_SECONDS}s)..."
 
-# Perform an initial sync immediately
+# Halt gate: refuse to sync if a destructive signature was previously detected
+if [ -f "${SYNC_HALT_MARKER}" ]; then
+    log "ERROR" "Sync halt marker exists — refusing to sync (see ${SYNC_HALT_MARKER})"
+    log "ERROR" "Remove ${SYNC_HALT_MARKER} to re-enable sync after investigating issue #27"
+else
+
 log_sync "START" "Performing initial sync..."
 LOG_TAIL_START=$(( $(wc -l < "${JOPLIN_LOG_FILE}" 2>/dev/null || echo 0) + 1 ))
+PRE_SYNC_COUNT=$(get_sync_item_count) || PRE_SYNC_COUNT="skip"
 SYNC_EXIT=0
-joplin sync > "${LOG_DIR}/sync-stdout.log" 2> "${LOG_DIR}/sync-stderr.log" || SYNC_EXIT=$?
+flock -w 120 "${SYNC_LOCK_FILE}" -c 'joplin sync' > "${LOG_DIR}/sync-stdout.log" 2> "${LOG_DIR}/sync-stderr.log" || SYNC_EXIT=$?
 
+START_PERIODIC_LOOP=1
 if [ "${SYNC_EXIT}" -ne 0 ]; then
     log_sync "FAIL" "Initial sync failed (exit code: ${SYNC_EXIT})"
     log "ERROR" "Sync stderr output:"
     cat "${LOG_DIR}/sync-stderr.log" >&2
     log "ERROR" "Last 20 lines of Joplin log (log.txt):"
     tail -n 20 "${JOPLIN_LOG_FILE}" >&2 || log "WARN" "log.txt not found or empty"
-elif ! check_sync_errors "Initial" "${LOG_TAIL_START}"; then
-    log_sync "FAIL" "Initial sync reported errors despite exit code 0"
+    # Destructive-signature check ALSO in the nonzero-exit branch (a lock
+    # error exits nonzero and lands here, not in the elif):
+    DANGER_RC=0
+    check_sync_danger "Initial" "${LOG_TAIL_START}" || DANGER_RC=$?
+    if [ "${DANGER_RC}" -eq 2 ]; then
+        log_sync "ABORT" "Destructive signature detected in failed sync — halting"
+        echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') [SYNC_ABORT] Destructive sync signature detected — sync halted. See issue #27." > "${SYNC_HALT_MARKER}"
+        START_PERIODIC_LOOP=0
+    fi
 else
-    log_sync "PASS" "Initial sync completed successfully"
+    ERR_RC=0
+    check_sync_errors "Initial" "${LOG_TAIL_START}" || ERR_RC=$?
+    if [ "${ERR_RC}" -ne 0 ]; then
+        log_sync "FAIL" "Initial sync reported errors despite exit code 0"
+        DANGER_RC=0
+        check_sync_danger "Initial" "${LOG_TAIL_START}" || DANGER_RC=$?
+        if [ "${DANGER_RC}" -eq 2 ]; then
+            log_sync "ABORT" "Destructive signature detected — halting"
+            echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') [SYNC_ABORT] Destructive sync signature detected — sync halted. See issue #27." > "${SYNC_HALT_MARKER}"
+            START_PERIODIC_LOOP=0
+        fi
+    else
+        log_sync "PASS" "Initial sync completed successfully"
+    fi
 fi
+
+# Deletion circuit-breaker (after sync + danger checks)
+BREAKER_RC=0
+check_deletion_circuit_breaker "Initial" "${PRE_SYNC_COUNT}" || BREAKER_RC=$?
+if [ "${BREAKER_RC}" -eq 2 ]; then
+    START_PERIODIC_LOOP=0
+fi
+
+fi  # end of halt gate else block
 
 # Start periodic sync loop in its own process group so cleanup() can kill
 # the whole group (subshell + any in-flight joplin sync child) atomically.
 #
 # `bash -c` children do not inherit shell functions or non-exported variables,
 # so we must export everything the loop body references:
-#   - variables: SYNC_INTERVAL_SECONDS, LOG_DIR, LOG_FILE, SYNC_LOG_FILE, JOPLIN_LOG_FILE
-#   - functions: log, log_sync, check_sync_errors
+#   - variables: SYNC_INTERVAL_SECONDS, LOG_DIR, LOG_FILE, SYNC_LOG_FILE, JOPLIN_LOG_FILE,
+#     SYNC_HALT_MARKER, SYNC_LOCK_FILE, SYNC_MAX_DELETE_COUNT
+#   - functions: log, log_sync, check_sync_errors, check_sync_danger,
+#     get_sync_item_count, check_deletion_circuit_breaker
 # Note: JOPLIN_PROFILE_DIR is intentionally not exported — JOPLIN_LOG_FILE is fully resolved at declaration time.
-export SYNC_INTERVAL_SECONDS LOG_DIR LOG_FILE SYNC_LOG_FILE JOPLIN_LOG_FILE
-export -f log log_sync check_sync_errors
-setsid bash -c '
-    while true; do
-        sleep "${SYNC_INTERVAL_SECONDS}"
+export SYNC_INTERVAL_SECONDS LOG_DIR LOG_FILE SYNC_LOG_FILE JOPLIN_LOG_FILE SYNC_HALT_MARKER SYNC_LOCK_FILE SYNC_MAX_DELETE_COUNT
+export -f log log_sync check_sync_errors check_sync_danger get_sync_item_count check_deletion_circuit_breaker
+# Fail-safe default: when the halt marker is present the else block above never
+# assigns START_PERIODIC_LOOP, and `set -u` would abort the entrypoint here —
+# before MCP/Data API start.  Default to 0 (do not start the loop).
+: "${START_PERIODIC_LOOP:=0}"
+if [ "${START_PERIODIC_LOOP}" = "1" ]; then
+    setsid bash -c '
+        while true; do
+            sleep "${SYNC_INTERVAL_SECONDS}"
 
-        log_sync "START" "Starting periodic sync..."
-        SYNC_STDOUT="${LOG_DIR}/sync-stdout.log"
-        SYNC_STDERR="${LOG_DIR}/sync-stderr.log"
+            # Halt gate: refuse to sync if a destructive signature was previously detected
+            if [ -f "${SYNC_HALT_MARKER}" ]; then
+                log "ERROR" "Sync halt marker exists — refusing to sync (see ${SYNC_HALT_MARKER})"
+                log "ERROR" "Remove ${SYNC_HALT_MARKER} to re-enable sync after investigating issue #27"
+                sleep "${SYNC_INTERVAL_SECONDS}"
+                continue
+            fi
 
-        LOG_TAIL_START=$(( $(wc -l < "${JOPLIN_LOG_FILE}" 2>/dev/null || echo 0) + 1 ))
-        SYNC_EXIT=0
-        joplin sync > "${SYNC_STDOUT}" 2> "${SYNC_STDERR}" || SYNC_EXIT=$?
+            log_sync "START" "Starting periodic sync..."
+            SYNC_STDOUT="${LOG_DIR}/sync-stdout.log"
+            SYNC_STDERR="${LOG_DIR}/sync-stderr.log"
 
-        if [ "${SYNC_EXIT}" -ne 0 ]; then
-            log_sync "FAIL" "Periodic sync failed (exit code: ${SYNC_EXIT})"
-            log "ERROR" "Sync stderr output (exit code ${SYNC_EXIT}):"
-            cat "${SYNC_STDERR}" >&2
-            log "ERROR" "Last 20 lines of Joplin log (log.txt):"
-            tail -n 20 "${JOPLIN_LOG_FILE}" >&2 || log "WARN" "log.txt not found or empty"
-        elif ! check_sync_errors "Periodic" "${LOG_TAIL_START}"; then
-            log_sync "FAIL" "Periodic sync reported errors despite exit code 0"
-        else
-            log_sync "PASS" "Periodic sync completed successfully"
-        fi
-    done
-' &
-SYNC_LOOP_PID=$!
+            LOG_TAIL_START=$(( $(wc -l < "${JOPLIN_LOG_FILE}" 2>/dev/null || echo 0) + 1 ))
+            PRE_SYNC_COUNT=$(get_sync_item_count) || PRE_SYNC_COUNT="skip"
+            SYNC_EXIT=0
+            flock -w 120 "${SYNC_LOCK_FILE}" -c '"'"'joplin sync'"'"' > "${SYNC_STDOUT}" 2> "${SYNC_STDERR}" || SYNC_EXIT=$?
 
-log "INFO" "Periodic sync loop started (PID: ${SYNC_LOOP_PID}, own process group)"
+            if [ "${SYNC_EXIT}" -ne 0 ]; then
+                log_sync "FAIL" "Periodic sync failed (exit code: ${SYNC_EXIT})"
+                log "ERROR" "Sync stderr output (exit code ${SYNC_EXIT}):"
+                cat "${SYNC_STDERR}" >&2
+                log "ERROR" "Last 20 lines of Joplin log (log.txt):"
+                tail -n 20 "${JOPLIN_LOG_FILE}" >&2 || log "WARN" "log.txt not found or empty"
+                DANGER_RC=0
+                check_sync_danger "Periodic" "${LOG_TAIL_START}" || DANGER_RC=$?
+                if [ "${DANGER_RC}" -eq 2 ]; then
+                    log_sync "ABORT" "Destructive signature detected in periodic sync — halting"
+                    echo "$(date -u +'"'"'%Y-%m-%dT%H:%M:%SZ'"'"') [SYNC_ABORT] Destructive sync signature detected — sync halted. See issue #27." > "${SYNC_HALT_MARKER}"
+                fi
+            else
+                ERR_RC=0
+                check_sync_errors "Periodic" "${LOG_TAIL_START}" || ERR_RC=$?
+                if [ "${ERR_RC}" -ne 0 ]; then
+                    log_sync "FAIL" "Periodic sync reported errors despite exit code 0"
+                    DANGER_RC=0
+                    check_sync_danger "Periodic" "${LOG_TAIL_START}" || DANGER_RC=$?
+                    if [ "${DANGER_RC}" -eq 2 ]; then
+                        log_sync "ABORT" "Destructive signature detected — halting"
+                        echo "$(date -u +'"'"'%Y-%m-%dT%H:%M:%SZ'"'"') [SYNC_ABORT] Destructive sync signature detected — sync halted. See issue #27." > "${SYNC_HALT_MARKER}"
+                    fi
+                else
+                    log_sync "PASS" "Periodic sync completed successfully"
+                fi
+            fi
+
+            # Deletion circuit-breaker (after sync + danger checks)
+            BREAKER_RC=0
+            check_deletion_circuit_breaker "Periodic" "${PRE_SYNC_COUNT}" || BREAKER_RC=$?
+        done
+    ' &
+    SYNC_LOOP_PID=$!
+else
+    log "ERROR" "Periodic sync loop not started — halt marker present (see ${SYNC_HALT_MARKER})"
+fi
+
+log "INFO" "Periodic sync loop started (PID: ${SYNC_LOOP_PID:-none}, own process group)"
 
 # -----------------------------------------------------------------------------
 # Start MCP HTTP server (Node.js, in background)
@@ -456,13 +654,29 @@ cleanup() {
 
     # 4. Final sync before exit (matches entrypoint-core.sh shutdown semantics).
     #    Skip if the Data API already died — a final sync over loopback would fail.
-    if [ "${data_api_alive}" = true ]; then
+    #    Skip if the halt marker exists — a previous destructive sync was detected.
+    if [ "${data_api_alive}" = true ] && ! [ -f "${SYNC_HALT_MARKER}" ]; then
         log_sync "START" "Performing final sync before shutdown..."
-        if joplin sync > /dev/null 2>&1; then
+        PRE_SYNC_COUNT=$(get_sync_item_count) || PRE_SYNC_COUNT="skip"
+        if flock -w 120 "${SYNC_LOCK_FILE}" -c 'joplin sync' > /dev/null 2>&1; then
             log_sync "PASS" "Final sync completed successfully"
+            # Run danger check and deletion breaker even on final sync
+            LOG_TAIL_START=$(( $(wc -l < "${JOPLIN_LOG_FILE}" 2>/dev/null || echo 0) + 1 ))
+            DANGER_RC=0
+            check_sync_danger "Final" "${LOG_TAIL_START}" || DANGER_RC=$?
+            if [ "${DANGER_RC}" -eq 2 ]; then
+                log_sync "ABORT" "Destructive signature detected in final sync"
+            fi
+            BREAKER_RC=0
+            check_deletion_circuit_breaker "Final" "${PRE_SYNC_COUNT}" || BREAKER_RC=$?
+            if [ "${BREAKER_RC}" -eq 2 ]; then
+                log "WARN" "Circuit breaker tripped during shutdown final sync — halt marker written (see ${SYNC_HALT_MARKER})"
+            fi
         else
             log_sync "FAIL" "Final sync failed"
         fi
+    elif [ -f "${SYNC_HALT_MARKER}" ]; then
+        log "WARN" "Skipping final sync — halt marker exists (see ${SYNC_HALT_MARKER})"
     else
         log "WARN" "Skipping final sync — Data API is not running"
     fi
