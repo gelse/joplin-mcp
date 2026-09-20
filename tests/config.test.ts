@@ -8,6 +8,7 @@ const ENV_VARS = [
   'JOPLIN_DATA_API_PORT',
   'LOG_LEVEL',
   'SYNC_INTERVAL_SECONDS',
+  'SYNC_MAX_DELETE_COUNT',
 ] as const;
 
 function saveEnv(): Record<string, string | undefined> {
@@ -172,6 +173,64 @@ describe('Config Parser', () => {
       process.env['JOPLIN_USERNAME'] = 'test@example.com';
       process.env['JOPLIN_PASSWORD'] = 'dummy-password';
       process.env['SYNC_INTERVAL_SECONDS'] = '-10';
+
+      const { parseConfig } = await import('../src/config.js');
+      expect(() => parseConfig()).toThrow('Configuration validation failed');
+    });
+
+    it('should accept syncMaxDeleteCount of 100', async () => {
+      process.env['JOPLIN_SERVER_URL'] = 'https://joplin.example.com/';
+      process.env['JOPLIN_USERNAME'] = 'test@example.com';
+      process.env['JOPLIN_PASSWORD'] = 'dummy-password';
+      process.env['JOPLIN_API_TOKEN'] = 'test-api-token-12345';
+      process.env['SYNC_MAX_DELETE_COUNT'] = '100';
+
+      const { parseConfig } = await import('../src/config.js');
+      const config = parseConfig();
+      expect(config.syncMaxDeleteCount).toBe(100);
+    });
+
+    it('should accept syncMaxDeleteCount of 0 (valid threshold)', async () => {
+      process.env['JOPLIN_SERVER_URL'] = 'https://joplin.example.com/';
+      process.env['JOPLIN_USERNAME'] = 'test@example.com';
+      process.env['JOPLIN_PASSWORD'] = 'dummy-password';
+      process.env['JOPLIN_API_TOKEN'] = 'test-api-token-12345';
+      process.env['SYNC_MAX_DELETE_COUNT'] = '0';
+
+      const { parseConfig } = await import('../src/config.js');
+      const config = parseConfig();
+      expect(config.syncMaxDeleteCount).toBe(0);
+    });
+
+    it('should accept syncMaxDeleteCount of -1 (disable sentinel)', async () => {
+      process.env['JOPLIN_SERVER_URL'] = 'https://joplin.example.com/';
+      process.env['JOPLIN_USERNAME'] = 'test@example.com';
+      process.env['JOPLIN_PASSWORD'] = 'dummy-password';
+      process.env['JOPLIN_API_TOKEN'] = 'test-api-token-12345';
+      process.env['SYNC_MAX_DELETE_COUNT'] = '-1';
+
+      const { parseConfig } = await import('../src/config.js');
+      const config = parseConfig();
+      expect(config.syncMaxDeleteCount).toBe(-1);
+    });
+
+    it('should reject syncMaxDeleteCount of -2 (below .min(-1))', async () => {
+      process.env['JOPLIN_SERVER_URL'] = 'https://joplin.example.com/';
+      process.env['JOPLIN_USERNAME'] = 'test@example.com';
+      process.env['JOPLIN_PASSWORD'] = 'dummy-password';
+      process.env['JOPLIN_API_TOKEN'] = 'test-api-token-12345';
+      process.env['SYNC_MAX_DELETE_COUNT'] = '-2';
+
+      const { parseConfig } = await import('../src/config.js');
+      expect(() => parseConfig()).toThrow('Configuration validation failed');
+    });
+
+    it('should reject non-integer syncMaxDeleteCount', async () => {
+      process.env['JOPLIN_SERVER_URL'] = 'https://joplin.example.com/';
+      process.env['JOPLIN_USERNAME'] = 'test@example.com';
+      process.env['JOPLIN_PASSWORD'] = 'dummy-password';
+      process.env['JOPLIN_API_TOKEN'] = 'test-api-token-12345';
+      process.env['SYNC_MAX_DELETE_COUNT'] = '1.5';
 
       const { parseConfig } = await import('../src/config.js');
       expect(() => parseConfig()).toThrow('Configuration validation failed');

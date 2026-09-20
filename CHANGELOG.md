@@ -9,6 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Detect destructive SQLITE_BUSY signatures in sync logs and halt sync via a persistent marker file, limiting the issue #27 data-destruction scenario to at most one occurrence ([#27](https://github.com/gelse/joplin-mcp/issues/27))
+- Add flock serialization around all `joplin sync` invocations (sync-vs-sync; does not cover Data API contention — see issue #27)
+- Add deletion circuit-breaker (`SYNC_MAX_DELETE_COUNT`, `-1` disables) that halts sync when too many items would be deleted
+
 ## [0.2.2] - 2026-09-13
 
 ### Changed

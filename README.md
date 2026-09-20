@@ -35,6 +35,7 @@ docker run -d \
 | `JOPLIN_DATA_API_PORT`   | No       | `41184` | Internal Data API listen port (rarely changed)                    |
 | `LOG_LEVEL`              | No       | `info`  | Log level: `debug`, `info`, `warn`, `error`, `silent`             |
 | `SYNC_INTERVAL_SECONDS`  | No       | `300`   | Periodic sync interval in seconds                                 |
+| `SYNC_MAX_DELETE_COUNT`  | No       | `100`   | Max items sync may delete before circuit-breaker halts (`-1` disables; `0` = no deletion allowed) |
 | `MCP_HOST_PORT`          | No       | `3000`  | Host-side MCP port (mapped via `-p 127.0.0.1:MCP_HOST_PORT:3000`) |
 | `JOPLIN_MASTER_PASSWORD` | No       | —       | E2EE master password (leave empty to skip encryption)             |
 
@@ -257,14 +258,26 @@ graph TD
 6. Write operations persist to the local Joplin Data API and reach Joplin Server on the next scheduled sync (every `SYNC_INTERVAL_SECONDS`)
 7. The container uses a **single healthcheck** probing both the Data API (`/ping`) and the MCP server (`/health`)
 
-> **Note: SQLITE_BUSY during sync** — During periodic sync windows, the Joplin CLI holds a
-> write lock on the SQLite database, which can cause transient `SQLITE_BUSY` errors for
-> concurrent read requests from the MCP server. The MCP server automatically retries read
-> (GET) requests on `SQLITE_BUSY` with exponential backoff (up to 3 retries). Write requests
-> (POST/PUT/DELETE) are **not** retried to avoid duplicate resource creation. This is an
-> inherent limitation of the two-process architecture (Data API + sync CLI sharing one
-> SQLite database), now running within a single container. The long-term fix is a single
-> long-lived process ([GitHub Issue #2, Topic 6](https://github.com/gelse/joplin-mcp/issues/2)).
+> **Note: SQLITE_BUSY and sync safety** — The Joplin Data API and `joplin sync` CLI share
+> one SQLite database. When the Data API holds the write lock, a concurrent `joplin sync`
+> can receive `SQLITE_BUSY: database is locked`, causing the CLI to treat the database
+> version as `null` and run destructive schema migrations from version 0 ([#27](https://github.com/gelse/joplin-mcp/issues/27)).
+> The container cannot prevent this first destructive sync without upstream changes (the
+> Data API never takes the CLI's flock, and `database.busyTimeout` is unsupported in
+> Joplin CLI 3.7.1). Instead, M2 provides **damage limitation**:
+>
+> 1. **Detection + halt marker** — Destructive log signatures (`SQLITE_BUSY`, `database is locked`,
+>    `Upgrading database from version 0`) are detected after each sync; a persistent halt marker
+>    (`.sync-halt` on the profile volume) permanently refuses further syncs.
+> 2. **Deletion circuit-breaker** (`SYNC_MAX_DELETE_COUNT`) — Compares pre/post item counts;
+>    trips the halt marker when too many items would be deleted.
+> 3. **flock serialization** — All `joplin sync` invocations are wrapped in `flock` to prevent
+>    sync-vs-sync overlap (initial vs periodic vs cleanup). This does **not** cover the
+>    Data API contention that triggers #27.
+>
+> **Recovery:** Remove `${JOPLIN_PROFILE_DIR}/.sync-halt` from the profile volume to re-enable
+> sync after investigating. The long-term fix is a single long-lived process
+> ([#2](https://github.com/gelse/joplin-mcp/issues/2)).
 
 #### Migration from Two-Container Setup
 
@@ -363,12 +376,12 @@ Validation error: note_id: Expected 32-character hex ID
 
 ## Sync Behaviour
 
-- **Initial sync**: The entrypoint runs `joplin sync` once before starting the MCP server; no SyncManager is involved. This is a blocking call — a large first-run delays MCP availability. The container healthcheck (`start-period=90s` in [`Dockerfile.combined`](Dockerfile.combined)) may report unhealthy until the initial sync completes.
+- **Initial sync**: The entrypoint runs `joplin sync` (flock-serialized) once before starting the MCP server. If a destructive signature is detected, a halt marker is created and the periodic loop is not started. The container healthcheck (`start-period=90s` in [`Dockerfile.combined`](Dockerfile.combined)) may report unhealthy until the initial sync completes.
 - **Initial sync throughput**: Governed by the pinned Joplin CLI's per-item sync algorithm (`joplin@3.7.1`). The historically observed ~12 items/min on the pre-0.2.0 two-container setup had a known contributing factor (Data API contention during sync) that was removed in 0.2.0. Actual post-0.2.0 throughput is unmeasured — see [Plan #7 Resolution](plans/007-slow-initial-sync-followup.md#resolution-2026-09-01-re-investigation-after-v020-combined-container-overhaul).
-- **Periodic sync**: Every 5 minutes (configurable via `SYNC_INTERVAL_SECONDS`)
+- **Periodic sync**: Every 5 minutes (configurable via `SYNC_INTERVAL_SECONDS`); each iteration checks the halt marker before syncing.
 - **Scheduled sync**: Every create/update/delete/untag operation is picked up by the periodic scheduler (within ≤ `SYNC_INTERVAL_SECONDS`)
 - **Conflict resolution**: Remote always wins (Joplin CLI built-in behaviour; conflicted copies are flagged in Joplin)
-- **Serialized queue**: Prevents `SQLITE_BUSY` errors by serializing sync operations
+- **Sync serialization**: All `joplin sync` invocations are wrapped in `flock` (sync-vs-sync overlap prevention) plus a deletion circuit-breaker (`SYNC_MAX_DELETE_COUNT`) for damage limitation against issue #27
 
 > **⚠️ Joplin Server minimum client version**: Joplin Server enforces a minimum client version for sync compatibility. The pinned Joplin CLI version in this image (`joplin@3.7.1` in [`Dockerfile.combined`](Dockerfile.combined)) is therefore a compatibility constraint — upgrading Joplin Server may require a matching image upgrade if the server's minimum client version exceeds the pinned CLI version. A mismatch causes sync to silently fail (the CLI still exits 0).
 
@@ -584,8 +597,8 @@ Root-level deployment files:
 3. **Extract API token** — Honours a pre-set `JOPLIN_API_TOKEN` from `.env`, or auto-extracts from the Joplin CLI config / `settings.json`
 4. **Start Joplin Data API** — `joplin server start` binding to `127.0.0.1:41184` (loopback-only, no socat proxy)
 5. **Wait for readiness** — Polls `/ping` endpoint (up to 30 retries, 2s intervals)
-6. **Perform initial sync** — `joplin sync` with sync-error diagnostics
-7. **Start periodic sync** — Bash `while true` loop (runs in its own process group via `setsid`) with configurable `SYNC_INTERVAL_SECONDS`
+6. **Perform initial sync** — `joplin sync` (flock-serialized) with sync-error and destructive-signature diagnostics; creates halt marker on detection
+7. **Start periodic sync** — Bash `while true` loop (runs in its own process group via `setsid`) with configurable `SYNC_INTERVAL_SECONDS`; halt gate checks `.sync-halt` marker before each sync
 8. **Start MCP HTTP server** — `node dist/mcp/entry.js` on port 3000
 9. **Liveness monitor** — `wait -n` on both child PIDs; exits non-zero if either dies (triggers Docker restart)
 10. **Handle signals** — On `SIGTERM`/`SIGINT`: kill sync loop group, stop MCP server, stop Data API, perform final sync, exit 0
@@ -600,7 +613,7 @@ The integration-test stack ([`docker-compose.test.yml`](docker-compose.test.yml)
 2. **Single combined container** — All components (Data API, MCP server, sync scheduler) run in one container. Communication happens over loopback (`127.0.0.1:41184`), eliminating the need for Docker internal networking or a socat proxy. Only port 3000 is published to the host.
 3. **Bash-based sync scheduler** — Replaces the TypeScript SyncManager with a simple, reliable bash `while true` loop. Logs every sync with PASS/FAIL to `/var/log/joplin/sync.log`.
 4. **Scheduled sync** — Write tools persist to the local Data API; the bash scheduler (sole sync mechanism in the combined container) pushes changes to Joplin Server within `SYNC_INTERVAL_SECONDS`
-5. **Serialized sync queue** — The combined container's bash sync loop serializes sync calls sequentially, preventing `SQLITE_BUSY` errors (the legacy TypeScript `SyncManager` provided the same guarantee but is not invoked in the combined container)
+5. **Sync serialization and damage limitation** — All `joplin sync` invocations are wrapped in `flock` to prevent sync-vs-sync overlap. Destructive signatures (issue #27) are detected after each sync and halt further syncs via a persistent marker. A deletion circuit-breaker (`SYNC_MAX_DELETE_COUNT`) provides additional protection.
 6. **Remote-wins conflict resolution** — Delegated to Joplin CLI built-in behaviour; local changes always yield to remote
 7. **Token lifecycle** — Auth token obtained via `POST /auth`, reused with 60-second proactive refresh buffer before 55-minute expiry, re-fetched on 401 responses
 8. **Token auto-extraction** — The entrypoint extracts the API token from the Joplin CLI config, eliminating the manual `docker logs` retrieval ceremony

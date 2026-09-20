@@ -41,6 +41,12 @@ const configSchema = z.object({
     .positive()
     .default(300)
     .describe('SYNC_INTERVAL_SECONDS'),
+  syncMaxDeleteCount: z.coerce
+    .number()
+    .int()
+    .min(-1)
+    .default(100)
+    .describe('SYNC_MAX_DELETE_COUNT'),
 });
 
 export type Config = z.infer<typeof configSchema>;
@@ -55,6 +61,7 @@ export function parseConfig(): Config {
     joplinCoreUrl: process.env['JOPLIN_CORE_URL'],
     logLevel: process.env['LOG_LEVEL'],
     syncIntervalSeconds: process.env['SYNC_INTERVAL_SECONDS'],
+    syncMaxDeleteCount: process.env['SYNC_MAX_DELETE_COUNT'],
   };
 
   const result = configSchema.safeParse(env);
@@ -73,7 +80,8 @@ export function parseConfig(): Config {
         `  JOPLIN_CORE_URL (required for Container B MCP server)\n` +
         `  JOPLIN_DATA_API_PORT (optional, default: 41184)\n` +
         `  LOG_LEVEL (optional, default: "info")\n` +
-        `  SYNC_INTERVAL_SECONDS (optional, default: 300)`,
+        `  SYNC_INTERVAL_SECONDS (optional, default: 300)\n` +
+        `  SYNC_MAX_DELETE_COUNT (optional, default: 100, -1 disables the deletion circuit-breaker)`,
     );
   }
 

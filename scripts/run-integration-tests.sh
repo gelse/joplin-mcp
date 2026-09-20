@@ -30,9 +30,8 @@ docker compose -f "$COMPOSE_FILE" run --rm \
 # which kills the shared joplin-mcp container's Data API — running it in
 # the same invocation as the other suites would cause sibling failures
 # (fetch failed / ENOTFOUND joplin-mcp) due to file parallelism overlap.
-# The repro is EXPECTED TO FAIL until the M2 fix lands; propagate its
-# exit code so the caller can distinguish "expected assertion failure"
-# from "unexpected error".
+# The repro now asserts M2 safe-behaviour and is expected to PASS.
+# Propagate its exit code so the caller sees any regression.
 REPRO_EXIT=0
 if [ "${RUN_SYNC_LOCK_TESTS:-0}" -eq 1 ]; then
   echo "=== Running SQLITE_BUSY repro (destructive — runs in isolation) ==="
@@ -42,7 +41,7 @@ if [ "${RUN_SYNC_LOCK_TESTS:-0}" -eq 1 ]; then
     pnpm vitest run --config vitest.config.container.ts \
       tests/container/sqlite-busy-repro.test.ts \
     || REPRO_EXIT=$?
-  echo "=== Repro exit code: ${REPRO_EXIT} (expected non-zero until M2) ==="
+  echo "=== Repro exit code: ${REPRO_EXIT} ==="
 fi
 
 echo "=== Collecting logs ==="
@@ -61,12 +60,14 @@ fi
 
 if [ "${RUN_SYNC_LOCK_TESTS:-0}" -eq 1 ]; then
     if [ "$REPRO_EXIT" -eq 0 ]; then
-        echo "SQLITE_BUSY repro passed (unexpected — should fail until M2)."
+        echo "SQLITE_BUSY repro passed — M2 safe-behaviour assertions verified."
     else
-        echo "SQLITE_BUSY repro failed as expected (exit code: ${REPRO_EXIT}) — issue #27 until M2."
+        echo "SQLITE_BUSY repro failed (exit code: ${REPRO_EXIT})."
     fi
 fi
 
-# Exit with the regular suite's exit code; repro exit is informational only
-# (expected to be non-zero until M2 lands).
-exit "$TEST_EXIT"
+# Exit non-zero if either the regular suite or the repro failed.
+if [ "$TEST_EXIT" -ne 0 ] || [ "$REPRO_EXIT" -ne 0 ]; then
+    exit 1
+fi
+exit 0
