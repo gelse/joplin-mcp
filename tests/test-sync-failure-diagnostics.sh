@@ -62,12 +62,79 @@ run_test "Old 'configured successfully' message absent" 1 \
 echo ""
 
 # ============================================================================
+# Group 1b: M2 structure validation (SQLITE_BUSY detection, flock, circuit-breaker)
+# ============================================================================
+
+echo "=== Group 1b: M2 structure validation ==="
+
+# --- Test 6: check_sync_danger function is exported ---
+run_test "check_sync_danger function is exported" 0 \
+    grep -q 'export -f.*check_sync_danger' "${ENTRYPOINT}"
+
+# --- Test 7: SYNC_HALT_MARKER is defined ---
+run_test "SYNC_HALT_MARKER is defined" 0 \
+    grep -q 'SYNC_HALT_MARKER=' "${ENTRYPOINT}"
+
+# --- Test 8: SYNC_LOCK_FILE is defined ---
+run_test "SYNC_LOCK_FILE is defined" 0 \
+    grep -q 'SYNC_LOCK_FILE=' "${ENTRYPOINT}"
+
+# --- Test 9: flock wraps all three joplin sync call sites ---
+run_test "flock wraps all joplin sync call sites (>=3 occurrences)" 0 \
+    bash -c 'count=$(grep -c "flock.*SYNC_LOCK_FILE.*joplin sync\|flock.*SYNC_LOCK_FILE.*-c.*joplin sync" "$1"); [ "${count}" -ge 3 ]' _ "${ENTRYPOINT}"
+
+# --- Test 10: Halt marker gate exists in periodic loop ---
+# The gate's log line is `... exists — refusing to sync (see ${SYNC_HALT_MARKER})`,
+# i.e. the expanded path precedes the literal variable token, so a same-line
+# `SYNC_HALT_MARKER.*refusing` pattern can never match.  Assert the actual
+# loop-gate mechanism instead: the marker check is immediately followed by the
+# sleep+continue that keeps the loop alive (an ordering-independent check on
+# line content would also match the initial-sync gate, which has no `continue`).
+run_test "Halt marker gate exists in periodic loop" 0 \
+    bash -c 'grep -A5 "Sync halt marker exists" "$1" | grep -q "continue"' _ "${ENTRYPOINT}"
+
+# --- Test 11: No kill of sync loop tied to destructive detection ---
+# The sync loop must NOT be killed on detection; it should sleep+continue
+run_test "No kill -TERM on sync loop for destructive detection" 1 \
+    grep -q 'kill.*SYNC_LOOP.*DANGEROUS\|kill.*SYNC_LOOP.*danger\|kill.*SYNC_LOOP.*halt' "${ENTRYPOINT}"
+
+# --- Test 12: get_sync_item_count function is exported ---
+run_test "get_sync_item_count function is exported" 0 \
+    grep -q 'export -f.*get_sync_item_count' "${ENTRYPOINT}"
+
+# --- Test 13: SYNC_MAX_DELETE_COUNT exported ---
+run_test "SYNC_MAX_DELETE_COUNT is exported" 0 \
+    grep -q 'export.*SYNC_MAX_DELETE_COUNT' "${ENTRYPOINT}"
+
+# --- Test 14: check_deletion_circuit_breaker function is exported ---
+run_test "check_deletion_circuit_breaker function is exported" 0 \
+    grep -q 'export -f.*check_deletion_circuit_breaker' "${ENTRYPOINT}"
+
+# --- Test 15: SYNC_HALT_MARKER in export list ---
+run_test "SYNC_HALT_MARKER in export list" 0 \
+    grep -q 'export.*SYNC_HALT_MARKER' "${ENTRYPOINT}"
+
+# --- Test 16: SYNC_LOCK_FILE in export list ---
+run_test "SYNC_LOCK_FILE in export list" 0 \
+    grep -q 'export.*SYNC_LOCK_FILE' "${ENTRYPOINT}"
+
+# --- Test 17: busyTimeout WARN present ---
+run_test "database.busyTimeout WARN present" 0 \
+    grep -q 'database.busyTimeout not supported' "${ENTRYPOINT}"
+
+# --- Test 18: No joplin config database.busyTimeout call ---
+run_test "No joplin config database.busyTimeout call" 1 \
+    grep -q 'joplin config.*database.busyTimeout' "${ENTRYPOINT}"
+
+echo ""
+
+# ============================================================================
 # Group 2: Log tail fallback behavior (isolated function test)
 # ============================================================================
 
 echo "=== Group 2: Log tail fallback behavior ==="
 
-# --- Test 6: When log.txt exists with content, tail -n 20 returns last 20 lines ---
+# --- Test 19: When log.txt exists with content, tail -n 20 returns last 20 lines ---
 (
     # Create a log file with 30 lines
     for i in $(seq 1 30); do
@@ -87,7 +154,7 @@ echo "=== Group 2: Log tail fallback behavior ==="
     fi
 ) && PASS_COUNT=$((PASS_COUNT + 1)) || FAIL_COUNT=$((FAIL_COUNT + 1))
 
-# --- Test 7: When log.txt has fewer than 20 lines, all lines returned ---
+# --- Test 20: When log.txt has fewer than 20 lines, all lines returned ---
 (
     printf 'line1\nline2\nline3\n' > "${TEST_DIR}/log.txt"
 
@@ -103,7 +170,7 @@ echo "=== Group 2: Log tail fallback behavior ==="
     fi
 ) && PASS_COUNT=$((PASS_COUNT + 1)) || FAIL_COUNT=$((FAIL_COUNT + 1))
 
-# --- Test 8: When log.txt does not exist, fallback fires (return code non-zero) ---
+# --- Test 21: When log.txt does not exist, fallback fires (return code non-zero) ---
 (
     # Remove the file if it exists
     rm -f "${TEST_DIR}/log.txt"
@@ -119,7 +186,7 @@ echo "=== Group 2: Log tail fallback behavior ==="
     exit 0
 ) && PASS_COUNT=$((PASS_COUNT + 1)) || FAIL_COUNT=$((FAIL_COUNT + 1))
 
-# --- Test 9: When log.txt is empty, tail succeeds with no output ---
+# --- Test 22: When log.txt is empty, tail succeeds with no output ---
 (
     : > "${TEST_DIR}/log.txt"
 
@@ -179,7 +246,7 @@ MOCK
     grep -q "${expected_keyword}" "${probe_log}"
 }
 
-# --- Test 10: curl succeeds → probe reports "reachable" ---
+# --- Test 23: curl succeeds → probe reports "reachable" ---
 (
     if run_probe 0 "reachable"; then
         echo "PASS: curl success reports reachable"
@@ -190,7 +257,7 @@ MOCK
     fi
 ) && PASS_COUNT=$((PASS_COUNT + 1)) || FAIL_COUNT=$((FAIL_COUNT + 1))
 
-# --- Test 11: curl fails → probe reports "not reachable" warning ---
+# --- Test 24: curl fails → probe reports "not reachable" warning ---
 (
     if run_probe 1 "not reachable"; then
         echo "PASS: curl failure reports not reachable"
@@ -201,7 +268,7 @@ MOCK
     fi
 ) && PASS_COUNT=$((PASS_COUNT + 1)) || FAIL_COUNT=$((FAIL_COUNT + 1))
 
-# --- Test 12: Probe uses correct URL pattern with token parameter ---
+# --- Test 25: Probe uses correct URL pattern with token parameter ---
 (
     MOCK_DIR="${TEST_DIR}/mock-bin"
     mkdir -p "${MOCK_DIR}"
