@@ -657,11 +657,13 @@ cleanup() {
     #    Skip if the halt marker exists — a previous destructive sync was detected.
     if [ "${data_api_alive}" = true ] && ! [ -f "${SYNC_HALT_MARKER}" ]; then
         log_sync "START" "Performing final sync before shutdown..."
+        LOG_TAIL_START=$(( $(wc -l < "${JOPLIN_LOG_FILE}" 2>/dev/null || echo 0) + 1 ))
         PRE_SYNC_COUNT=$(get_sync_item_count) || PRE_SYNC_COUNT="skip"
-        if flock -w 120 "${SYNC_LOCK_FILE}" -c 'joplin sync' > /dev/null 2>&1; then
+        SYNC_EXIT=0
+        flock -w 120 "${SYNC_LOCK_FILE}" -c 'joplin sync' > "${LOG_DIR}/sync-stdout.log" 2> "${LOG_DIR}/sync-stderr.log" || SYNC_EXIT=$?
+        if [ "${SYNC_EXIT}" -eq 0 ]; then
             log_sync "PASS" "Final sync completed successfully"
             # Run danger check and deletion breaker even on final sync
-            LOG_TAIL_START=$(( $(wc -l < "${JOPLIN_LOG_FILE}" 2>/dev/null || echo 0) + 1 ))
             DANGER_RC=0
             check_sync_danger "Final" "${LOG_TAIL_START}" || DANGER_RC=$?
             if [ "${DANGER_RC}" -eq 2 ]; then
@@ -673,7 +675,7 @@ cleanup() {
                 log "WARN" "Circuit breaker tripped during shutdown final sync — halt marker written (see ${SYNC_HALT_MARKER})"
             fi
         else
-            log_sync "FAIL" "Final sync failed"
+            log_sync "FAIL" "Final sync failed (exit code: ${SYNC_EXIT})"
         fi
     elif [ -f "${SYNC_HALT_MARKER}" ]; then
         log "WARN" "Skipping final sync — halt marker exists (see ${SYNC_HALT_MARKER})"
