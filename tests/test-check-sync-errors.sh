@@ -116,6 +116,16 @@ check_deletion_circuit_breaker() {
         return 1
     fi
 
+    # Suspicious-zero guard for the PRE count: `joplin ls` can fail silently
+    # (exit 0, empty output) in either direction. A pre-count of 0 combined with
+    # a post-count of 0 would compute deleted = 0 and pass the breaker while a
+    # full wipe happened. Retry once; if still 0, skip — the breaker can only
+    # compare like-for-like trusted measurements, and skipping is the safe default.
+    if [ "${pre_count}" -eq 0 ]; then
+        log "WARN" "[${label}] Pre-sync count is 0 — suspicious (possible joplin ls failure); cannot verify baseline, skipping deletion circuit-breaker check"
+        return 1
+    fi
+
     local post_count
     post_count=$(get_sync_item_count) || post_count="skip"  # guarded: skip path must not kill the caller
     if [ -z "${post_count}" ] || [ "${post_count}" = "skip" ] || ! [ "${post_count}" -ge 0 ] 2>/dev/null; then
@@ -487,6 +497,24 @@ SYNC_MAX_DELETE_COUNT=0
 # Stub listing of 1 line → measured post-count 2; pre-count 4 → deleted = 2 > 0.
 set_joplin_stub "note1"
 run_breaker_test "Threshold 0, deleted 2 → trip" 2 "4"
+
+# --- Test 31: Pre-count 0, stub empty → return 1 (skip) ---
+clean_halt_marker
+SYNC_MAX_DELETE_COUNT=10
+: > "${JOPLIN_STUB_OUTPUT}"
+run_breaker_test "Pre-count=0 (empty stub) → skip" 1 "0"
+
+# --- Test 32: Pre-count 0, post-count > 0 → return 1 (skip; guard is unconditional) ---
+clean_halt_marker
+SYNC_MAX_DELETE_COUNT=10
+set_joplin_stub "note1" "folder1" "folder2"
+run_breaker_test "Pre-count=0, post>0 → skip" 1 "0"
+
+# --- Test 33: Pre-count 0, SYNC_MAX_DELETE_COUNT=-1 → return 0 (disabled before guard) ---
+clean_halt_marker
+SYNC_MAX_DELETE_COUNT=-1
+: > "${JOPLIN_STUB_OUTPUT}"
+run_breaker_test "Pre-count=0, breaker disabled → pass" 0 "0"
 
 # --- Summary ---
 echo ""
