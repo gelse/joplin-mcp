@@ -113,6 +113,10 @@ check_sync_errors() {
 # Check log files for specifically DANGEROUS sync signatures (issue #27)
 # Returns 0 if no dangerous patterns found, 2 if destructive signatures detected
 # Usage: check_sync_danger <label> [log_offset]
+# NOTE: tests duplicate these sync-safety functions verbatim in
+# tests/test-check-sync-errors.sh — this duplication is DELIBERATE (test
+# independence; code review 2026-09-21, finding S1) — keep the copies in
+# lockstep: update both in the same commit.
 # -----------------------------------------------------------------------------
 check_sync_danger() {
     local label="$1"

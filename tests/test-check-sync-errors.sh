@@ -11,6 +11,10 @@ JOPLIN_PROFILE_DIR="${JOPLIN_PROFILE_DIR:-/home/joplin/.config/joplin}"
 JOPLIN_LOG_FILE="${JOPLIN_PROFILE_DIR}/log.txt"
 
 # --- Copy check_sync_errors() exactly from entrypoint-combined.sh (lines 69-108) ---
+# NOTE: This duplication is DELIBERATE (test independence from entrypoint refactors;
+# code review 2026-09-21, finding S1 — user-confirmed accepted harness pragmatism).
+# If you change these functions in entrypoint-combined.sh, you MUST mirror the change
+# here in the SAME commit, or these tests validate stale logic and pass vacuously.
 check_sync_errors() {
     local label="$1"
     local log_offset="${2:-0}"
