@@ -160,6 +160,8 @@ Tests use [Vitest](https://vitest.dev/) with v8 coverage (thresholds: 70% statem
 
 The test suite does not require a running Joplin instance — unit tests use mocks, and integration tests are skipped when the Joplin Data API is unavailable.
 
+Shell harnesses such as [`tests/test-sync-failure-diagnostics.sh`](tests/test-sync-failure-diagnostics.sh) also include a structural-test layer that asserts entrypoint text rather than behavior — an intentional, accepted trade-off (review 2026-09-21, finding S2).
+
 ### Container Integration Tests
 
 End-to-end tests that run the full MCP stack in a Docker container using the **integration-test stack** ([`docker-compose.test.yml`](docker-compose.test.yml)), built from `Dockerfile.combined`.

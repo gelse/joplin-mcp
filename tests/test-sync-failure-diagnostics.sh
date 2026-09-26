@@ -61,6 +61,13 @@ run_test "Old 'configured successfully' message absent" 1 \
 
 echo ""
 
+# ----------------------------------------------------------------------------
+# These are STRUCTURAL tests — they validate entrypoint text, not behavior
+# (deliberate, review 2026-09-21 S2). They are intentionally brittle to
+# refactors; if you restructure `entrypoint-combined.sh`, expect to update
+# them. Behavioral coverage lives in Groups 3/4 here and in
+# tests/test-check-sync-errors.sh.
+# ----------------------------------------------------------------------------
 # ============================================================================
 # Group 1b: M2 structure validation (SQLITE_BUSY detection, flock, circuit-breaker)
 # ============================================================================
