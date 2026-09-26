@@ -3,6 +3,10 @@ name: Integration Tests
 on:
   pull_request:
     branches: [main, testing]
+  # NOTE: the sqlite-busy-repro job below mounts the host Docker socket into the
+  # test-runner container — a root-equivalent credential over the host daemon.
+  # This is why the job is gated to manual `workflow_dispatch` and does not run
+  # on every PR.
   workflow_dispatch:
     inputs:
       run_sync_lock_tests:

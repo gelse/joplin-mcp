@@ -213,6 +213,13 @@ RUN_SYNC_LOCK_TESTS=1 ./scripts/run-integration-tests.sh
 
 The test requires the test-runner container to have Docker socket access (`/var/run/docker.sock`), which is mounted automatically by [`docker-compose.test.yml`](docker-compose.test.yml).
 
+> **Caveat — root-equivalent credential:** mounting the host Docker socket into
+> the `test-runner` container grants it **root-equivalent control over the host
+> Docker daemon** (any image, any mount, host filesystem access via bind mounts).
+> This is acceptable for the throwaway repro test, but the CI job is therefore
+> **manually dispatched only** (it does not run on every PR). Never replicate the
+> socket mount in a non-test compose file.
+
 > **Note:** This test is deliberately destructive to its throwaway volume and is **expected to fail** on the current code (proving the bug exists per issue #27). It will flip to **pass** once the M2 fix lands. The joplin-mcp container may exit or become unresponsive during the repro by design.
 
 ---
