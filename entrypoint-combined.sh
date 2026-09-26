@@ -682,6 +682,7 @@ cleanup() {
             check_sync_danger "Final" "${LOG_TAIL_START}" || DANGER_RC=$?
             if [ "${DANGER_RC}" -eq 2 ]; then
                 log_sync "ABORT" "Destructive signature detected in final sync"
+                echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') [SYNC_ABORT] Destructive sync signature detected — sync halted. See issue #27." > "${SYNC_HALT_MARKER}"
             fi
             BREAKER_RC=0
             check_deletion_circuit_breaker "Final" "${PRE_SYNC_COUNT}" || BREAKER_RC=$?

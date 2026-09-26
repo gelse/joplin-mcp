@@ -329,7 +329,7 @@ STUB
         fi
 
         # --- Test 13: real block reports DANGEROUS on a destructive final sync ---
-        rm -f "${JOPLIN_LOG_FILE}" "${LOG_DIR}/sync-stdout.log" "${LOG_DIR}/sync-stderr.log" "${SYNC_CAPTURE}"
+        rm -f "${JOPLIN_LOG_FILE}" "${LOG_DIR}/sync-stdout.log" "${LOG_DIR}/sync-stderr.log" "${SYNC_CAPTURE}" "${TEST_DIR}/halt"
         printf 'line1\nline2\nline3\n' > "${JOPLIN_LOG_FILE}"
         cat > "${MOCK_DIR}/flock" << 'STUB'
 #!/bin/bash
@@ -348,11 +348,13 @@ STUB
         ( set -euo pipefail; run_final_block ) || BLOCK_RC=$?
         if [ "${BLOCK_RC}" -eq 0 ] \
             && grep -q 'DANGEROUS sync signature detected' "${SYNC_CAPTURE}" \
-            && grep -q 'Destructive signature detected in final sync' "${SYNC_CAPTURE}"; then
-            echo "PASS: real block — destructive final sync yields [Final] danger detection"
+            && grep -q 'Destructive signature detected in final sync' "${SYNC_CAPTURE}" \
+            && test -f "${SYNC_HALT_MARKER:-${TEST_DIR}/halt}" \
+            && grep -q '\[SYNC_ABORT\]' "${SYNC_HALT_MARKER:-${TEST_DIR}/halt}"; then
+            echo "PASS: real block — destructive final sync yields [Final] danger detection AND writes halt marker"
             PASS_COUNT=$((PASS_COUNT + 1))
         else
-            echo "FAIL: real block — destructive final sync NOT detected (rc=${BLOCK_RC})"
+            echo "FAIL: real block — destructive final sync detection incomplete (rc=${BLOCK_RC})"
             FAIL_COUNT=$((FAIL_COUNT + 1))
         fi
     fi
