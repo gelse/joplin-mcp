@@ -4,7 +4,6 @@ services:
       context: .
       dockerfile: Dockerfile.combined
     image: joplin-mcp-combined:test
-    container_name: joplin-mcp
     environment:
       - JOPLIN_SERVER_URL=https://dummy-joplin-server.example.com
       - JOPLIN_USERNAME=test-user

@@ -15,11 +15,19 @@ docker compose -f "$COMPOSE_FILE" up -d joplin-mcp
 echo "=== Waiting for joplin-mcp to become healthy ==="
 docker compose -f "$COMPOSE_FILE" up -d --wait joplin-mcp
 
+echo "=== Resolving joplin-mcp container ID from the compose project ==="
+# `docker exec` accepts container IDs as well as names. Resolving the ID from
+# the compose project keeps the repro suite working even when another stack
+# owns the fixed "joplin-mcp" name (the test compose no longer pins one).
+JOPLIN_CONTAINER_ID="$(docker compose -f "$COMPOSE_FILE" ps -q joplin-mcp)"
+export JOPLIN_CONTAINER="${JOPLIN_CONTAINER_ID:-joplin-mcp}"
+
 echo "=== Running container integration tests ==="
 mkdir -p "$REPORTS_DIR"
 TEST_EXIT=0
 docker compose -f "$COMPOSE_FILE" run --rm \
   -e "RUN_SYNC_LOCK_TESTS=0" \
+  -e "JOPLIN_CONTAINER=${JOPLIN_CONTAINER}" \
   test-runner \
   pnpm vitest run --config vitest.config.container.ts \
   || TEST_EXIT=$?
@@ -37,6 +45,7 @@ if [ "${RUN_SYNC_LOCK_TESTS:-0}" -eq 1 ]; then
   echo "=== Running SQLITE_BUSY repro (destructive — runs in isolation) ==="
   docker compose -f "$COMPOSE_FILE" run --rm \
     -e "RUN_SYNC_LOCK_TESTS=1" \
+    -e "JOPLIN_CONTAINER=${JOPLIN_CONTAINER}" \
     test-runner \
     pnpm vitest run --config vitest.config.container.ts \
       tests/container/sqlite-busy-repro.test.ts \

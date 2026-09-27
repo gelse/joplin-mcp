@@ -211,6 +211,8 @@ This test is **gated behind a separate environment variable** and does **not** r
 RUN_SYNC_LOCK_TESTS=1 ./scripts/run-integration-tests.sh
 ```
 
+The runner script resolves the target container from the compose project (`docker compose ps -q`) and passes it to the tests as `JOPLIN_CONTAINER`, so the test stack comes up under a generated, project-scoped container name and no longer collides with a locally running dev stack or concurrent CI jobs. If you run vitest directly (without the script), set `JOPLIN_CONTAINER` yourself — the built-in `joplin-mcp` default only resolves if a container is actually named `joplin-mcp` (for example, a running dev stack).
+
 The test requires the test-runner container to have Docker socket access (`/var/run/docker.sock`), which is mounted automatically by [`docker-compose.test.yml`](docker-compose.test.yml).
 
 > **Caveat — root-equivalent credential:** mounting the host Docker socket into

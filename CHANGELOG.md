@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Detect destructive SQLITE_BUSY signatures in sync logs and halt sync via a persistent marker file, limiting the issue #27 data-destruction scenario to at most one occurrence ([#27](https://github.com/gelse/joplin-mcp/issues/27))
 - Add flock serialization around all `joplin sync` invocations (sync-vs-sync; does not cover Data API contention — see issue #27)
 - Add deletion circuit-breaker (`SYNC_MAX_DELETE_COUNT`, `-1` disables) that halts sync when too many items would be deleted
+- Run compose test stacks with generated container names instead of pinning `joplin-mcp`, so parallel test runs (CI jobs, a local dev stack) no longer collide on the fixed name
 
 ## [0.2.2] - 2026-09-13
 
