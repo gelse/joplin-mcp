@@ -1,6 +1,6 @@
 PNPM ?= pnpm
 
-.PHONY: help install build dev start test test-watch test-integration lint format docker-build docker-up docker-down clean smoke-test measure-initial-sync
+.PHONY: help install build dev start test test-watch test-integration lint format docker-build docker-up docker-down docker-test clean smoke-test measure-initial-sync
 
 .DEFAULT_GOAL := help
 
@@ -49,6 +49,9 @@ smoke-test: ## Run smoke tests
 
 test-integration: ## Run container-based integration tests
 	bash scripts/run-integration-tests.sh
+
+docker-test: ## Run unit tests inside Docker (no node required on host)
+	bash scripts/run-unit-tests-docker.sh
 
 measure-initial-sync: ## Measure initial sync throughput (requires live Joplin Server)
 	bash scripts/measure-initial-sync.sh

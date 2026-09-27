@@ -9,6 +9,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `make docker-test` — runs the unit test suite inside Docker, for machines without Node or pnpm installed
+
 ### Fixed
 
 - Detect destructive SQLITE_BUSY signatures in sync logs and halt sync via a persistent marker file, limiting the issue #27 data-destruction scenario to at most one occurrence ([#27](https://github.com/gelse/joplin-mcp/issues/27))
