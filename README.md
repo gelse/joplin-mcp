@@ -143,7 +143,16 @@ docker compose down
 
 ### Testing
 
-A dedicated [`Dockerfile.tests`](Dockerfile.tests) and `test` service in [`docker-compose.yml`](docker-compose.yml) allow running the test suite in a container:
+The unit suite ([Vitest](https://vitest.dev/), configured in [`vitest.config.ts`](vitest.config.ts): `tests/**/*.test.ts` excluding `tests/container/**`) runs with `make test` when the host has Node.js and pnpm — or with the route below when it does not:
+
+```bash
+# Runs the unit suite in a container; only docker and make are required on the host
+make docker-test
+```
+
+`make docker-test` ([`scripts/run-unit-tests-docker.sh`](scripts/run-unit-tests-docker.sh)) builds [`Dockerfile.unittests`](Dockerfile.unittests), tags it `joplin-mcp-unittests`, and runs the suite inside it. Nothing else is involved: no Docker socket mount, no compose stack, and `RUN_INTEGRATION_TESTS` is never set, so [`tests/integration.test.ts`](tests/integration.test.ts) self-skips. The JUnit report is bind-mounted out to `reports/docker-test/junit.xml`; the container runs as root, so the file is root-owned on the host (readable, but deleting it may need sudo). The image's `CMD` is `pnpm run test`, so `docker run --rm joplin-mcp-unittests` also works for ad hoc runs.
+
+A second container route runs the same unit suite: the `test` service in [`docker-compose.yml`](docker-compose.yml), built from [`Dockerfile.tests`](Dockerfile.tests), mounts `./reports` into the container so reports persist on the host:
 
 ```bash
 # Build the test image
@@ -156,9 +165,9 @@ docker run --rm joplin-api-tests
 docker compose --profile test run --rm tests
 ```
 
-Tests use [Vitest](https://vitest.dev/) with v8 coverage (thresholds: 70% statements, 60% branches, 70% functions, 70% lines) and output JUnit XML reports to `./reports/`. When running via docker compose, the `./reports` directory is mounted into the container so reports persist on the host.
+Coverage thresholds (70% statements, 60% branches, 70% functions, 70% lines) are configured in `vitest.config.ts` but are only enforced when coverage is explicitly requested (`pnpm run test -- --coverage`); `make test`, `make docker-test`, and CI all run plain `vitest run`. JUnit report locations: `reports/junit.xml` for host runs and the compose `test` service, `reports/docker-test/junit.xml` for `make docker-test`, `reports/container/junit.xml` for the container integration tests below.
 
-The test suite does not require a running Joplin instance — unit tests use mocks, and integration tests are skipped when the Joplin Data API is unavailable.
+The unit suite does not require a running Joplin instance — it uses mocks. [`tests/integration.test.ts`](tests/integration.test.ts) targets a real Data API and is opt-in: it self-skips unless `RUN_INTEGRATION_TESTS` is set to a truthy value.
 
 Shell harnesses such as [`tests/test-sync-failure-diagnostics.sh`](tests/test-sync-failure-diagnostics.sh) also include a structural-test layer that asserts entrypoint text rather than behavior — an intentional, accepted trade-off (review 2026-09-21, finding S2).
 
@@ -201,7 +210,7 @@ The API token is auto-extracted from the Joplin CLI config at startup.
 
 A dedicated test suite reproduces the destructive `SQLITE_BUSY` migration bug described in [issue #27](https://github.com/gelse/joplin-mcp/issues/27). The test spawns a plain Node process inside the `joplin-mcp` container that holds an exclusive SQLite write lock using the image's built-in `sqlite3` module (`BEGIN EXCLUSIVE` plus a statement inside the transaction to actually acquire the lock). The lock holder sets `PRAGMA busy_timeout = 10000` and retries `BEGIN EXCLUSIVE` with exponential backoff (500ms × 1.5^n, up to ~30s) to survive transient contention. After the test confirms the lock is held via an independent probe (a second `docker exec` node one-liner that fails with `SQLITE_BUSY`), it triggers `joplin sync` while the lock is still held. The upstream Joplin CLI retries for ~43 seconds on `SQLITE_BUSY`; the lock holder outlasts this window at 120 seconds, then self-rolls back.
 
-The test asserts safe-behaviour checks that currently **fail** on the buggy code and will flip to **pass** once the M2 fix lands, with zero assertion edits required.
+The test's assertions check what the M2 fixes actually guarantee: the bypass sync — a direct `joplin sync` that bypasses the entrypoint's flock/halt gate, which remains a documented non-goal for the fix — still reproduces the destructive-migration signatures in the captured log, `check_sync_danger`'s regex detects those signatures, and no secondary corruption (`table folders already exists`) occurs. The suite **passes** on the current, post-M2 code.
 
 The evidence comes from a capture file on the project's `joplin_data` volume (Docker prefixes the project name, so the volume is `joplin-mcp_joplin_data`), not from exec stdout. Exec stdout is unreliable here: the container may die mid-sync, and the capture file survives that. The sync run streams `log.txt` into the file for the whole sync window and records the sync exit code, and the test reads the file back through a throwaway helper container that mounts the same volume.
 
@@ -211,7 +220,7 @@ This test is **gated behind a separate environment variable** and does **not** r
 RUN_SYNC_LOCK_TESTS=1 ./scripts/run-integration-tests.sh
 ```
 
-The runner script resolves the target container from the compose project (`docker compose ps -q`) and passes it to the tests as `JOPLIN_CONTAINER`, so the test stack comes up under a generated, project-scoped container name and no longer collides with a locally running dev stack or concurrent CI jobs. If you run vitest directly (without the script), set `JOPLIN_CONTAINER` yourself — the built-in `joplin-mcp` default only resolves if a container is actually named `joplin-mcp` (for example, a running dev stack).
+The runner script resolves the `joplin-mcp` service's container ID from the compose project (`docker compose ps -q`) and exports it to the tests as `JOPLIN_CONTAINER`. Because compose generates project-scoped container names, the tests target the container that actually came up instead of pinning a fixed name, so the stack does not collide with a locally running dev stack or concurrent CI jobs. If you run vitest directly without the script, set `JOPLIN_CONTAINER` yourself; the built-in `joplin-mcp` default only resolves if a container is actually named `joplin-mcp` (for example, a running dev stack).
 
 The test requires the test-runner container to have Docker socket access (`/var/run/docker.sock`), which is mounted automatically by [`docker-compose.test.yml`](docker-compose.test.yml).
 
@@ -222,7 +231,7 @@ The test requires the test-runner container to have Docker socket access (`/var/
 > **manually dispatched only** (it does not run on every PR). Never replicate the
 > socket mount in a non-test compose file.
 
-> **Note:** This test is deliberately destructive to its throwaway volume and is **expected to fail** on the current code (proving the bug exists per issue #27). It will flip to **pass** once the M2 fix lands. The joplin-mcp container may exit or become unresponsive during the repro by design.
+> **Note:** This test is deliberately destructive to its throwaway volume, and the joplin-mcp container may exit or become unresponsive during the repro by design — the bypass sync still triggers the destructive migration because it bypasses the entrypoint's protections. The suite **passes** on the current, post-M2 code (see the [CHANGELOG](CHANGELOG.md)).
 
 ---
 
@@ -571,9 +580,12 @@ src/
 tests/
 ├── cli-executor.test.ts   # CLI executor tests
 ├── config.test.ts         # Config parser tests
+├── container/             # Container integration tests (vitest.config.container.ts; `make test-integration`)
 ├── data-client.test.ts    # Data API client tests
+├── docker-test-config.test.ts        # Structural guards for `make docker-test`
 ├── errors.test.ts         # Error class hierarchy tests
-├── integration.test.ts    # Integration tests against live Joplin Data API
+├── integration-runner-config.test.ts # Structural guards for the integration-test runner
+├── integration.test.ts    # Integration tests against live Joplin Data API (opt-in via RUN_INTEGRATION_TESTS)
 ├── logger.test.ts         # Logger tests
 ├── pagination.test.ts     # Pagination helper tests
 ├── sync-manager.test.ts   # Sync manager tests
@@ -584,7 +596,10 @@ tests/
     └── tools.test.ts       # Tool handler tests
 docs/                      # Project documentation (see root SBOM.md for dependency inventory)
 scripts/
-└── smoke-test.sh          # Docker container smoke test (checks container up + Data API /ping)
+├── smoke-test.sh              # Docker container smoke test (checks container up + Data API /ping)
+├── run-integration-tests.sh   # Container integration test runner (`make test-integration`)
+├── run-unit-tests-docker.sh   # Unit tests in Docker without host Node/pnpm (`make docker-test`)
+└── measure-initial-sync.sh    # Initial sync throughput measurement (requires live Joplin Server)
 ```
 
 Root-level deployment files:
@@ -592,7 +607,8 @@ Root-level deployment files:
 | File                                                 | Purpose                                                                              |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | [`Dockerfile.combined`](Dockerfile.combined)         | Production: combined Joplin CLI + Data API + MCP HTTP server                         |
-| [`Dockerfile.tests`](Dockerfile.tests)               | Test runner container                                                                |
+| [`Dockerfile.tests`](Dockerfile.tests)               | Test runner image for both the compose `test` service (unit suite) and the integration stack's `test-runner` service |
+| [`Dockerfile.unittests`](Dockerfile.unittests)       | Self-contained unit-test image used by `make docker-test` (no host Node/pnpm needed) |
 | [`entrypoint-combined.sh`](entrypoint-combined.sh)   | Production entrypoint: Data API + sync loop + MCP server with graceful shutdown      |
 | [`docker-compose.yml`](docker-compose.yml)           | Single-service orchestration with healthchecks                                       |
 | [`docker-compose.test.yml`](docker-compose.test.yml) | Integration-test stack (uses `Dockerfile.combined`, used by `make test-integration`) |
