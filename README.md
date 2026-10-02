@@ -87,6 +87,22 @@ Replace `THE_PASSWORD` with the same master password used when enabling E2EE on 
 
 The command `joplin e2ee decrypt -p 'PASSWORD'` decrypts data **for the current session only** and does **not** store the password for future sync operations. Using it as your setup step will cause encrypted items to silently fail to upload on subsequent syncs. Always use `joplin config encryption.masterPassword` instead.
 
+### Known gap: encrypted titles served as-is via `list_notebooks` (issue #29)
+
+> **⚠️ Known gap.** With `JOPLIN_MASTER_PASSWORD` set and E2EE enabled on the Joplin Server, the combined container configures the password but **does not trigger decryption** of items already on the server. The `list_notebooks` MCP tool may therefore return notebooks with **empty `title` fields** (or `encryption_applied=1` with non-empty `encryption_cipher_text`). Sync will misleadingly report `SYNC_PASS` even though ciphertext was not decrypted. This is [GitHub issue #29](https://github.com/gelse/joplin-mcp/issues/29).
+>
+> **Workarounds today** (until M2 lands):
+>
+> ```bash
+> # Run e2ee decrypt manually inside the container; first attempt may
+> # fail with "DecryptionWorker: cannot start because no master key is
+> # currently loaded" (master-key propagation timing) — re-run if so.
+> docker exec joplin-mcp joplin e2ee decrypt
+> docker restart joplin-mcp
+> ```
+>
+> **Permanent fix:** see the M2 milestone plans (`plans/M2-T1..T4`) — post-sync `joplin e2ee decrypt` with verification, startup reorder so `joplin server start` follows sync+decrypt, and tighter sync error detection. A container integration test reproducing this gap ships with M1 (`plans/M1-T3`); the M2 fix flips that test green with zero assertion edits.
+
 ### How to tell if E2EE is the problem
 
 If you notice notes are missing from Joplin Server despite the container reporting `SYNC_PASS`, check whether E2EE is enabled on the server and whether the master password has been configured in the container.
@@ -232,6 +248,30 @@ The test requires the test-runner container to have Docker socket access (`/var/
 > socket mount in a non-test compose file.
 
 > **Note:** This test is deliberately destructive to its throwaway volume, and the joplin-mcp container may exit or become unresponsive during the repro by design — the bypass sync still triggers the destructive migration because it bypasses the entrypoint's protections. The suite **passes** on the current, post-M2 code (see the [CHANGELOG](CHANGELOG.md)).
+
+#### E2EE encrypted-titles reproduction test (issue #29)
+
+A gated integration test reproduces [GitHub issue #29](https://github.com/gelse/joplin-mcp/issues/29) — where the combined container, with `JOPLIN_MASTER_PASSWORD` set and E2EE enabled on a real Joplin Server, serves E2EE-encrypted notebook titles as-is via `list_notebooks`. The test asserts the **safe** behavior (non-empty plaintext titles, no remaining encrypted blobs) and therefore **fails on the current container code** (proving the bug exists) and will flip to pass when the M2 fix lands — without any assertion edits.
+
+**Requirements:**
+
+- A real `joplin/server:latest` container with E2EE enabled and an account matching `JOPLIN_USERNAME` / `JOPLIN_PASSWORD`.
+- `JOPLIN_MASTER_PASSWORD` set to the password used to encrypt fixtures.
+- A fresh `joplin_data` volume.
+
+**Local one-shot run:**
+
+```bash
+RUN_E2EE_REPRO_TESTS=1 ./scripts/run-integration-tests.sh
+```
+
+The runner brings up the real Joplin Server, runs the one-shot seed container to create an encrypted notebook + note, recreates the combined container against the seeded server, and runs the repro. On current container code it **fails** with the symptom assertion message. Default CI is unaffected.
+
+**CI:**
+
+Manual `workflow_dispatch` with input `run_e2ee_repro_tests: true` → the opt-in job `e2ee-encrypted-titles-repro` runs. See [`.github/workflows/integration-tests.yml`](.github/workflows/integration-tests.yml).
+
+**Known gap (M1 → M2):** today's combined container sets the master password but does NOT trigger decryption. Users hitting the symptom need to either run `joplin e2ee decrypt` manually inside the container (see the ⚠️ warning in the E2EE section above) or wait for the M2 fix (scope: post-sync decrypt + verification + startup reorder + tighter sync detection). See `plans/M2-T1..T4` for the fix design.
 
 ---
 
