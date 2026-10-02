@@ -14,6 +14,11 @@ on:
         required: false
         default: false
         type: boolean
+      run_e2ee_repro_tests:
+        description: 'Run E2EE encrypted-titles reproduction test (issue #29; pulls joplin/server:latest + seed)'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   integration-tests:
@@ -70,3 +75,41 @@ jobs:
       - name: Cleanup test stack
         if: always()
         run: docker compose -f docker-compose.test.yml down -v --remove-orphans
+
+  # Reproduces GitHub issue #29: with JOPLIN_MASTER_PASSWORD set and E2EE
+  # enabled on a real Joplin Server, list_notebooks returns encrypted
+  # ciphertext. Manually triggered only — pulls a real Joplin Server
+  # (joplin/server:latest), runs the seed container, and exercises the MCP
+  # path. Does NOT run on every PR. Gated for cost (~10 min: one image
+  # pull plus locally built test images) AND for privilege: like
+  # sqlite-busy-repro, it runs the shared runner script, which executes
+  # tests in the test-runner container — and that service mounts the host
+  # Docker socket (see the NOTE at the top of this file), a
+  # root-equivalent credential over the host daemon.
+  e2ee-encrypted-titles-repro:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_e2ee_repro_tests == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run E2EE encrypted-titles repro test
+        run: bash scripts/run-integration-tests.sh
+        env:
+          RUN_E2EE_REPRO_TESTS: '1'
+
+      # --profile e2ee-repro is REQUIRED on both steps below: joplin-server
+      # and joplin-e2ee-seed are profile services, and Compose excludes them
+      # from its model without the flag. Without it, `logs` would error (and
+      # `|| true` would silently swallow it, collecting nothing) and `down
+      # -v --remove-orphans` would leave the profile services and the
+      # joplin_seed_data volume behind on the runner (verified on compose
+      # 5.5.1; see the teardown comment in scripts/run-integration-tests.sh).
+      - name: Collect container logs
+        if: always()
+        run: docker compose -f docker-compose.test.yml --profile e2ee-repro logs joplin-mcp joplin-server joplin-e2ee-seed > reports/container/joplin-mcp.log 2>&1 || true
+
+      - name: Cleanup test stack
+        if: always()
+        run: docker compose -f docker-compose.test.yml --profile e2ee-repro down -v --remove-orphans

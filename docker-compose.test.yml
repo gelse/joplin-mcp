@@ -5,9 +5,16 @@ services:
       dockerfile: Dockerfile.combined
     image: joplin-mcp-combined:test
     environment:
-      - JOPLIN_SERVER_URL=https://dummy-joplin-server.example.com
-      - JOPLIN_USERNAME=test-user
-      - JOPLIN_PASSWORD=test-password
+      # `${VAR:-default}` form: the e2ee-repro runner (scripts/run-integration-tests.sh
+      # --profile e2ee-repro) overrides these through its own environment. Without
+      # the profile the defaults reproduce the pre-M1 dummy-server behavior exactly.
+      - JOPLIN_SERVER_URL=${JOPLIN_SERVER_URL:-https://dummy-joplin-server.example.com}
+      - JOPLIN_USERNAME=${JOPLIN_USERNAME:-test-user}
+      - JOPLIN_PASSWORD=${JOPLIN_PASSWORD:-test-password}
+      # No default on purpose: an empty value keeps `entrypoint-combined.sh:306`
+      # (`if [ -n "${JOPLIN_MASTER_PASSWORD:-}" ]`) on the no-master-password path,
+      # exactly as before this file gained the line.
+      - JOPLIN_MASTER_PASSWORD=${JOPLIN_MASTER_PASSWORD:-}
       - SYNC_INTERVAL_SECONDS=9999
       - LOG_LEVEL=warn
     volumes:
@@ -19,6 +26,83 @@ services:
       retries: 10
       start_period: 60s
     init: true
+    depends_on:
+      # Soft link (Compose >= 2.32): with `--profile e2ee-repro` the seeder runs to
+      # completion first; without the profile the service does not exist and this
+      # dependency must not block startup.
+      joplin-e2ee-seed:
+        condition: service_completed_successfully
+        required: false
+
+  # Real Joplin Server for the E2EE repro. Profile-gated: the default stack keeps
+  # pointing at the dummy URL, so PR CI is unaffected.
+  joplin-server:
+    image: joplin/server:latest
+    profiles: ['e2ee-repro']
+    environment:
+      - APP_PORT=22300
+      # The base URL doubles as the origin allow-list: joplin-server rejects any
+      # request whose Host header does not match this host (`routeUtils.ts:217`
+      # `isValidOrigin`). Every client in this stack — the seed container, the
+      # combined container, and the healthcheck — must therefore address the
+      # server as `joplin-server:22300`, never `127.0.0.1:22300`.
+      - APP_BASE_URL=http://joplin-server:22300
+      - DB_CLIENT=sqlite
+      # The image runs as uid 1001 (joplin) and has no /data directory, so a named
+      # volume mounted there is created root-owned and the DB cannot be opened
+      # (verified: "SQLITE_CANTOPEN: unable to open database file"). The SQLite
+      # file therefore lives in the app dir, which is joplin-owned. No volume:
+      # the repro wants a freshly seeded server on every run anyway, and the admin
+      # password below is only applied on first boot.
+      - SQLITE_DATABASE=/home/joplin/packages/server/joplin.sqlite
+      # First-boot credentials of the only account this image creates. The email
+      # is hardcoded upstream (`src/db.ts:38` `defaultAdminEmail`), there is no
+      # env var for it — hence the `admin@localhost` defaults below. Runs
+      # single-node, so APP_BASE_URL is used by the seeder too, not just clients.
+      - DEFAULT_ADMIN_PASSWORD=${JOPLIN_PASSWORD:-admin}
+    healthcheck:
+      # No curl/wget in this image (Debian bookworm; both are absent), and Node 24
+      # is always present. The URL uses the service name because 127.0.0.1 is
+      # rejected by the origin check described above.
+      test:
+        [
+          'CMD-SHELL',
+          "node -e \"fetch('http://joplin-server:22300/api/ping').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+        ]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  # One-shot seeder: creates the encrypted notebook + note ON the server via the
+  # `joplin` CLI (M1-T2 implements tests/container/fixtures/e2ee-seed.sh). Runs to
+  # completion so `joplin-mcp` sees the ciphertext arrive over sync — the bug's
+  # download path. Its volume is also the seed-time evidence surface: the script
+  # writes .e2ee-seed-marker.json there, because the Joplin Server REST API has no
+  # item-list route and so cannot be probed for `encryption_applied` (M1-T3 reads it).
+  joplin-e2ee-seed:
+    image: joplin-mcp-combined:test
+    profiles: ['e2ee-repro']
+    depends_on:
+      joplin-server:
+        condition: service_healthy
+    environment:
+      - JOPLIN_SERVER_URL=http://joplin-server:22300
+      - JOPLIN_USERNAME=${JOPLIN_USERNAME:-admin@localhost}
+      - JOPLIN_PASSWORD=${JOPLIN_PASSWORD:-admin}
+      - JOPLIN_MASTER_PASSWORD=${JOPLIN_MASTER_PASSWORD:-}
+      - LOG_LEVEL=info
+    volumes:
+      - joplin_seed_data:/home/joplin/.config/joplin
+      - ./tests/container/fixtures/e2ee-seed.sh:/seed.sh:ro
+    entrypoint: ['bash', '/seed.sh']
+    # The combined image's HEALTHCHECK (Dockerfile.combined:86-87) probes the
+    # Data API and MCP server, neither of which this container ever starts.
+    # Inherited as-is it reports `unhealthy` forever; `compose up --wait` waits
+    # on `service_completed_successfully` here, so drop the probe entirely.
+    healthcheck:
+      disable: true
+    restart: 'no'
 
   test-runner:
     build:
@@ -28,6 +112,10 @@ services:
     environment:
       - MCP_URL=http://joplin-mcp:3000/
       - RUN_SYNC_LOCK_TESTS=${RUN_SYNC_LOCK_TESTS:-0}
+      # M1-T4: lets the E2EE repro invocation reach vitest without a third
+      # `-e "JOPLIN_CONTAINER=..."` flag, which would break M11's `toBe(2)`
+      # pin in tests/integration-runner-config.test.ts.
+      - JOPLIN_CONTAINER=${JOPLIN_CONTAINER:-joplin-mcp}
     volumes:
       - ./vitest.config.container.ts:/app/vitest.config.container.ts:ro
       - ./reports/container:/app/reports
@@ -42,3 +130,4 @@ services:
 
 volumes:
   joplin_data:
+  joplin_seed_data:
