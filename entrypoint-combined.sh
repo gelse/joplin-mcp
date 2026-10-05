@@ -137,7 +137,7 @@ halt_marker_issue_note() {
 check_sync_errors() {
     local label="$1"
     local log_offset="${2:-0}"
-    local combined_pattern='\[error\]|There was some errors|Could not encrypt item|Master key is not loaded|SQLITE_BUSY|database is locked|Upgrading database from version 0|Current database version.*null'
+    local combined_pattern='\[error\]|There was some errors|Could not encrypt item|Master key is not loaded|no master key is currently loaded|DecryptionWorker|SQLITE_BUSY|database is locked|Upgrading database from version 0|Current database version.*null'
 
     local files=(
         "${JOPLIN_LOG_FILE}"
@@ -233,6 +233,97 @@ get_sync_item_count() {
         return 1
     fi
     echo "$((notes + folders))"
+}
+
+# -----------------------------------------------------------------------------
+# Flattened, length-capped tail of the current decrypt attempt's stderr
+# (backlog §5 F1a): the retry loop's per-attempt WARN previously surfaced
+# none of e2ee-decrypt-stderr.log, leaving per-attempt failures opaque.
+# Never fails (a missing/unreadable log yields an empty string): the caller
+# embeds the result inside a log line. LOCKSTEP: copied verbatim into
+# tests/test-check-sync-errors.sh (deliberate duplication, test independence).
+# -----------------------------------------------------------------------------
+decrypt_stderr_summary() {
+    tail -n 2 "${LOG_DIR}/e2ee-decrypt-stderr.log" 2>/dev/null | tr '\n' ' ' | cut -c 1-300 || true
+}
+
+# -----------------------------------------------------------------------------
+# Post-decrypt E2EE state check (M2-T3)
+# Detection re-based per the plan's 2026-10-04 amendment on M2-T1's read-only
+# SQLite probe — the drafted `joplin ls -l | grep '[Encrypted]'` probe is
+# VOID: joplin 3.7.1 emits no such marker (Spike 3 comment in the M2-T1 block
+# below). Counts rows with non-empty encryption_cipher_text instead.
+# Return-code contract (mirrors check_deletion_circuit_breaker): 0 = PASS,
+# 1 = SKIP-WARN (reserved; not currently produced), 2 = TRIP (writes the
+# [E2EE_DECRYPT_INCOMPLETE] halt marker).
+# Deliberate fail-closed deviation from the plan draft: the draft's "probe
+# failed → warn, do not halt" (return 1) was converted to a TRIP so a probe
+# that cannot confirm zero encrypted items never passes silently — same
+# semantics as the verification gate's `case` in the M2-T1 block below.
+# The probe is flock-wrapped with SYNC_LOCK_FILE (60 s) so it does not race a
+# concurrent sync (same convention as get_sync_item_count).
+# LOCKSTEP: the probe JS below duplicates the E2EE_VERIFY_SCRIPT in the M2-T1
+# block and the inline node probe in Dockerfile.combined's HEALTHCHECK CMD
+# (same SQL: rows with non-empty encryption_cipher_text across notes, folders,
+# resources, tags, note_tags, revisions). Update all three in the same commit.
+# The JS must stay free of single quotes: it is assigned via a single-quoted
+# shell string.
+# -----------------------------------------------------------------------------
+check_e2ee_state() {
+    local label="$1"
+
+    # JOPLIN_MASTER_PASSWORD not set ⇒ nothing to check (no E2EE expected).
+    if [ -z "${JOPLIN_MASTER_PASSWORD:-}" ]; then
+        return 0
+    fi
+
+    local e2ee_state_probe_script='const s = require("/usr/local/lib/node_modules/joplin/node_modules/sqlite3").verbose();
+const db = new s.Database(process.env.JOPLIN_DB_PATH, s.OPEN_READONLY, (err) => {
+  if (err) { console.error(err.message); process.exit(1); }
+  db.run("PRAGMA busy_timeout = 10000", (pe) => {
+    if (pe) { console.error(pe.message); process.exit(1); }
+    const sql = "SELECT " +
+      "(SELECT count(*) FROM notes WHERE length(encryption_cipher_text) > 0) + " +
+      "(SELECT count(*) FROM folders WHERE length(encryption_cipher_text) > 0) + " +
+      "(SELECT count(*) FROM resources WHERE length(encryption_cipher_text) > 0) + " +
+      "(SELECT count(*) FROM tags WHERE length(encryption_cipher_text) > 0) + " +
+      "(SELECT count(*) FROM note_tags WHERE length(encryption_cipher_text) > 0) + " +
+      "(SELECT count(*) FROM revisions WHERE length(encryption_cipher_text) > 0) AS n";
+    db.get(sql, (e, row) => {
+      if (e) { console.error(e.message); process.exit(1); }
+      console.log(row.n);
+      db.close();
+    });
+  });
+});'
+    # The :- default keeps the exported form usable if JOPLIN_PROFILE_DIR is
+    # not inherited (mirrors the entrypoint's own declaration default).
+    local e2ee_state_db_path="${JOPLIN_PROFILE_DIR:-/home/joplin/.config/joplin}/database.sqlite"
+
+    local enc_count
+    enc_count=$(JOPLIN_DB_PATH="${e2ee_state_db_path}" flock -w 60 "${SYNC_LOCK_FILE}" node -e "${e2ee_state_probe_script}" 2>>"${LOG_DIR}/e2ee-decrypt-stderr.log") || enc_count=""
+    # The count is validated as a plain non-negative integer before any
+    # numeric use (`case`, like the M2-T1 verification gate): a failed probe
+    # or garbage output cannot produce an "integer expression expected" error
+    # and falls through to the fail-closed arm.
+    case "${enc_count}" in
+        0)
+            log "INFO" "[${label}] E2EE state check passed; 0 encrypted items remaining"
+            return 0
+            ;;
+        ''|*[!0-9]*)
+            log "ERROR" "[${label}] E2EE state check failed: encrypted-item count probe failed or returned a non-integer — refusing to start periodic sync (issue #29)"
+            log "ERROR" "[${label}] Remove ${SYNC_HALT_MARKER} after investigating"
+            echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') [E2EE_DECRYPT_INCOMPLETE] verification probe failed (redundant post-decrypt check). See issue #29." > "${SYNC_HALT_MARKER}"
+            return 2
+            ;;
+        *)
+            log "ERROR" "[${label}] E2EE state check failed: ${enc_count} item(s) still encrypted after decrypt (issue #29)"
+            log "ERROR" "[${label}] Remove ${SYNC_HALT_MARKER} after investigating"
+            echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') [E2EE_DECRYPT_INCOMPLETE] ${enc_count} item(s) still encrypted (redundant post-decrypt check). See issue #29." > "${SYNC_HALT_MARKER}"
+            return 2
+            ;;
+    esac
 }
 
 # -----------------------------------------------------------------------------
@@ -649,12 +740,23 @@ const db = new s.Database(process.env.JOPLIN_DB_PATH, s.OPEN_READONLY, (err) => 
                 DECRYPT_EXIT=1
                 for dc in $(seq 1 "${DECRYPT_MAX_ATTEMPTS}"); do
                     log "INFO" "Running post-sync E2EE decrypt (attempt ${dc}/${DECRYPT_MAX_ATTEMPTS})…"
-                    if flock -w 120 "${SYNC_LOCK_FILE}" -c 'joplin e2ee decrypt' \
+                    # F1b hardening: `--force` (joplin 3.7.1 command-e2ee.ts:
+                    # "Do not ask for input on failure") re-throws the
+                    # masterKeyNotLoaded error instead of prompting on stdin.
+                    # Without it, a non-interactive prompt failure would end
+                    # the command with exit 0 ("Operation cancelled") — a
+                    # false pass the retry loop cannot distinguish from
+                    # success; with it the attempt fails fast and retries.
+                    if flock -w 120 "${SYNC_LOCK_FILE}" -c 'joplin e2ee decrypt --force' \
                         > "${LOG_DIR}/e2ee-decrypt-stdout.log" 2> "${LOG_DIR}/e2ee-decrypt-stderr.log"; then
                         DECRYPT_EXIT=0
                         break
                     fi
-                    log "WARN" "joplin e2ee decrypt attempt ${dc} failed — backing off ${DECRYPT_BACKOFF_S}s (master-key propagation timing per issue #29)"
+                    # F1a: surface a truncated tail of the failed attempt's
+                    # stderr in the WARN (the per-attempt log file holds the
+                    # CURRENT attempt — it is truncated by the redirect above).
+                    _DECRYPT_STDERR_SUMMARY="$(decrypt_stderr_summary)"
+                    log "WARN" "joplin e2ee decrypt attempt ${dc} failed — backing off ${DECRYPT_BACKOFF_S}s (master-key propagation timing per issue #29; last stderr: ${_DECRYPT_STDERR_SUMMARY:-(none)})"
                     sleep "${DECRYPT_BACKOFF_S}"
                 done
 
@@ -726,6 +828,21 @@ const db = new s.Database(process.env.JOPLIN_DB_PATH, s.OPEN_READONLY, (err) => 
                             START_PERIODIC_LOOP=0
                             ;;
                     esac
+
+                    # ----- M2-T3: redundant post-decrypt E2EE state check -----
+                    # Defense-in-depth per the plan: this re-check is
+                    # REDUNDANT with the verification gate above but covers
+                    # items that become (or remain) encrypted between the
+                    # gate and the start of the periodic loop (e.g. a
+                    # server-side partial decrypt under contention). TRIP (2)
+                    # ⇒ the helper already wrote the [E2EE_DECRYPT_INCOMPLETE]
+                    # marker; stop the loop here (same convention as the
+                    # deletion circuit-breaker call site).
+                    E2EE_STATE_RC=0
+                    check_e2ee_state "Initial" || E2EE_STATE_RC=$?
+                    if [ "${E2EE_STATE_RC}" -eq 2 ]; then
+                        START_PERIODIC_LOOP=0
+                    fi
                 fi
             fi
         fi
@@ -751,10 +868,12 @@ fi  # end of halt gate else block
 #     SYNC_HALT_MARKER, SYNC_LOCK_FILE, SYNC_MAX_DELETE_COUNT
 #   - functions: log, log_sync, halt_marker_tag, halt_marker_issue,
 #     log_halt_marker_refusal, halt_marker_issue_note, check_sync_errors,
-#     check_sync_danger, get_sync_item_count, check_deletion_circuit_breaker
+#     check_sync_danger, get_sync_item_count, check_deletion_circuit_breaker,
+#     check_e2ee_state (M2-T3; not yet called by the loop body — exported so
+#     a future periodic call works, per M2-T3 Risk 5 / backlog F2)
 # Note: JOPLIN_PROFILE_DIR is intentionally not exported — JOPLIN_LOG_FILE is fully resolved at declaration time.
 export SYNC_INTERVAL_SECONDS LOG_DIR LOG_FILE SYNC_LOG_FILE JOPLIN_LOG_FILE SYNC_HALT_MARKER SYNC_LOCK_FILE SYNC_MAX_DELETE_COUNT
-export -f log log_sync halt_marker_tag halt_marker_issue log_halt_marker_refusal halt_marker_issue_note check_sync_errors check_sync_danger get_sync_item_count check_deletion_circuit_breaker
+export -f log log_sync halt_marker_tag halt_marker_issue log_halt_marker_refusal halt_marker_issue_note check_sync_errors check_sync_danger get_sync_item_count check_deletion_circuit_breaker check_e2ee_state
 # Fail-safe default: when the halt marker is present the else block above never
 # assigns START_PERIODIC_LOOP, and `set -u` would abort the entrypoint here —
 # before MCP/Data API start.  Default to 0 (do not start the loop).

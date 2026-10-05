@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
-# Unit tests for check_sync_errors() function from entrypoint-combined.sh
+# Unit tests for check_sync_errors() and friends from entrypoint-combined.sh
+# (M2-T3 adds: expanded combined_pattern coverage, check_e2ee_state(),
+# decrypt_stderr_summary()).
 set -euo pipefail
+
+# --- Paths (SCRIPT_DIR used by the export -f pin assertion, Group 5) ---
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # --- Stub log functions (suppress output) ---
 log() { :; }
@@ -18,7 +23,7 @@ JOPLIN_LOG_FILE="${JOPLIN_PROFILE_DIR}/log.txt"
 check_sync_errors() {
     local label="$1"
     local log_offset="${2:-0}"
-    local combined_pattern='\[error\]|There was some errors|Could not encrypt item|Master key is not loaded|SQLITE_BUSY|database is locked|Upgrading database from version 0|Current database version.*null'
+    local combined_pattern='\[error\]|There was some errors|Could not encrypt item|Master key is not loaded|no master key is currently loaded|DecryptionWorker|SQLITE_BUSY|database is locked|Upgrading database from version 0|Current database version.*null'
 
     local files=(
         "${JOPLIN_LOG_FILE}"
@@ -103,6 +108,104 @@ get_sync_item_count() {
     echo "$((notes + folders))"
 }
 
+# --- Copy decrypt_stderr_summary() + check_e2ee_state() exactly from
+# --- entrypoint-combined.sh (M2-T3; region between get_sync_item_count and
+# --- check_deletion_circuit_breaker) ---
+# NOTE: verbatim copy, same deliberate-duplication rule as above — if you
+# change these functions in entrypoint-combined.sh, mirror the change here in
+# the SAME commit. check_e2ee_state's probe JS is the SQLite probe re-based
+# per the M2-T3 plan amendment (the drafted `[Encrypted]` grep is void).
+# -----------------------------------------------------------------------------
+# Flattened, length-capped tail of the current decrypt attempt's stderr
+# (backlog §5 F1a): the retry loop's per-attempt WARN previously surfaced
+# none of e2ee-decrypt-stderr.log, leaving per-attempt failures opaque.
+# Never fails (a missing/unreadable log yields an empty string): the caller
+# embeds the result inside a log line. LOCKSTEP: copied verbatim into
+# tests/test-check-sync-errors.sh (deliberate duplication, test independence).
+# -----------------------------------------------------------------------------
+decrypt_stderr_summary() {
+    tail -n 2 "${LOG_DIR}/e2ee-decrypt-stderr.log" 2>/dev/null | tr '\n' ' ' | cut -c 1-300 || true
+}
+
+# -----------------------------------------------------------------------------
+# Post-decrypt E2EE state check (M2-T3)
+# Detection re-based per the plan's 2026-10-04 amendment on M2-T1's read-only
+# SQLite probe — the drafted `joplin ls -l | grep '[Encrypted]'` probe is
+# VOID: joplin 3.7.1 emits no such marker (Spike 3 comment in the M2-T1 block
+# below). Counts rows with non-empty encryption_cipher_text instead.
+# Return-code contract (mirrors check_deletion_circuit_breaker): 0 = PASS,
+# 1 = SKIP-WARN (reserved; not currently produced), 2 = TRIP (writes the
+# [E2EE_DECRYPT_INCOMPLETE] halt marker).
+# Deliberate fail-closed deviation from the plan draft: the draft's "probe
+# failed → warn, do not halt" (return 1) was converted to a TRIP so a probe
+# that cannot confirm zero encrypted items never passes silently — same
+# semantics as the verification gate's `case` in the M2-T1 block below.
+# The probe is flock-wrapped with SYNC_LOCK_FILE (60 s) so it does not race a
+# concurrent sync (same convention as get_sync_item_count).
+# LOCKSTEP: the probe JS below duplicates the E2EE_VERIFY_SCRIPT in the M2-T1
+# block and the inline node probe in Dockerfile.combined's HEALTHCHECK CMD
+# (same SQL: rows with non-empty encryption_cipher_text across notes, folders,
+# resources, tags, note_tags, revisions). Update all three in the same commit.
+# The JS must stay free of single quotes: it is assigned via a single-quoted
+# shell string.
+# -----------------------------------------------------------------------------
+check_e2ee_state() {
+    local label="$1"
+
+    # JOPLIN_MASTER_PASSWORD not set ⇒ nothing to check (no E2EE expected).
+    if [ -z "${JOPLIN_MASTER_PASSWORD:-}" ]; then
+        return 0
+    fi
+
+    local e2ee_state_probe_script='const s = require("/usr/local/lib/node_modules/joplin/node_modules/sqlite3").verbose();
+const db = new s.Database(process.env.JOPLIN_DB_PATH, s.OPEN_READONLY, (err) => {
+  if (err) { console.error(err.message); process.exit(1); }
+  db.run("PRAGMA busy_timeout = 10000", (pe) => {
+    if (pe) { console.error(pe.message); process.exit(1); }
+    const sql = "SELECT " +
+      "(SELECT count(*) FROM notes WHERE length(encryption_cipher_text) > 0) + " +
+      "(SELECT count(*) FROM folders WHERE length(encryption_cipher_text) > 0) + " +
+      "(SELECT count(*) FROM resources WHERE length(encryption_cipher_text) > 0) + " +
+      "(SELECT count(*) FROM tags WHERE length(encryption_cipher_text) > 0) + " +
+      "(SELECT count(*) FROM note_tags WHERE length(encryption_cipher_text) > 0) + " +
+      "(SELECT count(*) FROM revisions WHERE length(encryption_cipher_text) > 0) AS n";
+    db.get(sql, (e, row) => {
+      if (e) { console.error(e.message); process.exit(1); }
+      console.log(row.n);
+      db.close();
+    });
+  });
+});'
+    # The :- default keeps the exported form usable if JOPLIN_PROFILE_DIR is
+    # not inherited (mirrors the entrypoint's own declaration default).
+    local e2ee_state_db_path="${JOPLIN_PROFILE_DIR:-/home/joplin/.config/joplin}/database.sqlite"
+
+    local enc_count
+    enc_count=$(JOPLIN_DB_PATH="${e2ee_state_db_path}" flock -w 60 "${SYNC_LOCK_FILE}" node -e "${e2ee_state_probe_script}" 2>>"${LOG_DIR}/e2ee-decrypt-stderr.log") || enc_count=""
+    # The count is validated as a plain non-negative integer before any
+    # numeric use (`case`, like the M2-T1 verification gate): a failed probe
+    # or garbage output cannot produce an "integer expression expected" error
+    # and falls through to the fail-closed arm.
+    case "${enc_count}" in
+        0)
+            log "INFO" "[${label}] E2EE state check passed; 0 encrypted items remaining"
+            return 0
+            ;;
+        ''|*[!0-9]*)
+            log "ERROR" "[${label}] E2EE state check failed: encrypted-item count probe failed or returned a non-integer — refusing to start periodic sync (issue #29)"
+            log "ERROR" "[${label}] Remove ${SYNC_HALT_MARKER} after investigating"
+            echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') [E2EE_DECRYPT_INCOMPLETE] verification probe failed (redundant post-decrypt check). See issue #29." > "${SYNC_HALT_MARKER}"
+            return 2
+            ;;
+        *)
+            log "ERROR" "[${label}] E2EE state check failed: ${enc_count} item(s) still encrypted after decrypt (issue #29)"
+            log "ERROR" "[${label}] Remove ${SYNC_HALT_MARKER} after investigating"
+            echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') [E2EE_DECRYPT_INCOMPLETE] ${enc_count} item(s) still encrypted (redundant post-decrypt check). See issue #29." > "${SYNC_HALT_MARKER}"
+            return 2
+            ;;
+    esac
+}
+
 # --- Copy check_deletion_circuit_breaker() exactly from entrypoint-combined.sh ---
 check_deletion_circuit_breaker() {
     local label="$1"
@@ -185,6 +288,28 @@ if [ -f "${JOPLIN_STUB_OUTPUT}" ]; then
 fi
 STUB
 chmod +x "${MOCK_DIR}/joplin"
+
+# Create node stub for check_e2ee_state()'s SQLite probe (M2-T3): emits the
+# count from JOPLIN_NODE_STUB_OUTPUT, honours JOPLIN_NODE_FAIL=1 (probe
+# crash), counts invocations in JOPLIN_NODE_CALLS. The local `joplin` CLI
+# path is irrelevant here — the real node probe is covered by the container
+# build; these tests exercise the shell contract around the probe.
+export JOPLIN_NODE_STUB_OUTPUT="${TEST_DIR}/node-stub-output"
+export JOPLIN_NODE_CALLS="${TEST_DIR}/node-stub-calls"
+: > "${JOPLIN_NODE_CALLS}"
+cat > "${MOCK_DIR}/node" << 'STUB'
+#!/bin/bash
+n=$(cat "${JOPLIN_NODE_CALLS}" 2>/dev/null || echo 0)
+echo $((n + 1)) > "${JOPLIN_NODE_CALLS}"
+if [ "${JOPLIN_NODE_FAIL:-0}" = "1" ]; then
+    echo "stub node failure" >&2
+    exit 1
+fi
+if [ -f "${JOPLIN_NODE_STUB_OUTPUT}" ]; then
+    cat "${JOPLIN_NODE_STUB_OUTPUT}"
+fi
+STUB
+chmod +x "${MOCK_DIR}/node"
 
 # Prepend mock dir to PATH so the stub is found before real joplin
 export PATH="${MOCK_DIR}:${PATH}"
@@ -284,6 +409,40 @@ run_test "Error in stderr only" 1
 clean_logs
 echo "This is an error-handling module" > "${JOPLIN_LOG_FILE}"
 run_test "Unrelated lowercase error without brackets" 0
+
+# ============================================================================
+# Group 2b: expanded combined_pattern tests (M2-T3 Change 1)
+# The pattern now also matches the ACTUAL DecryptionWorker wording reported
+# in issue #29 ("no master key is currently loaded"), which the old pattern
+# missed — the detection blind spot that let the bug ship silently.
+# ============================================================================
+
+echo "=== Group 2b: expanded combined_pattern (M2-T3) ==="
+
+# --- Test 12b: the REAL DecryptionWorker log line (issue #29) → detect ---
+clean_logs
+printf '2026-10-02 10:43:51: e2ee/utils: DecryptionWorker: cannot start because no master key is currently loaded\n' > "${JOPLIN_LOG_FILE}"
+run_test "Real DecryptionWorker line (issue #29) detected" 1
+
+# --- Test 12c: 'no master key is currently loaded' alone → detect ---
+clean_logs
+echo "DecryptionWorker: cannot start because no master key is currently loaded" > "${LOG_DIR}/sync-stderr.log"
+run_test "no master key is currently loaded in stderr" 1
+
+# --- Test 12d: bare 'DecryptionWorker' substring → detect (plan-mandated) ---
+clean_logs
+echo "DecryptionWorker failed" > "${LOG_DIR}/sync-stdout.log"
+run_test "Bare DecryptionWorker substring detected" 1
+
+# --- Test 12e: issue #27 regression — destructive pattern still matches ---
+clean_logs
+echo "Upgrading database from version 0" > "${JOPLIN_LOG_FILE}"
+run_test "Issue #27 pattern still matches expanded combined_pattern" 1
+
+# --- Test 12f: clean log without the new alternatives → PASS ---
+clean_logs
+echo "Sync completed without incidents" > "${JOPLIN_LOG_FILE}"
+run_test "Clean log unaffected by expansion" 0
 
 # ============================================================================
 # Group 3: check_sync_danger() tests
@@ -519,6 +678,159 @@ clean_halt_marker
 SYNC_MAX_DELETE_COUNT=-1
 : > "${JOPLIN_STUB_OUTPUT}"
 run_breaker_test "Pre-count=0, breaker disabled → pass" 0 "0"
+
+# ============================================================================
+# Group 5: check_e2ee_state() tests (M2-T3 Change 2)
+# Return-code contract: 0 = PASS, 1 = SKIP-WARN (reserved, not produced),
+# 2 = TRIP (writes [E2EE_DECRYPT_INCOMPLETE] halt marker). Fail-closed by
+# design: a failed/garbage probe TRIPS (plan amendment 2026-10-04), it does
+# not skip. The probe runs via the node stub; the marker file assertions
+# verify the D4 read side keeps mapping the tag to issue #29.
+# ============================================================================
+
+echo "=== Group 5: check_e2ee_state() ==="
+
+run_e2ee_test() {
+    local name="$1"
+    local expected="$2"
+
+    local rc=0
+    check_e2ee_state "test-label" || rc=$?
+
+    if [ "${rc}" -eq "${expected}" ]; then
+        echo "PASS: ${name}"
+        PASS_COUNT=$((PASS_COUNT + 1))
+    else
+        echo "FAIL: ${name} (expected ${expected}, got ${rc})"
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+    fi
+}
+
+set_node_stub() { printf '%s\n' "$@" > "${JOPLIN_NODE_STUB_OUTPUT}"; }
+
+# --- Test 34: JOPLIN_MASTER_PASSWORD unset → return 0 without probing ---
+clean_halt_marker
+unset JOPLIN_MASTER_PASSWORD
+set_node_stub "5"
+: > "${JOPLIN_NODE_CALLS}"
+run_e2ee_test "Password unset → pass" 0
+NODE_CALLS_READ="$(cat "${JOPLIN_NODE_CALLS}")"
+if [ "${NODE_CALLS_READ:-0}" = "0" ]; then
+    echo "PASS: Password unset → probe not invoked"
+    PASS_COUNT=$((PASS_COUNT + 1))
+else
+    echo "FAIL: Password unset → probe unexpectedly invoked (${NODE_CALLS_READ} calls)"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+fi
+
+# --- Test 35: 0 encrypted items → return 0, no marker ---
+clean_halt_marker
+JOPLIN_MASTER_PASSWORD="test-password"
+set_node_stub "0"
+run_e2ee_test "0 encrypted items → pass" 0
+if [ ! -f "${SYNC_HALT_MARKER}" ]; then
+    echo "PASS: 0 encrypted items → no halt marker"
+    PASS_COUNT=$((PASS_COUNT + 1))
+else
+    echo "FAIL: 0 encrypted items → unexpected halt marker"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+fi
+
+# --- Test 36: N encrypted items remain → return 2 + [E2EE_DECRYPT_INCOMPLETE] marker ---
+clean_halt_marker
+set_node_stub "204"
+run_e2ee_test "204 encrypted items → trip" 2
+if [ -f "${SYNC_HALT_MARKER}" ] && grep -q "E2EE_DECRYPT_INCOMPLETE" "${SYNC_HALT_MARKER}" && grep -q "204" "${SYNC_HALT_MARKER}"; then
+    echo "PASS: 204 encrypted items → marker written with tag and count"
+    PASS_COUNT=$((PASS_COUNT + 1))
+else
+    echo "FAIL: 204 encrypted items → marker missing or lacks tag/count"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+fi
+
+# --- Test 37: probe returns garbage → fail-closed TRIP (not skip) ---
+clean_halt_marker
+set_node_stub "n/a"
+run_e2ee_test "Probe garbage → fail-closed trip" 2
+if [ -f "${SYNC_HALT_MARKER}" ] && grep -q "probe failed" "${SYNC_HALT_MARKER}"; then
+    echo "PASS: Probe garbage → probe-failed marker written"
+    PASS_COUNT=$((PASS_COUNT + 1))
+else
+    echo "FAIL: Probe garbage → probe-failed marker missing"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+fi
+
+# --- Test 38: probe produces empty output → fail-closed TRIP ---
+clean_halt_marker
+: > "${JOPLIN_NODE_STUB_OUTPUT}"
+run_e2ee_test "Probe empty output → fail-closed trip" 2
+
+# --- Test 39: probe crashes (exit 1) → fail-closed TRIP ---
+clean_halt_marker
+export JOPLIN_NODE_FAIL=1
+run_e2ee_test "Probe crash → fail-closed trip" 2
+unset JOPLIN_NODE_FAIL
+clean_halt_marker
+
+# --- Test 40: check_e2ee_state is in the entrypoint's export -f list ---
+# Plan §6: the function must be reachable from the periodic-loop subshell.
+# This harness copies functions rather than sourcing the entrypoint, so pin
+# the export list textually (same structural-grep pragmatism as the
+# preflight harness's Group 0 anti-drift greps).
+ENTRYPOINT_FILE="${SCRIPT_DIR}/../entrypoint-combined.sh"
+if [ -f "${ENTRYPOINT_FILE}" ] && grep -q "export -f log log_sync halt_marker_tag halt_marker_issue log_halt_marker_refusal halt_marker_issue_note check_sync_errors check_sync_danger get_sync_item_count check_deletion_circuit_breaker check_e2ee_state" "${ENTRYPOINT_FILE}"; then
+    echo "PASS: check_e2ee_state present in export -f list"
+    PASS_COUNT=$((PASS_COUNT + 1))
+else
+    echo "FAIL: check_e2ee_state missing from export -f list"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+fi
+
+# ============================================================================
+# Group 6: decrypt_stderr_summary() tests (M2-T3 / backlog §5 F1a)
+# Never fails; flattens the last 2 stderr lines to one space-separated line
+# capped at 300 chars; empty for a missing log.
+# ============================================================================
+
+echo "=== Group 6: decrypt_stderr_summary() ==="
+
+# --- Test 40: missing log → empty output, exit 0 ---
+rm -f "${LOG_DIR}/e2ee-decrypt-stderr.log"
+SUMMARY="$(decrypt_stderr_summary)"
+SUMMARY_RC=$?
+if [ "${SUMMARY_RC}" -eq 0 ] && [ -z "${SUMMARY}" ]; then
+    echo "PASS: Missing log → empty summary"
+    PASS_COUNT=$((PASS_COUNT + 1))
+else
+    echo "FAIL: Missing log → rc=${SUMMARY_RC}, summary='${SUMMARY}'"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+fi
+
+# --- Test 41: 3 lines → last 2 kept, flattened (no newline) ---
+printf 'line-one error detail\nline-two error detail\nline-three error detail\n' > "${LOG_DIR}/e2ee-decrypt-stderr.log"
+SUMMARY="$(decrypt_stderr_summary)"
+if [ -n "${SUMMARY}" ] && [ "$(printf '%s' "${SUMMARY}" | wc -l)" -le 1 ] \
+    && [[ "${SUMMARY}" == *"line-two error detail"* ]] \
+    && [[ "${SUMMARY}" == *"line-three error detail"* ]] \
+    && [[ "${SUMMARY}" != *"line-one"* ]]; then
+    echo "PASS: Tail keeps last 2 lines flattened"
+    PASS_COUNT=$((PASS_COUNT + 1))
+else
+    echo "FAIL: Tail output unexpected: '${SUMMARY}'"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+fi
+
+# --- Test 42: very long line → capped at 300 chars ---
+printf 'x%.0s' $(seq 1 1000) > "${LOG_DIR}/e2ee-decrypt-stderr.log"
+SUMMARY="$(decrypt_stderr_summary)"
+if [ "${#SUMMARY}" -le 301 ] && [ -n "${SUMMARY}" ]; then
+    echo "PASS: Long line capped (${#SUMMARY} chars ≤ 301 incl. tr space)"
+    PASS_COUNT=$((PASS_COUNT + 1))
+else
+    echo "FAIL: Long line not capped (${#SUMMARY} chars)"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+fi
+rm -f "${LOG_DIR}/e2ee-decrypt-stderr.log"
 
 # --- Summary ---
 echo ""

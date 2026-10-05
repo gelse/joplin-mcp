@@ -142,6 +142,22 @@ node() {
     esac
 }
 
+# --- Stubs for the M2-T3 additions inside the extracted block ---
+# The block now (a) calls the redundant `check_e2ee_state "Initial"` after
+# the REMAINING_ENC gate and (b) calls `decrypt_stderr_summary` in the retry
+# loop's per-attempt WARN (F1a). Both live outside the block; stub them here
+# so sourcing stays hermetic. E2EE_STATE_CALLS lets the healthy-path group
+# assert the defense-in-depth wiring actually fires.
+# (SC2329 is a false positive: shellcheck cannot see the sourced block that
+# calls these stubs.)
+# shellcheck disable=SC2329
+check_e2ee_state() {
+    E2EE_STATE_CALLS=$((E2EE_STATE_CALLS + 1))
+    return 0
+}
+# shellcheck disable=SC2329
+decrypt_stderr_summary() { :; }
+
 # --- Extract the M2-T1 block verbatim from entrypoint-combined.sh ---
 extract_m2t1_block() {
     awk 'index($0, "# ----- M2-T1: post-sync E2EE decrypt + verification gate (A) -----") { inblock = 1 }
@@ -184,6 +200,26 @@ else
     echo "FAIL: Preflight does not precede the retry loop (mk=${MK_LINE}, loop=${LOOP_LINE})"
     FAIL_COUNT=$((FAIL_COUNT + 1))
 fi
+# M2-T3 additions inside the block: the redundant check_e2ee_state call must
+# follow the REMAINING_ENC verification gate, and the retry loop must pass
+# --force to `joplin e2ee decrypt` (F1b — non-interactive prompt would
+# otherwise exit 0 on masterKeyNotLoaded, a false pass).
+GATE_LINE=$(grep -n "E2EE verification failed" "${BLOCK_FILE}" | head -1 | cut -d: -f1)
+M2T3_LINE=$(grep -n 'check_e2ee_state "Initial"' "${BLOCK_FILE}" | head -1 | cut -d: -f1)
+if [ -n "${GATE_LINE}" ] && [ -n "${M2T3_LINE}" ] && [ "${GATE_LINE}" -lt "${M2T3_LINE}" ]; then
+    echo "PASS: M2-T3 redundant check follows the verification gate"
+    PASS_COUNT=$((PASS_COUNT + 1))
+else
+    echo "FAIL: M2-T3 redundant check missing or misordered (gate=${GATE_LINE}, m2t3=${M2T3_LINE})"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+fi
+if grep -q "joplin e2ee decrypt --force" "${BLOCK_FILE}"; then
+    echo "PASS: Retry loop passes --force to joplin e2ee decrypt (F1b)"
+    PASS_COUNT=$((PASS_COUNT + 1))
+else
+    echo "FAIL: joplin e2ee decrypt --force missing from the retry loop (F1b regression)"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+fi
 
 echo ""
 echo "=== Group 1: inconsistent configuration (password set, no master key) ==="
@@ -217,6 +253,7 @@ echo "success" > "${FLOCK_MODE_FILE}"
 START_PERIODIC_LOOP=1
 FLOCK_CALLS=0
 NODE_CALLS=0
+E2EE_STATE_CALLS=0
 rm -f "${SYNC_HALT_MARKER}"
 : > "${CAPTURE}"
 # shellcheck disable=SC1090
@@ -224,6 +261,7 @@ source "${BLOCK_FILE}"
 assert_marker_absent "3 keys + decrypt OK → no halt marker"
 assert_eq "3 keys + decrypt OK → START_PERIODIC_LOOP stays 1" "1" "${START_PERIODIC_LOOP}"
 assert_eq "3 keys + decrypt OK → retry loop entered exactly once" "1" "${FLOCK_CALLS}"
+assert_eq "3 keys + decrypt OK → M2-T3 redundant check fired once" "1" "${E2EE_STATE_CALLS}"
 assert_capture_contains "3 keys → preflight INFO logged" "master-key preflight passed"
 assert_capture_contains "3 keys + decrypt OK → completion logged" "0 encrypted items remaining"
 
@@ -311,6 +349,45 @@ assert_marker_absent "no password → no halt marker"
 assert_eq "no password → START_PERIODIC_LOOP stays 1" "1" "${START_PERIODIC_LOOP}"
 assert_eq "no password → preflight not run (node calls)" "0" "${NODE_CALLS}"
 assert_eq "no password → retry not run (flock calls)" "0" "${FLOCK_CALLS}"
+
+echo ""
+echo "=== Group 6: M2-T3 redundant-check trip wiring (call site) ==="
+
+# --- Test: check_e2ee_state trips (rc 2) → START_PERIODIC_LOOP forced to 0 ---
+# The real helper writes its own marker and returns 2; the stub pins only the
+# wiring under test: the call site must translate rc 2 into a loop halt.
+# shellcheck disable=SC2034  # JOPLIN_MASTER_PASSWORD is consumed by the sourced M2-T1 block
+JOPLIN_MASTER_PASSWORD="test-password"
+# shellcheck disable=SC2329
+check_e2ee_state() { E2EE_STATE_CALLS=$((E2EE_STATE_CALLS + 1)); return 2; }
+echo "3" > "${MK_COUNT_FILE}"
+echo "0" > "${REMAINING_FILE}"
+echo "success" > "${FLOCK_MODE_FILE}"
+START_PERIODIC_LOOP=1
+FLOCK_CALLS=0
+E2EE_STATE_CALLS=0
+rm -f "${SYNC_HALT_MARKER}"
+: > "${CAPTURE}"
+# shellcheck disable=SC1090
+source "${BLOCK_FILE}"
+assert_eq "M2-T3 trip (rc 2) → START_PERIODIC_LOOP ends 0" "0" "${START_PERIODIC_LOOP}"
+assert_eq "M2-T3 trip (rc 2) → redundant check invoked once" "1" "${E2EE_STATE_CALLS}"
+
+# --- Test: check_e2ee_state skips (rc 1) → loop NOT halted (skip ≠ trip) ---
+# shellcheck disable=SC2329
+check_e2ee_state() { E2EE_STATE_CALLS=$((E2EE_STATE_CALLS + 1)); return 1; }
+START_PERIODIC_LOOP=1
+FLOCK_CALLS=0
+E2EE_STATE_CALLS=0
+rm -f "${SYNC_HALT_MARKER}"
+: > "${CAPTURE}"
+# shellcheck disable=SC1090
+source "${BLOCK_FILE}"
+assert_eq "M2-T3 skip (rc 1) → START_PERIODIC_LOOP stays 1" "1" "${START_PERIODIC_LOOP}"
+
+# --- Restore the counting stub for any future groups ---
+# shellcheck disable=SC2329
+check_e2ee_state() { E2EE_STATE_CALLS=$((E2EE_STATE_CALLS + 1)); return 0; }
 
 # --- Summary ---
 echo ""
