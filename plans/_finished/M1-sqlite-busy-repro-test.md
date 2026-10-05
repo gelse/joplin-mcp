@@ -115,17 +115,17 @@ abort marker) is noted as a comment.
 - Docker + docker compose on the host (same as existing integration tests).
 - Test infrastructure already verified working (commit `e60afb3`) — **keep
   as-is, no changes**:
-  - [`docker-compose.test.yml`](../docker-compose.test.yml): `joplin-mcp`
+  - [`docker-compose.test.yml`](../../docker-compose.test.yml): `joplin-mcp`
     container name; test-runner has docker.sock mount + `RUN_SYNC_LOCK_TESTS`
     env; socket not exposed from `joplin-mcp`.
-  - [`Dockerfile.tests`](../Dockerfile.tests): docker CLI installed.
-  - [`scripts/run-integration-tests.sh`](../scripts/run-integration-tests.sh):
+  - [`Dockerfile.tests`](../../Dockerfile.tests): docker CLI installed.
+  - [`scripts/run-integration-tests.sh`](../../scripts/run-integration-tests.sh):
     `RUN_SYNC_LOCK_TESTS` pass-through (default 0).
   - `.github/workflows/integration-tests.yml`: manual `workflow_dispatch`
     job `sqlite-busy-repro`.
-  - [`vitest.config.container.ts`](../vitest.config.container.ts): serial
+  - [`vitest.config.container.ts`](../../vitest.config.container.ts): serial
     execution; existing glob already picks up the test file.
-- **Rewrite required:** [`tests/container/sqlite-busy-repro.test.ts`](../tests/container/sqlite-busy-repro.test.ts)
+- **Rewrite required:** [`tests/container/sqlite-busy-repro.test.ts`](../../tests/container/sqlite-busy-repro.test.ts)
   is vacuous (see Defects fixed below).
 - No dependency on M2 or M3.
 
@@ -139,7 +139,7 @@ abort marker) is noted as a comment.
    `docker exec ... cat/tail log.txt`.
 3. `SYNC_TIMEOUT_MS=60_000` vs ~43s retry budget + slow environments.
    **Fixed:** 150s sync window inside a 180s test timeout vs 120s holder.
-4. [`README.md`](../README.md) claimed a "second Joplin CLI process" and a
+4. [`README.md`](../../README.md) claimed a "second Joplin CLI process" and a
    "deterministic contention window" that didn't exist. **Fixed:** accurate
    description (node holder process using the image's `sqlite3`).
 
@@ -269,9 +269,9 @@ docker CLI on test-runner only; never exposed from `joplin-mcp`.
 
 ### 2. Runner script wiring — NO CHANGES
 
-[`scripts/run-integration-tests.sh`](../scripts/run-integration-tests.sh)
+[`scripts/run-integration-tests.sh`](../../scripts/run-integration-tests.sh)
 already passes `RUN_SYNC_LOCK_TESTS` through (default 0).
-[`vitest.config.container.ts`](../vitest.config.container.ts) already picks
+[`vitest.config.container.ts`](../../vitest.config.container.ts) already picks
 up the file. Verify only.
 
 ### 3. CI wiring — NO CHANGES
@@ -282,7 +282,7 @@ Verify only.
 
 ### 4. Documentation — README corrections
 
-In [`README.md`](../README.md), fix the sqlite-busy repro section:
+In [`README.md`](../../README.md), fix the sqlite-busy repro section:
 
 - Replace "second Joplin CLI process" with: a **plain Node process inside the
   `joplin-mcp` container** holding an exclusive SQLite transaction via the
@@ -298,7 +298,7 @@ In [`README.md`](../README.md), fix the sqlite-busy repro section:
 
 ## Definition of Done
 
-- [`tests/container/sqlite-busy-repro.test.ts`](../tests/container/sqlite-busy-repro.test.ts)
+- [`tests/container/sqlite-busy-repro.test.ts`](../../tests/container/sqlite-busy-repro.test.ts)
   rewritten per this plan, gated on `RUN_SYNC_LOCK_TESTS`.
 - With `RUN_SYNC_LOCK_TESTS=1`, the test **FAILS on current code** at the
   safe-behavior assertions, with destructive signatures visible in the
@@ -313,7 +313,7 @@ In [`README.md`](../README.md), fix the sqlite-busy repro section:
 - Holder cleanup: `pkill -f lock-holder.js` in `afterAll` + holder
   self-termination timer; runner `down -v` handles volume reset.
 - Gating, compose wiring, runner pass-through, CI job, vitest glob: unchanged.
-- [`README.md`](../README.md) section corrected (node holder process, real
+- [`README.md`](../../README.md) section corrected (node holder process, real
   mechanism, accurate log-location and fail-by-design statements).
 - Git commit made (e.g. `Revise SQLITE_BUSY repro test plan with proven lock mechanism`).
 
@@ -337,7 +337,7 @@ In [`README.md`](../README.md), fix the sqlite-busy repro section:
 - Any fix or mitigation (M2).
 - Patching upstream Joplin CLI `JoplinDatabase.ts`.
 - Running this repro in the default CI pipeline on every push.
-- Testing HTTP-side SQLITE_BUSY retry in [`src/data-client.ts`](../src/data-client.ts:226).
+- Testing HTTP-side SQLITE_BUSY retry in [`src/data-client.ts`](../../src/data-client.ts:226).
 
 ## Risks
 

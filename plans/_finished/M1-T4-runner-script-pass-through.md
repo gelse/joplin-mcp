@@ -1,5 +1,11 @@
 # M1-T4 — Runner-script pass-through for `RUN_E2EE_REPRO_TESTS`
 
+> **Filing note (2026-10-04):** moved verbatim from `plans/M1-T4-runner-script-pass-through.md`
+> to `plans/_finished/M1-T4-runner-script-pass-through.md` in the finished-milestone
+> filing batch. **Finished:** delivered — `scripts/run-integration-tests.sh` carries the
+> `RUN_E2EE_REPRO_TESTS` pass-through and the separate gated vitest invocation, on the
+> preserved M11 baseline.
+
 > Subtask of **M1 — E2EE Encrypted Titles Reproduction Integration Test**.
 > Belongs to the verification milestone (M1). Implementation starts in a
 > fresh session from this file alone.
@@ -146,7 +152,7 @@ This keeps M11's `expect(...).toBe(2)` invariant intact: the existing two `docke
 - **M11 structural-test `-e JOPLIN_CONTAINER` exactly 2× invariant.** Preserved by routing the new E2EE invocation through a compose-side env var on `test-runner` (added in M1-T1), not via an `-e JOPLIN_CONTAINER=...` flag.
 - **Profile ordering.** Compose profiles must be activated with `--profile NAME` on BOTH `up -d` and `run` invocations. The above does; verify by inspection of the script after edit.
 - **Container name resolution across profiles.** When `--profile e2ee-repro` is active, `ps -q -a joplin-mcp` still resolves the project-prefixed `joplin-mcp` service container. The runner does NOT re-resolve when the profile changes mid-run; verify by running both modes and inspecting the resolved IDs.
-- **Soft-dependency in compose (`required: false`).** Compose 2.32+ required. Documented in M1-T1; if the devcontainer has older compose, the soft dep form fails and the runner cannot start. Verify `docker compose version` ≥ 2.32.
+- **Soft-dependency in compose (`required: false`).** Compose 2.32+ required. Documented in M1-T1; if the devcontainer has older compose, the soft dep form fails and the runner cannot start. Verify `docker compose version` ≥ 2.32. **[2026-10-04: VERIFIED — devcontainer `docker compose version` = 5.5.1 (≥ 2.32 ✓); full record on the M1-T1 note (`M1-T1-test-stack-real-server-and-seed.md:245`).]**
 
 ## 9. Research spikes assigned
 

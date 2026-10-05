@@ -10,10 +10,10 @@ The repro test for GitHub issue #27 exists and proves the bug: under a held SQLi
 
 ## Key deliverables
 
-- [`tests/container/sqlite-busy-repro.test.ts`](tests/container/sqlite-busy-repro.test.ts) — gated on `RUN_SYNC_LOCK_TESTS`, with a self-validating mechanism (awaited `LOCK_HELD` marker + independent `PROBE_BUSY` probe; the test cannot pass vacuously), window-scoped log assertions (excludes the benign startup-collision signature), volume-backed capture that survives the deliberate container death, and a `TODO(M2)` flip contract that requires zero assertion edits once M2 lands.
-- Runner isolation in [`scripts/run-integration-tests.sh`](scripts/run-integration-tests.sh) — the destructive repro runs as its own vitest invocation after the regular suite (it kills the shared container by design).
+- [`tests/container/sqlite-busy-repro.test.ts`](../../tests/container/sqlite-busy-repro.test.ts) — gated on `RUN_SYNC_LOCK_TESTS`, with a self-validating mechanism (awaited `LOCK_HELD` marker + independent `PROBE_BUSY` probe; the test cannot pass vacuously), window-scoped log assertions (excludes the benign startup-collision signature), volume-backed capture that survives the deliberate container death, and a `TODO(M2)` flip contract that requires zero assertion edits once M2 lands.
+- Runner isolation in [`scripts/run-integration-tests.sh`](../../scripts/run-integration-tests.sh) — the destructive repro runs as its own vitest invocation after the regular suite (it kills the shared container by design).
 - Compose/CI wiring: docker.sock + docker CLI scoped to test-runner only; manual `workflow_dispatch` CI job (never on PRs).
-- Docs: [`README.md`](README.md) section and [`plans/M1-sqlite-busy-repro-test.md`](plans/M1-sqlite-busy-repro-test.md) kept accurate, including a post-implementation addendum.
+- Docs: [`README.md`](../../README.md) section and [`M1-sqlite-busy-repro-test.md`](M1-sqlite-busy-repro-test.md) kept accurate, including a post-implementation addendum.
 
 ## Notable findings along the way
 

@@ -1,5 +1,11 @@
 # M1-T2 — E2EE seed fixture script
 
+> **Filing note (2026-10-04):** moved verbatim from `plans/M1-T2-e2ee-seed-fixture-script.md`
+> to `plans/_finished/M1-T2-e2ee-seed-fixture-script.md` in the finished-milestone
+> filing batch. **Finished:** delivered — `tests/container/fixtures/e2ee-seed.sh` exists
+> in the repo and ran as the `joplin-e2ee-seed` one-shot service (exit 0) in the
+> verified M1-T1 proof stack.
+
 > Subtask of **M1 — E2EE Encrypted Titles Reproduction Integration Test**.
 > Belongs to the verification milestone (M1). Implementation starts in a
 > fresh session from this file alone.

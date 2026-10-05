@@ -1,5 +1,13 @@
 # M2-T1 — A: post-sync `joplin e2ee decrypt` + verification
 
+> **Filing note (2026-10-04):** moved verbatim from `plans/M2-T1-initial-sync-decrypt-and-verify.md`
+> to `plans/_finished/M2-T1-initial-sync-decrypt-and-verify.md` in the finished-milestone
+> filing batch. **Finished:** implemented and verified — the decrypt + bounded-retry +
+> SQLite verification block (with the D3 master-key preflight) is live in
+> `entrypoint-combined.sh` (divergences recorded in the 2026-10-04 amendment at the end
+> of this file); the 2026-10-03 run was GREEN with M2-T1 alone (recorded in
+> `plans/backlog.md` §1).
+
 > Subtask of **M2 — E2EE Encrypted Titles Fix (scope A + B2 + C)**.
 > Belongs to the fix milestone (M2). Implementation starts in a fresh
 > session from this file alone.

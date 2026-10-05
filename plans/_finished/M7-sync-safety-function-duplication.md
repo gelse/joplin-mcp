@@ -1,6 +1,6 @@
 # M7 — Sync-Safety Function Duplication: Record Decision, Optional Sourced Module
 
-> Source: [`docs/code-review-testing-2026-09-21.md`](../docs/code-review-testing-2026-09-21.md)
+> Source: [`docs/code-review-testing-2026-09-21.md`](../../docs/code-review-testing-2026-09-21.md)
 > finding **S1** (SUGGESTION).
 >
 > **User decision (recorded):** the duplication is **DELIBERATE** — the
@@ -12,16 +12,16 @@
 ## Problem
 
 The three sync-safety functions —
-[`check_sync_errors`](../entrypoint-combined.sh:71),
-[`check_sync_danger`](../entrypoint-combined.sh:117),
-[`get_sync_item_count`](../entrypoint-combined.sh:153), and
-[`check_deletion_circuit_breaker`](../entrypoint-combined.sh:174) (~120 lines
+[`check_sync_errors`](../../entrypoint-combined.sh:71),
+[`check_sync_danger`](../../entrypoint-combined.sh:117),
+[`get_sync_item_count`](../../entrypoint-combined.sh:153), and
+[`check_deletion_circuit_breaker`](../../entrypoint-combined.sh:174) (~120 lines
 total) — are maintained as byte-identical copies in
-[`tests/test-check-sync-errors.sh:15-163`](../tests/test-check-sync-errors.sh:15)
+[`tests/test-check-sync-errors.sh:15-163`](../../tests/test-check-sync-errors.sh:15)
 (each block carries a "Copy ... exactly from entrypoint-combined.sh" comment).
 If the entrypoint changes, the tests keep validating the **stale copy** and
 pass vacuously. The copy pattern also forces the `export -f` machinery at
-[`entrypoint-combined.sh:483-484`](../entrypoint-combined.sh:483) for the
+[`entrypoint-combined.sh:483-484`](../../entrypoint-combined.sh:483) for the
 `bash -c` sync-loop subshell, and keeps a large inline `setsid bash -c`
 string.
 
@@ -42,15 +42,15 @@ refactor is optional and explicitly not required.
 
 ### Documentation (this milestone)
 
-- [`tests/test-check-sync-errors.sh`](../tests/test-check-sync-errors.sh:15):
+- [`tests/test-check-sync-errors.sh`](../../tests/test-check-sync-errors.sh:15):
   extend the existing header comment at the first copy with an explicit note:
   "Duplication of these functions is DELIBERATE (test independence, review
   2026-09-21 S1). If you change them in `entrypoint-combined.sh`, update the
   copies here in the same commit, or the tests validate stale logic."
-- [`entrypoint-combined.sh`](../entrypoint-combined.sh:112): add a matching
+- [`entrypoint-combined.sh`](../../entrypoint-combined.sh:112): add a matching
   one-line note above `check_sync_danger`: "Tests duplicate these functions
   verbatim (tests/test-check-sync-errors.sh) — keep in lockstep."
-- [`docs/code-review-testing-2026-09-21.md`](../docs/code-review-testing-2026-09-21.md):
+- [`docs/code-review-testing-2026-09-21.md`](../../docs/code-review-testing-2026-09-21.md):
   no change needed — the user confirmation is already recorded there.
 
 ### Optional hardening (follow-up, only if scheduled)
@@ -59,12 +59,12 @@ Move the six functions (`log`, `log_sync`, `check_sync_errors`,
 `check_sync_danger`, `get_sync_item_count`,
 `check_deletion_circuit_breaker`) into `scripts/sync-safety.sh` (mounted or
 installed as `/usr/local/bin/sync-safety.sh` in the image), `source` it from
-both [`entrypoint-combined.sh`](../entrypoint-combined.sh:1) and
-[`tests/test-check-sync-errors.sh`](../tests/test-check-sync-errors.sh:1).
+both [`entrypoint-combined.sh`](../../entrypoint-combined.sh:1) and
+[`tests/test-check-sync-errors.sh`](../../tests/test-check-sync-errors.sh:1).
 This makes the `export -f` list
-([`entrypoint-combined.sh:484`](../entrypoint-combined.sh:484)) and the
+([`entrypoint-combined.sh:484`](../../entrypoint-combined.sh:484)) and the
 structural grep tests asserting exports
-([`tests/test-sync-failure-diagnostics.sh:70-119`](../tests/test-sync-failure-diagnostics.sh:70),
+([`tests/test-sync-failure-diagnostics.sh:70-119`](../../tests/test-sync-failure-diagnostics.sh:70),
 see M8) largely moot, and shrinks the inline `setsid bash -c` body.
 
 ## Acceptance Criteria
@@ -75,7 +75,7 @@ see M8) largely moot, and shrinks the inline `setsid bash -c` body.
   and pass counts unchanged.
 - (Optional track only) a single `scripts/sync-safety.sh` exists; both
   consumers source it; no byte-identical copies remain; export list and
-  comment at [`entrypoint-combined.sh:478-484`](../entrypoint-combined.sh:478)
+  comment at [`entrypoint-combined.sh:478-484`](../../entrypoint-combined.sh:478)
   updated to match.
 
 ## Verification

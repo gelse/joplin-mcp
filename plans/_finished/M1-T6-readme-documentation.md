@@ -1,5 +1,12 @@
 # M1-T6 — README documentation for E2EE repro
 
+> **Filing note (2026-10-04):** moved verbatim from `plans/M1-T6-readme-documentation.md`
+> to `plans/_finished/M1-T6-readme-documentation.md` in the finished-milestone
+> filing batch. **Finished:** delivered — `README.md` carries the
+> `#### E2EE encrypted-titles reproduction test (issue #29)` section and the
+> E2EE-section correction; the permanent-fix wording shipped without the descoped
+> reorder (see the 2026-10-04 note below).
+
 > Subtask of **M1 — E2EE Encrypted Titles Reproduction Integration Test**.
 > Belongs to the verification milestone (M1). Implementation starts in a
 > fresh session from this file alone.
@@ -79,7 +86,7 @@ password but does NOT trigger decryption. Users hitting the symptom
 need to either run `joplin e2ee decrypt` manually inside the container
 (see warning below) or wait for the M2 fix (scope: post-sync decrypt +
 verification + startup reorder + tighter sync detection). See
-`plans/M2-T1..T4` for the fix design.
+the M2 fix-design plans (`plans/_finished/M2-T1-initial-sync-decrypt-and-verify.md`, `plans/_finished/M2-T2-server-start-reorder.md`, `plans/M2-T3-sync-detection-and-healthcheck-hardening.md`, `plans/M2-T4-flip-to-green-verification-and-docs.md`) for the fix design.
 ```
 
 ### Correct the existing E2EE section (line 86-92)
@@ -108,18 +115,21 @@ After the existing `### ⚠️ Warning: joplin e2ee decrypt does NOT persist the
 > ```
 >
 > **Permanent fix:** see the M2 milestone plans
-> (`plans/M2-T1..T4`) — post-sync `joplin e2ee decrypt` with verification,
+> (the M2 fix-design plans: `plans/_finished/M2-T1-initial-sync-decrypt-and-verify.md`, `plans/_finished/M2-T2-server-start-reorder.md`, `plans/M2-T3-sync-detection-and-healthcheck-hardening.md`, `plans/M2-T4-flip-to-green-verification-and-docs.md`)
+> — post-sync `joplin e2ee decrypt` with verification,
 > startup reorder so `joplin server start` follows sync+decrypt, and
 > tighter sync error detection. A container integration test
-> reproducing this gap ships with M1 (`plans/M1-T3`); the M2 fix flips
+> reproducing this gap ships with M1 (`M1-T3-e2ee-encrypted-titles-repro-test.md`); the M2 fix flips
 > that test green with zero assertion edits.
 ```
+
+**[2026-10-04: both pre-drafted passages above promise the startup reorder as part of the permanent fix (`:88` — "wait for the M2 fix (scope: post-sync decrypt + verification + startup reorder + tighter sync detection)" — and `:117-122` — "startup reorder so `joplin server start` follows sync+decrypt"). The reorder was descoped with M2-T2 on 2026-10-03 (user-ratified; `plans/backlog.md` §1 / §3 D1). The README's permanent-fix wording shipped T2-free on 2026-10-04 (this documentation batch, executing M2-T4 Step 4) — it makes no reorder promise. Draft text kept as the historical record.]**
 
 ## 6. Acceptance criteria
 
 - README contains the new `#### E2EE encrypted-titles reproduction test (issue #29)` section under Testing.
 - README's existing E2EE section contains the new `### Known gap:` subsection.
-- Markdown is rendered correctly on GitHub (no broken links; the `plans/M1-T1..T6` and `plans/M2-T1..T4` references resolve to files in `plans/`).
+- Markdown is rendered correctly on GitHub (no broken links; the `plans/_finished/M1-T1..T6` references and the M2 fix-design references (`plans/_finished/M2-T1-initial-sync-decrypt-and-verify.md`, `plans/_finished/M2-T2-server-start-reorder.md`, `plans/M2-T3-sync-detection-and-healthcheck-hardening.md`, `plans/M2-T4-flip-to-green-verification-and-docs.md`) resolve to files in `plans/_finished/` and `plans/`).
 - The warning blockquote mirrors the existing `README.md:351` FTS-known-limitation style.
 
 ## 7. Verification commands
@@ -131,7 +141,7 @@ After the existing `### ⚠️ Warning: joplin e2ee decrypt does NOT persist the
 ## 8. Risks / gotchas
 
 - **README drift** — if the README is updated to reflect M2's fix in the future, this section's "Known gap" wording becomes stale. M2-T4 owns the post-M2 README update; do not duplicate that here.
-- **Markdown link targets** — the new section references `plans/M1-T1..T6` and `plans/M2-T1..T4`. These resolve to files in the repo. Verify on GitHub that the relative paths render as links (not as text).
+- **Markdown link targets** — the new section references `plans/_finished/M1-T1..T6` and the M2 fix-design files (`plans/_finished/M2-T1-initial-sync-decrypt-and-verify.md`, `plans/_finished/M2-T2-server-start-reorder.md`, `plans/M2-T3-sync-detection-and-healthcheck-hardening.md`, `plans/M2-T4-flip-to-green-verification-and-docs.md`). These resolve to files in the repo. Verify on GitHub that the relative paths render as links (not as text).
 - **Existing E2EE section ordering** — insert the new `### Known gap:` AFTER the `### ⚠️ Warning: joplin e2ee decrypt…` block but BEFORE the `### How to tell if E2EE is the problem` block (`:90-92`). Verify by inspection.
 
 ## 9. Research spikes assigned

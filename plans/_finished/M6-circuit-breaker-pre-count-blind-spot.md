@@ -1,17 +1,17 @@
 # M6 — Circuit-Breaker Blind Spot: Distrust a Silently-Zero Pre-Sync Count
 
-> Source: [`docs/code-review-testing-2026-09-21.md`](../docs/code-review-testing-2026-09-21.md)
+> Source: [`docs/code-review-testing-2026-09-21.md`](../../docs/code-review-testing-2026-09-21.md)
 > finding **W3** (WARNING).
 
 ## Problem
 
 The deletion circuit-breaker
-([`check_deletion_circuit_breaker`](../entrypoint-combined.sh:174)) applies its
-suspicious-zero guard ([`entrypoint-combined.sh:197-207`](../entrypoint-combined.sh:197))
+([`check_deletion_circuit_breaker`](../../entrypoint-combined.sh:174)) applies its
+suspicious-zero guard ([`entrypoint-combined.sh:197-207`](../../entrypoint-combined.sh:197))
 **only to the post-sync count**. A pre-sync measurement that silently returns
 `0` — `joplin ls` failing with exit 0 and empty output, a failure mode the
 in-function comment at
-[`entrypoint-combined.sh:197-199`](../entrypoint-combined.sh:197) explicitly
+[`entrypoint-combined.sh:197-199`](../../entrypoint-combined.sh:197) explicitly
 acknowledges — sails through validation (`-ge 0` accepts `0`).
 
 Failure sequence: pre-count silently `0` while the profile holds items → sync
@@ -19,7 +19,7 @@ deletes everything → post-count legitimately `0` → `deleted = 0 - 0 = 0` →
 breaker passes. The exact data-loss scenario the breaker exists to catch slips
 through, because the guard is asymmetric.
 
-Related code: [`get_sync_item_count`](../entrypoint-combined.sh:153) can only
+Related code: [`get_sync_item_count`](../../entrypoint-combined.sh:153) can only
 detect pipeline failures via `pipefail`; a clean-exit empty listing is
 indistinguishable from a genuinely empty profile at that layer.
 
@@ -31,9 +31,9 @@ skips (safely) when trust is impossible.
 
 ## Proposed Approach
 
-In [`check_deletion_circuit_breaker`](../entrypoint-combined.sh:174), extend the
+In [`check_deletion_circuit_breaker`](../../entrypoint-combined.sh:174), extend the
 existing pre-count validation block
-([`entrypoint-combined.sh:185-188`](../entrypoint-combined.sh:185)) with a
+([`entrypoint-combined.sh:185-188`](../../entrypoint-combined.sh:185)) with a
 retry-once-then-skip rule for a pre-count of exactly `0`:
 
 ```bash
@@ -55,23 +55,23 @@ empty, `deleted` can be at most `post_count - 0`; skipping the check for one
 sync is the conservative outcome, and the WARN makes the condition visible.
 This mirrors the skip-with-WARN contract (`return 1`) already used for failed
 counts, so no caller changes are needed — all call sites
-([`entrypoint-combined.sh:466`](../entrypoint-combined.sh:466),
-[`entrypoint-combined.sh:541`](../entrypoint-combined.sh:541),
-[`entrypoint-combined.sh:671`](../entrypoint-combined.sh:671)) already invoke
+([`entrypoint-combined.sh:466`](../../entrypoint-combined.sh:466),
+[`entrypoint-combined.sh:541`](../../entrypoint-combined.sh:541),
+[`entrypoint-combined.sh:671`](../../entrypoint-combined.sh:671)) already invoke
 the breaker in conditional contexts and treat `1` as skip.
 
 ## Acceptance Criteria
 
 - Pre-count `0` → `return 1` (skip) with a WARN log line; never `return 0`.
 - Post-count `0` with pre-count `> 0` → existing retry-then-skip behavior
-  unchanged ([`entrypoint-combined.sh:200-207`](../entrypoint-combined.sh:200)).
+  unchanged ([`entrypoint-combined.sh:200-207`](../../entrypoint-combined.sh:200)).
 - Pre-count `> 0`, post-count `> 0` → normal comparison unchanged.
 - All invocations remain in conditional contexts (`set -e` invariant).
 - Unit tests cover the new pre-count-zero case.
 
 ## Verification
 
-Unit tests go in [`tests/test-check-sync-errors.sh`](../tests/test-check-sync-errors.sh)
+Unit tests go in [`tests/test-check-sync-errors.sh`](../../tests/test-check-sync-errors.sh)
 (Group 4, breaker tests, which exercise the byte-identical function copy — see
 M7 for the duplication caveat). Add cases mirroring the existing style:
 

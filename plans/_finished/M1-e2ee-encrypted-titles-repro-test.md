@@ -1,5 +1,11 @@
 # M1 — E2EE Encrypted Titles Reproduction Integration Test (INDEX)
 
+> **Filing note (2026-10-04):** moved verbatim from `plans/M1-e2ee-encrypted-titles-repro-test.md`
+> to `plans/_finished/M1-e2ee-encrypted-titles-repro-test.md` in the finished-milestone
+> filing batch. **Finished:** verification milestone complete — all six subtasks
+> (M1-T1..T6) delivered and the repro test was flipped GREEN by the M2-T1 implementation
+> (2026-10-03); see also "Amendment — 2026-10-03" at the end of this file.
+
 > **Status:** Plan-only milestone. **Reproduces GitHub issue #29 — does NOT fix it.**
 > Companion fix lives in this same split effort as **M2** (scope A + B2 + C, **(B2 descoped 2026-10-03 — see "## Amendment — 2026-10-03" at end of file; scope now A + C.)**
 > defined below). This file is the **index/overview**: detail has moved into
@@ -124,14 +130,14 @@ what is being verified or fixed.
 
 | Subtask | File                                                    | What it delivers                                                                       |
 | ------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| M1-T1   | `plans/M1-T1-test-stack-real-server-and-seed.md`          | Real Joplin Server + one-shot seed container in `docker-compose.test.yml`, profile-gated |
-| M1-T2   | `plans/M1-T2-e2ee-seed-fixture-script.md`                 | `tests/container/fixtures/e2ee-seed.sh`                                                  |
-| M1-T3   | `plans/M1-T3-e2ee-encrypted-titles-repro-test.md`         | `tests/container/e2ee-encrypted-titles-repro.test.ts` with two anti-vacuous gates        |
-| M1-T4   | `plans/M1-T4-runner-script-pass-through.md`               | `scripts/run-integration-tests.sh` pass-through (additive on M11's uncommitted baseline) |
-| M1-T5   | `plans/M1-T5-ci-wiring-e2ee-repro-job.md`                 | `.github/workflows/integration-tests.yml` opt-in job                                     |
-| M1-T6   | `plans/M1-T6-readme-documentation.md`                     | `README.md` section + E2EE section correction                                            |
-| M2-T1   | `plans/M2-T1-initial-sync-decrypt-and-verify.md`          | A — post-sync `joplin e2ee decrypt` + verification                                       |
-| M2-T2   | `plans/M2-T2-server-start-reorder.md`                     | B2 — startup reorder — **descoped 2026-10-03** (see Amendment)   |
+| M1-T1   | `M1-T1-test-stack-real-server-and-seed.md`          | Real Joplin Server + one-shot seed container in `docker-compose.test.yml`, profile-gated |
+| M1-T2   | `M1-T2-e2ee-seed-fixture-script.md`                 | `tests/container/fixtures/e2ee-seed.sh`                                                  |
+| M1-T3   | `M1-T3-e2ee-encrypted-titles-repro-test.md`         | `tests/container/e2ee-encrypted-titles-repro.test.ts` with two anti-vacuous gates        |
+| M1-T4   | `M1-T4-runner-script-pass-through.md`               | `scripts/run-integration-tests.sh` pass-through (additive on M11's uncommitted baseline) |
+| M1-T5   | `M1-T5-ci-wiring-e2ee-repro-job.md`                 | `.github/workflows/integration-tests.yml` opt-in job                                     |
+| M1-T6   | `M1-T6-readme-documentation.md`                     | `README.md` section + E2EE section correction                                            |
+| M2-T1   | `M2-T1-initial-sync-decrypt-and-verify.md`          | A — post-sync `joplin e2ee decrypt` + verification                                       |
+| M2-T2   | `M2-T2-server-start-reorder.md`                     | B2 — startup reorder — **descoped 2026-10-03** (see Amendment)   |
 | M2-T3   | `plans/M2-T3-sync-detection-and-healthcheck-hardening.md` | C — sync error detection + E2EE-aware healthcheck                                      |
 | M2-T4   | `plans/M2-T4-flip-to-green-verification-and-docs.md`      | Flip-to-green + docs                                                                   |
 

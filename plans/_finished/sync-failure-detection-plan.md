@@ -6,7 +6,7 @@ Status: design agreed with maintainer; **no issue created yet**
 
 ## The problem in one paragraph
 
-`joplin sync` can fail totally while exiting 0 and logging `SYNC_PASS`. The sync loop in [`entrypoint-combined.sh`](../entrypoint-combined.sh:324) already detects error patterns in `log.txt` via [`check_sync_errors()`](../entrypoint-combined.sh:69) — but the result goes nowhere: it is written to a log line and forgotten. The MCP server keeps serving reads from an increasingly stale local database, writes pile up locally forever, and nothing (healthcheck, `/health`, tool responses) tells anyone. This class of failure re-arms every time Joplin Server raises its minimum client version, and per the issue comments it is inherently hard: sync is asynchronous, the CLI is a black box out of our control, and "failure" ranges from a blip (network) to permanent (version floor).
+`joplin sync` can fail totally while exiting 0 and logging `SYNC_PASS`. The sync loop in [`entrypoint-combined.sh`](../../entrypoint-combined.sh:324) already detects error patterns in `log.txt` via [`check_sync_errors()`](../../entrypoint-combined.sh:69) — but the result goes nowhere: it is written to a log line and forgotten. The MCP server keeps serving reads from an increasingly stale local database, writes pile up locally forever, and nothing (healthcheck, `/health`, tool responses) tells anyone. This class of failure re-arms every time Joplin Server raises its minimum client version, and per the issue comments it is inherently hard: sync is asynchronous, the CLI is a black box out of our control, and "failure" ranges from a blip (network) to permanent (version floor).
 
 ## Decisions (from maintainer grilling)
 
@@ -91,7 +91,7 @@ The entrypoint already runs an initial sync before starting the loop. Change its
 
 ### 5. `/health` endpoint enrichment
 
-[`startMCPServer()` in `src/mcp/server.ts`](../src/mcp/server.ts) currently answers `{status: "ok"}`. Extend it to read `SYNC_STATE_FILE` (by path from env; absent in the native/two-container path → omit the sync block entirely) and answer:
+[`startMCPServer()` in `src/mcp/server.ts`](../../src/mcp/server.ts) currently answers `{status: "ok"}`. Extend it to read `SYNC_STATE_FILE` (by path from env; absent in the native/two-container path → omit the sync block entirely) and answer:
 
 ```json
 {
@@ -111,7 +111,7 @@ The HTTP status stays 200 as long as the MCP itself works — orchestrators deci
 
 ### 6. Write-tool warnings (decision 1)
 
-Every mutating tool response in [`src/mcp/tools.ts`](../src/mcp/tools.ts) gains a `syncWarning` field, populated from the same state file when `status` is `degraded` or `broken`:
+Every mutating tool response in [`src/mcp/tools.ts`](../../src/mcp/tools.ts) gains a `syncWarning` field, populated from the same state file when `status` is `degraded` or `broken`:
 
 - `broken`: `SYNC_BROKEN: sync has failed N consecutive times (class: version-mismatch) — changes are local-only until sync recovers; last successful sync: 2026-09-13T12:00:00Z`
 - `degraded`: `SYNC_DEGRADED: last sync attempt failed (class: network) — changes may be local-only until sync recovers`
@@ -120,7 +120,7 @@ Omitted entirely (not `null`) when healthy/unknown, so successful normal operati
 
 ### 7. Healthcheck (decision 2)
 
-Replace the inline `HEALTHCHECK CMD` in [`Dockerfile.combined`](../Dockerfile.combined:86) with a small `healthcheck.sh` copied into the image:
+Replace the inline `HEALTHCHECK CMD` in [`Dockerfile.combined`](../../Dockerfile.combined:86) with a small `healthcheck.sh` copied into the image:
 
 1. `curl -f 127.0.0.1:41184/ping` and `curl -f 127.0.0.1:3000/health` (unchanged baseline).
 2. If `SYNC_ERROR_IS_CONTAINER_HEALTH` is truthy: parse the sync block from `/health` and exit 1 when `sync.status == "broken"`.
@@ -129,20 +129,20 @@ Default behaviour is unchanged — no surprise `unhealthy` containers for people
 
 ### 8. `sync` MCP tool
 
-In the combined container the [`sync` tool](../src/mcp/tools.ts:228) currently returns a static string. Change it to return the sync state from the state file (same shape as the `/health` sync block) plus a hint that sync runs on a schedule; it still never triggers a sync itself (the bash loop owns syncing).
+In the combined container the [`sync` tool](../../src/mcp/tools.ts:228) currently returns a static string. Change it to return the sync state from the state file (same shape as the `/health` sync block) plus a hint that sync runs on a schedule; it still never triggers a sync itself (the bash loop owns syncing).
 
 ## What does not change
 
-- The bash periodic sync loop stays the sole sync authority; no resurrection of the TypeScript [`SyncManager`](../src/sync-manager.ts) in the combined container.
+- The bash periodic sync loop stays the sole sync authority; no resurrection of the TypeScript [`SyncManager`](../../src/sync-manager.ts) in the combined container.
 - No restart-on-broken-sync behaviour, no email reports, no time-based staleness rules.
 - Two-container / native deployments without the state file: `/health`, tools, and healthcheck behave exactly as today.
 
 ## Test strategy
 
-- **Bash unit tests**: extend [`tests/test-check-sync-errors.sh`](../tests/test-check-sync-errors.sh) — classification per class, state-file transitions (degraded → broken at threshold, recovery reset), no-op detection with/without pending writes, atomic-write behaviour. Follow the existing pattern of copying the function verbatim.
+- **Bash unit tests**: extend [`tests/test-check-sync-errors.sh`](../../tests/test-check-sync-errors.sh) — classification per class, state-file transitions (degraded → broken at threshold, recovery reset), no-op detection with/without pending writes, atomic-write behaviour. Follow the existing pattern of copying the function verbatim.
 - **Node unit tests**: `/health` with healthy/degraded/broken/missing state file; `syncWarning` on write tools; `sync` tool output.
-- **Container tests** ([`tests/container/`](../tests/container/)): inject a crafted state file via the existing test harness, assert `/health` and a write-tool response carry the degraded/broken signal; assert default healthcheck script passes while `SYNC_ERROR_IS_CONTAINER_HEALTH=1` + broken state fails it.
-- **Startup fail-fast**: simulate the `please upgrade your application` pattern in a fake `log.txt` for the initial sync and assert the container exits non-zero with the upgrade message (extend the pattern used by [`tests/test-sync-failure-diagnostics.sh`](../tests/test-sync-failure-diagnostics.sh)).
+- **Container tests** ([`tests/container/`](../../tests/container/)): inject a crafted state file via the existing test harness, assert `/health` and a write-tool response carry the degraded/broken signal; assert default healthcheck script passes while `SYNC_ERROR_IS_CONTAINER_HEALTH=1` + broken state fails it.
+- **Startup fail-fast**: simulate the `please upgrade your application` pattern in a fake `log.txt` for the initial sync and assert the container exits non-zero with the upgrade message (extend the pattern used by [`tests/test-sync-failure-diagnostics.sh`](../../tests/test-sync-failure-diagnostics.sh)).
 
 ## Implementation order (one PR or small stack)
 

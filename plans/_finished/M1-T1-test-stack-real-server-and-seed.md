@@ -1,5 +1,12 @@
 # M1-T1 — Test stack: real Joplin Server + one-shot seed container
 
+> **Filing note (2026-10-04):** moved verbatim from `plans/M1-T1-test-stack-real-server-and-seed.md`
+> to `plans/_finished/M1-T1-test-stack-real-server-and-seed.md` in the finished-milestone
+> filing batch. **Finished:** IMPLEMENTED and VERIFIED end-to-end per its status header
+> below — all §7 verification commands pass and the stack was proven live (`joplin-server`
+> healthy, `joplin-e2ee-seed` exit 0, `joplin-mcp` healthy, `list_notebooks` returned
+> `"title": ""`; issue #29 reproduces).
+
 > Subtask of **M1 — E2EE Encrypted Titles Reproduction Integration Test**.
 > Belongs to the verification milestone (M1). Implementation starts in a
 > fresh session from this file alone.
@@ -70,7 +77,7 @@ the same server is the chosen strategy.
   joplin config "sync.10.password" "${JOPLIN_PASSWORD}"
   ```
 - **entrypoint-combined.sh**:443 — `flock -w 120 "${SYNC_LOCK_FILE}" -c 'joplin sync'`. Insertion site for the eventual M2-T1 decrypt step.
-- **entrypoint-combined.sh**:333-335 — `nohup joplin server start &` (Data API; **runs before** sync; relocates under M2-T2).
+- **entrypoint-combined.sh**:333-335 — `nohup joplin server start &` (Data API; **runs before** sync; relocates under M2-T2). **[2026-10-04: the "relocates under M2-T2" clause is VOID — the startup reorder was descoped with M2-T2 on 2026-10-03 (user-ratified; `plans/backlog.md` §1 / §3 D1), so the Data API permanently runs before sync. The line pointer is historical (HEAD numbering): in the current working tree the Data API start block sits at `entrypoint-combined.sh:395-403`. Text kept.]**
 - **src/mcp/tools.ts:45-47** — `listNotebooks` → `ctx.client.getAllFolders()`:
   ```ts
   export const listNotebooks: ToolHandler<object, Folder[]> = async (_input, ctx) => {
@@ -235,7 +242,7 @@ The `probeServerForEncryptedFixture()` helper is defined in M1-T3 because the ga
 ## 8. Risks / gotchas
 
 - **Gap 3 — does the Joplin Server REST API expose `encryption_applied`?** Spike assigned below. If no API, the seed-time gate uses a marker file: the seeder writes `/home/joplin/.config/joplin/.e2ee-fixture-seed` containing the seeded notebook id + a JSON `{"encryption_applied": "1"}` line, and the gate (defined in M1-T3) reads that. **Escape hatch:** the seeder container mounts the data volume (`joplin_seed_data`) which is shared with the combined container via the script — but that conflicts with isolation. Cleaner escape: the seeder writes the marker to a host-mounted directory (e.g. `./tests/container/fixtures/.seed-marker.json`) and the gate reads it through `readFileSync` on the host. (Choose this cleaner form unless evidence forces otherwise.)
-- **Composer profile support:** the existing compose file (Compose Spec) supports `profiles:` natively; required: false for soft dependencies is supported in Compose 2.32+ (the runner uses Docker Compose that ships with the docker CLI used today; verify `docker compose version` ≥ 2.32 on the devcontainer/CI; if not, use the absolute path: hardcode the dependency as a post-profile conditional via a separate compose file `docker-compose.test-e2ee.yml` that extends `docker-compose.test.yml`. Document the escape hatch.)
+- **Composer profile support:** the existing compose file (Compose Spec) supports `profiles:` natively; required: false for soft dependencies is supported in Compose 2.32+ (the runner uses Docker Compose that ships with the docker CLI used today; verify `docker compose version` ≥ 2.32 on the devcontainer/CI; if not, use the absolute path: hardcode the dependency as a post-profile conditional via a separate compose file `docker-compose.test-e2ee.yml` that extends `docker-compose.test.yml`. Document the escape hatch.) **[2026-10-04: VERIFIED — `docker compose version` in the devcontainer reports `Docker Compose version 5.5.1` (≥ 2.32 ✓). The soft-dep form is in de-facto use in the delivered stack (`docker-compose.test.yml:29-35`, `required: false` at `:35`) and the stack runs there; the `docker-compose.test-e2ee.yml` escape hatch is therefore unused. Cross-check: `.github/workflows/integration-tests.yml:107-108` already records "verified on compose 5.5.1" (for profile teardown).]**
 - **joplin/server:latest drift changes the fingerprint** — not a risk per Decision 2 (drift accepted); first failure in the gated opt-in job is the discovery mechanism.
 
 ## 9. Research spikes assigned

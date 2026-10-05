@@ -1,5 +1,11 @@
 # M1-T5 — CI wiring: opt-in `workflow_dispatch` job for E2EE repro
 
+> **Filing note (2026-10-04):** moved verbatim from `plans/M1-T5-ci-wiring-e2ee-repro-job.md`
+> to `plans/_finished/M1-T5-ci-wiring-e2ee-repro-job.md` in the finished-milestone
+> filing batch. **Finished:** delivered — `.github/workflows/integration-tests.yml` carries
+> the `run_e2ee_repro_tests` dispatch input and the opt-in `e2ee-encrypted-titles-repro`
+> job.
+
 > Subtask of **M1 — E2EE Encrypted Titles Reproduction Integration Test**.
 > Belongs to the verification milestone (M1). Implementation starts in a
 > fresh session from this file alone.
@@ -84,6 +90,8 @@ After the `sqlite-busy-repro` job (after line 72), add:
         if: always()
         run: docker compose -f docker-compose.test.yml down -v --remove-orphans
 ```
+
+**[2026-10-04: the pre-drafted job comment above (`:61-65`) frames the gate as cost-only ("Gated for cost (~10 min, three image pulls)"). It is superseded in delivery by the workflow's dual-rationale comment — "Gated for cost … AND for privilege" — which also corrects the pull accounting to "~10 min: one image pull plus locally built test images" (`.github/workflows/integration-tests.yml:79-88`, rationale at `:83-88`). The draft above is kept as the historical record.]**
 
 ## 6. Acceptance criteria
 

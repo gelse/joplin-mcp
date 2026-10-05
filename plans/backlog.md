@@ -1,0 +1,217 @@
+# Backlog — M1/M2 e2ee effort: open questions, open decisions, and debts
+
+> **Status:** Living backlog. Collects every open question and open decision
+> across the `M1-*` / `M2-*` e2ee plan files — plus discoveries from the
+> M2-T1 run that no file records — and records a verdict on M2-T2.
+> **This file is not a milestone and does not replace the plan files it
+> cites.** Per `plans/M2-T4:66`, plan files are reference material and are
+> not retroactively edited; wherever the verdict below implies a change to a
+> milestone file, it is recorded here as a backlog item with a recommended
+> action — never applied.
+>
+> **Filing note (2026-10-04):** the finished M1/M2 e2ee milestone plans cited
+> throughout this file were moved from `plans/` to `plans/_finished/` (see §9 (d));
+> every path citation and `:LINE` anchor below was re-derived against the moved
+> files' new locations.
+
+**At a glance:** 7 answers in §2, resolved by the M2-T1 run (the R1/R6 answers were
+backfilled into the plan files 2026-10-03 — see §2; the rest remain un-backfilled) ·
+20 open items in §3–§7 (was 21 before D4 resolved 2026-10-04; 28 after the 2026-10-03
+batch — itself down from 31, when D1 and D2 were resolved by the user 2026-10-03 and
+Q14 went moot; the 2026-10-04 batches resolved D3, D4, D5, E1, E2, E3, E5 and mooted
+Q7 — all rows retained below) · 12 settled items in §8.
+
+Each item carries: **what** it is, **why** it is open (or how it was
+resolved), an **owner**, an **evidence pointer** (`file:line`), and a
+**recommended next action**. Claims marked *(inference)* are conclusions, not
+citations. Items marked *(M2-T1 run report)* are sourced from that run's
+session report, not from any file in this repo. Line numbers for
+`entrypoint-combined.sh` were re-derived 2026-10-04 against the current
+working tree (M2-T1 implementation + D3 preflight uncommitted; the D4
+tag-aware-refusal block is also present, and the §3 D4 row cites it).
+
+Short forms used below: `M1-index` = `plans/_finished/M1-e2ee-encrypted-titles-repro-test.md`;
+`M1-T1..T6` = their own `plans/_finished/` files; `M2-T1..T4` = their own plan files
+(`M2-T1`/`M2-T2` in `plans/_finished/`, `M2-T3`/`M2-T4` in `plans/`) — filed there
+2026-10-04, see §9 (d).
+
+## 1. Verdict — M2-T2 re-evaluation: DROP from the M2 critical path
+
+**M2-T2 is not needed as a required task: DROP it from the M2 critical path
+(do not implement the server-start reorder), and REDUCE its residual value
+to one optional hardening backlog item tied to the Decision-2 image-drift
+monitoring duty (§5 F6).** Ratification of this drop was §3 D1 — **ratified by
+the user 2026-10-03 ("is ok"); the plan files WERE amended:** see the
+"Amendment — 2026-10-03: Decision 1 amended (user ratification)" section of
+`plans/_finished/M1-e2ee-encrypted-titles-repro-test.md` (at `:202`) and the STATUS
+header of `plans/_finished/M2-T2-server-start-reorder.md` (at `:13`).
+
+Evidence chain (each step independently checkable):
+
+| # | Evidence | Pointer |
+|---|----------|---------|
+| 1 | M2-T1 §7 item 2 defines the decision rule: GREEN ⇒ "Gap 1 = NO mitigations needed"; RED ⇒ "M2-T2's reorder is required." The M2-T1 §7 run observed exit 0 / GREEN — the M1-T3 repro passes with M2-T1 alone *(M2-T1 run report)* — so by the plan's own rule the reorder is not required. | `plans/_finished/M2-T1-initial-sync-decrypt-and-verify.md:158` |
+| 2 | M2-T2 §9 Spike 1 asked whether `joplin server start` re-reads the SQLite DB after out-of-process `e2ee decrypt`; the same run answers YES *(inference from the GREEN outcome: the Data API re-reads post-decrypt state)* ⇒ the reorder is unnecessary for serving plaintext. Neither plan file was backfilled with this answer *(later backfilled 2026-10-03 — see the `plans/_finished/M2-T2-server-start-reorder.md` STATUS header at `:13` and the M1-index "Amendment — 2026-10-03" section at `:202`)*. | `plans/_finished/M2-T2-server-start-reorder.md:181` |
+| 3 | Residual value of T2 is version-drift defense only *(inference)*. The Data-API re-read answer (the YES) is empirically pinned to the bundled joplin CLI 3.7.1 (M1-T1 §10.1, `plans/_finished/M1-T1-test-stack-real-server-and-seed.md:360`) — `joplin server start` re-reading the SQLite DB is a CLI/Data-API behavior, not a server-image property. Separately, the sync target floats `joplin/server:latest` (`M1-index:37`, Decision 2), so a future image could regress the surrounding behavior *(inference)*. The transient pre-decrypt serving window is not observable by MCP clients: MCP starts only after the sync region (`entrypoint-combined.sh:835-836`), and the Data API binds loopback-only per the comment at `entrypoint-combined.sh:392-393` *(inference)*. | `entrypoint-combined.sh:835-836`, `entrypoint-combined.sh:392-393` |
+| 4 | Cost of keeping T2: +5–15s cold start, plus stale `:N-M` comment churn. | `plans/_finished/M2-T2-server-start-reorder.md:159`, `:174` |
+
+**Honest caveat.** Fix-scope Decision 1 (`M1-index:36`, "RESOLVED — do not
+re-open") committed to A + B2 + C. This verdict does not dispute root-cause
+B; it records that the B2 remedy became unnecessary once Spike 1 answered
+YES. Formal descoping of the B2 half was the recommended action on §3 D1 —
+**ratified and applied 2026-10-03** (user, "is ok"): see the amendment
+(`plans/_finished/M1-e2ee-encrypted-titles-repro-test.md:202`), the descope STATUS
+header (`plans/_finished/M2-T2-server-start-reorder.md:13`), and the M2 scope-table
+update (`plans/_finished/M1-e2ee-encrypted-titles-repro-test.md:120`).
+
+**Knock-ons of the drop — applied 2026-10-03** *(was "if the drop is
+ratified"; ratified via D1, see above).* `plans/M2-T4-flip-to-green-verification-and-docs.md:23`
+(was `:11`; dependency list: T1+T2+T3 "all must have landed" — fixed 2026-10-03 to
+"M2-T1 and M2-T3 (both must have landed)"), old `:125` (pre-drafted README text: "starts
+the Data API *after* the decrypt step" — the T2 clause was removed 2026-10-03; removal
+note at `:181`), and `:197` (boot-sequence step 5 — the list was rewritten to the real
+boot order 2026-10-03, now at `:246-253` with correction note `:255`) all assumed T2
+lands; `plans/_finished/M1-T6-readme-documentation.md:88` and `:117-122` promise the startup
+reorder as part of the permanent fix. **What actually landed 2026-10-03:** M2-T4 was
+re-scoped to residual work (RE-SCOPE NOTE at `:8-17`, approved via §3 D2) and its
+dependency line was fixed; M2-T2 was descoped (STATUS header at
+`plans/_finished/M2-T2-server-start-reorder.md:13`); the M1-T6 README promises are owned by
+§6 E1 / M2-T4 Step 4 (T2-free wording at execution time).
+
+## 2. Answers recorded by the M2-T1 run — RESOLVED, but plan text is not backfilled *(2026-10-03: partially — the R1/R6 answers ARE backfilled as of 2026-10-03, via the M1-index Amendment ("Amendment — 2026-10-03" section, `plans/_finished/M1-e2ee-encrypted-titles-repro-test.md:202`), the M2-T2 STATUS header (`plans/_finished/M2-T2-server-start-reorder.md:13`), and the M2-T1/M2-T3 dated annotations; the other answers' plan text remains un-backfilled)*
+
+These questions were OPEN when their plan files were written. The M2-T1 run
+answered all of them; ~~**no plan file records the answers** (verified by
+search)~~ *(true when written — verified by search at the time; as of
+2026-10-03 the R1/R6 answers ARE backfilled into the plan files — see the
+§2 heading note and §1 — while the remaining answers' plan text is still
+un-backfilled)*. They earn a backlog entry so the answers survive session
+churn.
+
+| # | Question (source) | Answer & status | Evidence of the answer | Owner | Next action |
+|---|-------------------|-----------------|------------------------|-------|-------------|
+| R1 | Does `joplin server start` re-read the SQLite DB after out-of-process `e2ee decrypt`? (master-plan Gap #1) | **ANSWERED YES** *(inference from the GREEN run; M2-T1 run report)* | Decision rule and GREEN outcome: `plans/_finished/M2-T1-initial-sync-decrypt-and-verify.md:158`; see §1 | Resolved by M2-T1 run | *(consumed 2026-10-03:)* the answer was folded into the D1 ratification — see the amendment (`plans/_finished/M1-e2ee-encrypted-titles-repro-test.md:202`) and the M2-T2 STATUS header (`plans/_finished/M2-T2-server-start-reorder.md:13`); same question as R6 |
+| R2 | Does `joplin config encryption.masterPassword` trigger the DecryptionWorker? (master-plan Gap #2) | **ANSWERED NO** — the config command only sets the setting; the worker is only scheduled when `hasGui()` is true, false for app-cli | Recorded only in a code comment: `entrypoint-combined.sh:554-559` | Resolved by M2-T1 run | None beyond E2/E3 backfill decision (§6) |
+| R3 | Does `joplin e2ee decrypt` read the master password from `joplin config encryption.masterPassword`, with no `-p` flag? (M2-T1 Spike 1) | **ANSWERED YES** — the CLI loads master keys from settings at startup; in 3.7.1 `-p` is only consumed by `e2ee enable`, so the plan's `-p` fallback would have been a silent no-op | Recorded only in a code comment: `entrypoint-combined.sh:562-565` | Resolved by M2-T1 run | None beyond E2/E3 backfill decision (§6) |
+| R4 | Does `joplin config` trigger the DecryptionWorker? (M2-T1 Spike 2) | **ANSWERED NO** | `entrypoint-combined.sh:554-559` (same finding as R2) | Resolved by M2-T1 run | None beyond E2/E3 backfill decision (§6) |
+| R5 | Does `joplin ls -l` emit an `[Encrypted]` marker? (M2-T1 Spike 3) | **ANSWERED NO** in joplin 3.7.1 — the literal string appears nowhere in the v3.7.1 sources; a grep-based gate is impossible → SQLite-probe fallback used | `entrypoint-combined.sh:670-676` (probe implementation `:689-708`; was `:523-529`/`:523-541` before the D3-preflight insertion) | Resolved by M2-T1 run | Knock-ons: this also answers M2-T3 Spike 1 (`plans/M2-T3-sync-detection-and-healthcheck-hardening.md:180`, was `:176`) and **invalidated the probes drafted in M2-T3 Change 2 (`:98`) and Change 3 (`:138`, was `:136`)** — *(consumed 2026-10-04:)* the M2-T3 plan was amended — the drafted probes are marked SUPERSEDED in place (`:112`, `:141`) and detection is re-based on the SQLite probe (Amendment at `:201`); see Q4/Q5 (§4). It also falsifies the premise recorded at `plans/_finished/M1-T2-e2ee-seed-fixture-script.md:200` that "[E]ncrypted items in `ls -l` output carry a `[Encrypted]` marker" (added during citation audit; flagged in dispatch summary) |
+| R6 | Does `joplin server start` re-read the SQLite DB after out-of-process `e2ee decrypt`? (M2-T2 §9 Spike 1, marked CRITICAL) | **ANSWERED YES** — same question and same run as R1; see §1 verdict | `plans/_finished/M2-T2-server-start-reorder.md:181`; GREEN outcome per M2-T1 run report | Resolved by M2-T1 run | *(consumed 2026-10-03:)* ratified via D1 (§3) — residual value → F6 (§5) |
+| R7 | grep-based verification gate risks (M2-T1 §8 Risk 2, the `grep -c` mitigation) | **MOOT** — superseded in implementation by the SQLite probe plus case-based integer validation | Plan mitigation: `plans/_finished/M2-T1-initial-sync-decrypt-and-verify.md:166`; implementation: `entrypoint-combined.sh:689-708`, `:714-728` (was `:523-541`, `:567`) | Resolved by M2-T1 implementation | *(done 2026-10-04:)* recorded in the M2-T1 Amendment (`plans/_finished/M2-T1-initial-sync-decrypt-and-verify.md:193`) — see E2 (§6) |
+
+## 3. Open decisions — need a human / plan-level call
+
+| # | Decision (status) | Why it is open | Owner | Evidence | Recommended next action |
+|---|-------------------|----------------|-------|----------|-------------------------|
+| D1 | Formal descoping of M2-T2 / Decision 1's B2 half — **RESOLVED 2026-10-03 (user ratification, "is ok")** | *(historical reason it was open:)* §1 verdict recommends the drop, but Decision 1 is marked "RESOLVED — do not re-open" (`M1-index:36`); only a human can amend that scope. The M2 scope table and ordering rationale still list T2 as required — *(2026-10-03: that claim is now satisfied — the scope-table row is annotated DESCOPED at `M1-index:120` and the live sequence at `:125`)*. **Resolution:** the user ratified the drop 2026-10-03 ("is ok"); the amendment is recorded in `plans/_finished/M1-e2ee-encrypted-titles-repro-test.md` ("## Amendment — 2026-10-03: Decision 1 amended (user ratification)", at `:202`) — Decision 1's fix scope A + B2 + C becomes A + C — and the descope is recorded in the `plans/_finished/M2-T2-server-start-reorder.md` STATUS header (at `:13`) | User / milestone level | `M1-index:36`, scope table + rationale `M1-index:117-127` (T2 row `:120`) | *(done 2026-10-03)* Ratify the drop (or explicitly keep T2 as optional hardening per F6) and update the M2 scope table accordingly — via a plan revision, not a retroactive edit — **DONE:** ratified by the user ("is ok"); the dated amendment to `plans/_finished/M1-e2ee-encrypted-titles-repro-test.md` is exactly that plan revision, and the M2 scope-table update landed with it (see Resolution) |
+| D2 | M2-T4 scope & ordering are stale — **RESOLVED 2026-10-03 (user approval)** | *(historical, pre-re-scope; line numbers updated to current, pre-re-scope numbers in parens):* `plans/M2-T4-flip-to-green-verification-and-docs.md:23` (was `:11`) required T1+T2+T3 "all must have landed"; its Step 2 GREEN flip (`:78-99`, was `:72-80`) already happened during the M2-T1 run *(M2-T1 run report)*; its Step 4 README rewrite (`:134-187`, was `:117-133`) assumed T2 (the T2 clause at old `:125` was removed 2026-10-03 — removal note at `:181`). **Resolution:** approved by the user 2026-10-03 ("ok - rescope M2-T4 as suggested and report back your changes"); the re-scope is recorded in the RE-SCOPE NOTE of `plans/M2-T4-flip-to-green-verification-and-docs.md` (`:8-17`) — residual scope = Steps 1/3/4/5 | M2-T4 | `plans/M2-T4-flip-to-green-verification-and-docs.md:23` (was `:11`), `:78-99` (was `:72-80`), `:101-132` (was `:84-107`), `:134-187` (was `:117-133`); `:125` removed (removal note `:181`) | *(done 2026-10-03)* Re-scope M2-T4 to residual work: Step 3a/3b anti-vacuous gates (`:101-132`, was `:84-107`) and a README conversion with T2-free wording; fix the dependency list at `:23` (was `:11`) — **DONE:** the re-scope landed (RE-SCOPE NOTE, see Resolution) and the dependency list was fixed 2026-10-03 (now unambiguous: M2-T1 and M2-T3 "both must have landed") |
+| D3 | Master password set but E2EE fully DISABLED on the server — **RESOLVED 2026-10-04 (implemented in the working tree; uncommitted)** | *(historical, pre-preflight — entrypoint line numbers updated to current, old numbers in parens; the "(verified)" claim was true when written and is now historical):* in this state `joplin e2ee decrypt` exits 1 → the generic 4-attempt retry burns (`entrypoint-combined.sh:647-659`, was `:500-512`) → fail-closed `[E2EE_DECRYPT_FAIL]` halt (`:661-663`, marker `:663`; was `:514-517`, marker `:516`). The only precondition guard was `-n "${JOPLIN_MASTER_PASSWORD:-}"` (`:553`, was `:487`); no branch distinguished "E2EE disabled / no master key" from other failures (verified at the time). The exit-1 behavior itself is run-report-sourced. **Resolution:** the master-key preflight IS implemented and verified in the working tree, though UNCOMMITTED — `entrypoint-combined.sh` carries it as an uncommitted modification and `tests/test-e2ee-master-key-preflight.sh` exists as an untracked file (324 lines; Group 1 asserts the 0-keys path writes `[E2EE_NO_MASTER_KEY]` + `START_PERIODIC_LOOP=0` and does not enter the retry loop — `:204-208`; Group 3 asserts probe-garbage falls through without false halt — `:231-262`). The preflight block in the current tree: a read-only probe of the `syncInfoCache` setting's `masterKeys` array (`E2EE_MK_PROBE_SCRIPT` `:607-627`, run `:628`; rationale comment `:567-606`) with a three-way `case` (`:632-644`): 0 keys → ERROR + `[E2EE_NO_MASTER_KEY]` marker (`:635`) + skip the retry loop (`START_PERIODIC_LOOP=0` at `:636`, retry guarded by `:646`); non-integer → WARN proceed (`:638-640`); pass → INFO (`:641-643`) | Unowned (suggest M2-T3 or a new small task) → **implemented by the D3 dispatch (uncommitted)** | `entrypoint-combined.sh:553` (guard), `:567-644` (preflight), `:646-663` (retry + halt); `tests/test-e2ee-master-key-preflight.sh:189-208` (Group 1), `:231-262` (Group 3); scenario gaps (historical): `plans/_finished/M2-T1-initial-sync-decrypt-and-verify.md:145`, `:148`, Risk 1 `:165` | *(done 2026-10-04)* The master-key-presence escape hatch landed exactly as recommended — before the retry loop, with the dedicated marker and a docs trail in the entrypoint comment + unit test |
+| D4 | Halt-marker nomenclature collision — **RESOLVED 2026-10-04 (user decision: "make the message tag-aware, fix on all required places")** | *(historical, pre-D4 — old citations as they were when written):* M2-T1 §8 Risk 4 deferred documentation to `plans/_finished/M9-final-sync-halt-marker.md`, but M9 settled only the `[SYNC_ABORT]` final-sync convention (`plans/_finished/M9-final-sync-halt-marker.md:62`, approach `:38-47`) and says nothing about the E2EE markers. The disambiguation existed in marker content (writer sites, then `entrypoint-combined.sh:516`, `:573`, `:578`), but both halt-gate refusal messages told the operator to investigate **issue #27** for ANY marker (then `entrypoint-combined.sh:435-436`, `:620-621`) — exactly the confusion Risk 4 predicted. Note `plans/M12-periodic-halt-gate-double-sleep.md` touches the same periodic gate block (now `entrypoint-combined.sh:769-774`) — existence note only. **Resolution:** the user decided 2026-10-04 to make the refusal messages tag-aware and fix them on all required places; the read side now carries a D4 helper block (`entrypoint-combined.sh:81-130`): `halt_marker_tag` (`:82` — first line of the marker, first uppercase bracketed tag), `halt_marker_issue` (`:95` — CIRCUIT_BREAKER\|SYNC_ABORT → 27; E2EE_DECRYPT_FAIL\|E2EE_DECRYPT_INCOMPLETE\|E2EE_NO_MASTER_KEY → 29; else empty), `log_halt_marker_refusal` (`:107` — two-line refusal pair, tag-aware vs generic fallback), `halt_marker_issue_note` (`:122` — `, tag [TAG], issue #NN` suffix for single-line logs). Wired at all four operator-facing read sites: initial-sync gate call `:502` (gate `:501`), periodic-loop gate call `:770` (gate `:769`, sleep+continue `:771-772`), loop-not-started log `:819-820`, cleanup final-sync-skip log `:956-957`; helpers exported for the setsid loop at `:757`. The bare existence condition at `:932` needs no message (its marker-present outcome is reported by the treated `:955`→`:957` elif). **Fail-safe contract:** unknown/empty/unreadable/future tag or a malformed first line yields the byte-identical pre-D4 generic wording — never a wrong issue number — and never crashes under `set -e`/`set -u`; verified empirically (empty marker, no tag, unclosed bracket, empty `[]`, lowercase tag, tag on second line, `[SOMETHING_NEW]`, chmod-000) and in Docker (real container: `[E2EE_DECRYPT_FAIL]` → issue #29 on the refusal pair and the loop-not-started suffix; unknown tag → generic; no-marker boot log sequence unchanged). Tests: `tests/test-sync-halt-tag-aware.sh` (55 assertions — verbatim block extraction, five-tag mapping, refusal routing, note suffix, edge matrix, control-flow pins incl. exactly-2 gates / 4 marker checks); the retargeted test 10 in `tests/test-sync-failure-diagnostics.sh:93-101` (was a literal "Sync halt marker exists" grep, now `log_halt_marker_refusal`) stays green. All five shell suites green at closure | Unowned → **implemented and verified by the D4 dispatch (uncommitted)** | `entrypoint-combined.sh:81-130` (helpers), `:501-502`, `:769-772` (gates), `:819-820`, `:956-957` (note suffixes), `:757` (export); writer tags at `:298`, `:524`, `:536`, `:635`, `:663`, `:720`, `:725`, `:794`, `:805`, `:945`; `tests/test-sync-halt-tag-aware.sh`; `tests/test-sync-failure-diagnostics.sh:93-101`; `plans/_finished/M2-T1-initial-sync-decrypt-and-verify.md:168`; `plans/_finished/M9-final-sync-halt-marker.md:62`, `:38-47` | *(done 2026-10-04)* Tag-aware refusal landed on all four read sites with the generic fail-safe fallback; nothing further |
+| D5 | M1-T5 gating rationale is factually wrong — **RESOLVED 2026-10-04 (user decision: "fix the wording, keep the mount")** | *(historical, pre-correction:)* `plans/_finished/M1-T5-ci-wiring-e2ee-repro-job.md:29` claimed the e2ee repro "does NOT mount the Docker socket … gated for cost … rather than security". The delivered stack mounts `/var/run/docker.sock` into test-runner unconditionally (`docker-compose.test.yml:126`) and the test reads the seed marker via a docker-CLI helper over that socket (`tests/container/e2ee-encrypted-titles-repro.test.ts:61-87`; doc comment `:50-60`, `docker create`/`docker cp` invocations `:66-85`), exactly as mandated by `plans/_finished/M1-T1-test-stack-real-server-and-seed.md:268-270` — contradicting that same §9.1 and the M10 security finding (`plans/_finished/M10-docker-socket-privilege-doc.md:8-11`). The workflow comment itself already states the correct dual rationale — "Gated for cost … AND for privilege" (`.github/workflows/integration-tests.yml:83-88`) — so the debt was the plan text, not the workflow. **Resolution:** the user decided 2026-10-04 "fix the wording, keep the mount"; the M1-T5 rationale was corrected in place at `plans/_finished/M1-T5-ci-wiring-e2ee-repro-job.md:29` with a dated `[Corrected 2026-10-04: …]` note preserving the old false claim as the audit trail; the socket mount stays (user decision); the plan now states the dual posture (cost/CI-runtime AND privilege — trusted runners) and cross-references `plans/_finished/M10-docker-socket-privilege-doc.md`; the superseded cost-only draft job comment is annotated at `plans/_finished/M1-T5-ci-wiring-e2ee-repro-job.md:94` | Unowned → **resolved by the documentation batch (user decision)** | `plans/_finished/M1-T5-ci-wiring-e2ee-repro-job.md:29` (correction inline), `:94`; `docker-compose.test.yml:122-126`; `tests/container/e2ee-encrypted-titles-repro.test.ts:50-87`; `plans/_finished/M10-docker-socket-privilege-doc.md:8-11`; `.github/workflows/integration-tests.yml:83-88` | *(done 2026-10-04)* Wording corrected, mount kept — no further action |
+
+## 4. Open questions & spikes — still OPEN
+
+Unimplemented M2-T3/M2-T4 work and its conditional risks, together with the
+still-open M1-T3 items (Q10, Q11) and the conditional M2-T2 risk (Q14 —
+**settled 2026-10-03: moot, because T2 is dropped** per §1, ratified via D1).
+M2-T3 Spike 1 is **not** listed here: the M2-T1 run answered it (§2 R5).
+
+| # | Item (status) | Why it is open | Owner | Evidence | Next action |
+|---|---------------|----------------|-------|----------|-------------|
+| Q1 | M2-T3 Spike 2: is `joplin` on PATH for the `joplin` user in the HEALTHCHECK? — **OPEN** | Never run; the HEALTHCHECK has not been touched yet | M2-T3 | `plans/M2-T3-sync-detection-and-healthcheck-hardening.md:181` | Answer during M2-T3 implementation; fallback: absolute `/usr/local/bin/joplin` |
+| Q2 | M2-T3 Spike 3: do existing shell tests pass with the expanded pattern? — **OPEN** | Pattern expansion (Change 1) not implemented yet | M2-T3 | `plans/M2-T3-sync-detection-and-healthcheck-hardening.md:182` | Run `bash tests/test-check-sync-errors.sh` after Change 1 |
+| Q3 | M2-T3 Change 1: `combined_pattern` expansion — **OPEN, unimplemented** | `entrypoint-combined.sh:140` is unchanged (verified: no `DecryptionWorker` / `no master key is currently loaded` alternatives; was `:74` before the M2-T1/D3 insertions) | M2-T3 | `plans/M2-T3-sync-detection-and-healthcheck-hardening.md:64-75`; `entrypoint-combined.sh:140` | Implement per plan; watch Risk 1 (Q6) |
+| Q4 | M2-T3 Change 2: `check_e2ee_state()` — **OPEN, unimplemented** (the "STALE" flag is discharged 2026-10-04: the plan was amended) | The drafted `[Encrypted]` greps (`:98`) are void per R5, and that is now recorded where the work happens: the draft is marked SUPERSEDED in place (`:112`) and the dated Amendment (`:201`) re-bases Changes 2/3 on M2-T1's implemented SQLite probe | M2-T3 | `plans/M2-T3-sync-detection-and-healthcheck-hardening.md:77-120`, draft probe `:98` (SUPERSEDED note `:112`), Amendment `:201`; probe to reuse: `entrypoint-combined.sh:689-708` (was `:523-541`) | Implement per the amended plan — SQLite probe semantics: count non-empty `encryption_cipher_text`, integer validation, fail-closed |
+| Q5 | M2-T3 Change 3: E2EE-aware HEALTHCHECK — **OPEN, unimplemented** (re-based on the amended plan 2026-10-04) | The draft CMD grep for `[Encrypted]` (`:138`, was `:136`) is marked SUPERSEDED in place (`:141`) — same R5 problem, now recorded where the work happens; the Amendment (`:201`) re-bases the healthcheck probe on M2-T1's SQLite probe. `Dockerfile.combined:86-87` still `--start-period=90s`, content-agnostic (verified) | M2-T3 | `plans/M2-T3-sync-detection-and-healthcheck-hardening.md:121-148`, draft CMD `:138` (SUPERSEDED note `:141`), Amendment `:201`; `Dockerfile.combined:86-87` | Implement per the amended plan (SQLite probe); revisit the 90s→120s start-period bump, whose rationale cited M2-T2's delay (`plans/M2-T3-sync-detection-and-healthcheck-hardening.md:143`, was `:139` — annotated 2026-10-03) that D1 dropped 2026-10-03 |
+| Q6 | M2-T3 Risk 1: pattern over-matching — **OPEN-conditional** | New patterns may match legitimate log lines; escape hatch is tighter anchoring | M2-T3 | `plans/M2-T3-sync-detection-and-healthcheck-hardening.md:172` | Only if false positives appear |
+| Q7 | M2-T3 Risk 2: `joplin ls -l -n 99999` performance — **RESOLVED — MOOT 2026-10-04** | *(historical:)* the risk text and its escape hatch assumed the `ls -l` probe works at all; R5 proved it does not. Moot: the `ls -l` probe premise is void (R5 — no `[Encrypted]` marker exists in 3.7.1, so that probe never existed), and the SQLite probe that replaces it (`entrypoint-combined.sh:689-708`) has no full-listing cost; the risk text is annotated MOOT in place in the M2-T3 plan (`:173`) — no rewrite needed | M2-T3 (conditional) | `plans/M2-T3-sync-detection-and-healthcheck-hardening.md:173` (was `:169`), MOOT note inline; `entrypoint-combined.sh:689-708` | *(moot/done 2026-10-04:)* annotated MOOT in the amended plan; nothing to rewrite |
+| Q8 | M2-T3 Risk 3: shell-side healthcheck fragility — **OPEN-conditional** | Ties to Spike 2 (Q1): PATH dependence of the HEALTHCHECK CMD | M2-T3 | `plans/M2-T3-sync-detection-and-healthcheck-hardening.md:174` | Only if Q1 answers negatively |
+| Q9 | M2-T3 Risk 4: mirror probe into `docker-compose.test.yml` healthcheck — **OPEN-conditional** | Confirm-by-inspection step not yet done. Note: the plan's citation there is stale — `plans/M2-T3-sync-detection-and-healthcheck-hardening.md:175` names the compose healthcheck block as `docker-compose.test.yml:15-20`, but the actual healthcheck sits at `docker-compose.test.yml:22` (verified) — a plan-file defect for the M2-T3 re-plan to fix (not edited here, per `plans/M2-T4:66`) | M2-T3 | `plans/M2-T3-sync-detection-and-healthcheck-hardening.md:175` | Inspect the compose healthcheck block during M2-T3 |
+| Q10 | M1-T3 Gap 4 warmup: pre-test `joplin sync` warmup if flakes persist — **OPEN-conditional** | Container-side retry (M2-T1) addresses half of master-key propagation (gap #4, `M1-index:101`); host/test-side flakes unproven either way | M1-T3 follow-up / unowned | `plans/_finished/M1-T3-e2ee-encrypted-titles-repro-test.md:349`, `:356`; `M1-index:101` | Only if the repro flakes in CI |
+| Q11 | M1-T3 CI polling drift: 180s per-test budget — **OPEN-conditional** | Fine for the opt-in job, not for default CI; no default-CI run of this test is planned | Unowned | `plans/_finished/M1-T3-e2ee-encrypted-titles-repro-test.md:350` | Only if the test ever moves into default CI |
+| Q12 | M2-T4 Risk 2: timing flakes → bump 180s→300s — **OPEN-conditional** | Contingency only; not yet observed | M2-T4 | `plans/M2-T4-flip-to-green-verification-and-docs.md:234` | Only if the repro flakes in CI |
+| Q13 | M2-T4 Risk 4: temporary seeder-disable edit must be reverted — **OPEN-conditional (procedural)** | Step 3a requires a manual compose edit; forgetting it breaks later runs | M2-T4 | `plans/M2-T4-flip-to-green-verification-and-docs.md:236` | Procedural reminder during M2-T4 execution |
+| Q14 | M2-T2 Risk 2: stale `:N-M` citations if the move happens — **RESOLVED — MOOT 2026-10-03** (T2 dropped per §1, ratified via D1) | *(historical:)* only relevant if D1 ratifies keeping/implementing T2 — T2 was dropped, so the move never happens; the Risk 2 annotation at `plans/_finished/M2-T2-server-start-reorder.md:174` confirms the citation pass is moot | M2-T2 (conditional) | `plans/_finished/M2-T2-server-start-reorder.md:174` | *(moot/done 2026-10-03:)* dropped with T2 per §1; the citation pass never needed to run |
+
+## 5. Deferred / future work
+
+| # | Item (status) | What & why deferred | Owner | Evidence | Next action |
+|---|---------------|---------------------|-------|----------|-------------|
+| F1 | Two review-code suggestions deferred to M2-T3 — **DEFERRED** (M2-T1 run report; queued in the amended M2-T3 plan 2026-10-04) | (a) Per-attempt stderr truncation in the retry loop: the WARN at `entrypoint-combined.sh:657` (was `:510`) surfaces none of `e2ee-decrypt-stderr.log`; (b) `--force` hardening of the bare `joplin e2ee decrypt` (`entrypoint-combined.sh:652-653`, was `:505-506`) | M2-T3 (or backlog) | `entrypoint-combined.sh:657`, `:652-653` *(M2-T1 run report; now also recorded in the M2-T3 Amendment — no longer only here)* | *(updated 2026-10-04:)* M2-T3's plan was amended (`plans/M2-T3-sync-detection-and-healthcheck-hardening.md:201`) and the two suggestions are noted there as queued for the M2-T3 implementation dispatch (`:233-238`) — attach both at dispatch time |
+| F2 | Periodic `check_e2ee_state()` in the sync loop — **DEFERRED** | M2-T3 Risk 5: explicitly out of scope; "a future milestone could add" | Unowned | `plans/M2-T3-sync-detection-and-healthcheck-hardening.md:176` | Future milestone; no action now |
+| F3 | Node-side `/health/e2ee` endpoint — **DEFERRED** | Out of scope for M2 (excludes `src/`); flagged by both M2-T3 and M2-T4 | Unowned | `plans/M2-T3-sync-detection-and-healthcheck-hardening.md:143`; `plans/M2-T4-flip-to-green-verification-and-docs.md:265` | Future hardening; no action now |
+| F4 | M2-T4 maintainer next steps — **DEFERRED** | File a GitHub issue referencing #29 + the M1+M2 plan files, and mark it closed; CHANGELOG entry at next release (Risk 5: the release process owns it); consider future periodic decrypt | Release process / maintainer | `plans/M2-T4-flip-to-green-verification-and-docs.md:261-265`, Risk 5 `:237` | At next release |
+| F5 | `joplin ls --format=json` as the long-term parser form — **DEFERRED (tech debt)** | `ls -l` awk parsing is brittle; the JSON form is the escape hatch. Note: R5 additionally falsifies this risk's `[Encrypted]`-marker premise (§2 R5) | Unowned | `plans/_finished/M1-T2-e2ee-seed-fixture-script.md:200` | Whenever the seeder script is next touched |
+| F6 | Optional M2-T2 hardening remnant — **DEFERRED** (from §1 verdict; 2026-10-03: this is the ratified residual value of D1 — see the M2-T2 STATUS header, `plans/_finished/M2-T2-server-start-reorder.md:13`) | Keep the reorder idea alive only as a drift-triggered option: if the Decision-2 monitoring duty (§7) ever observes a `joplin/server` image where the repro goes RED again, the reorder (or the `:167` cold-start restart escape) is the candidate response | Unowned; triggered by the §7 duty | `plans/_finished/M2-T2-server-start-reorder.md:181`, `:173`; trigger: `M1-index:37`, `:46-53` | No action until the gated CI job fails on a future image |
+
+## 6. Documentation & plan accuracy debts
+
+| # | Debt (status) | What & why | Owner | Evidence | Next action |
+|---|---------------|------------|-------|----------|-------------|
+| E1 | M1-T6 README drift — **RESOLVED 2026-10-04** | *(historical:)* `plans/_finished/M1-T6-readme-documentation.md:143` (was `:133`) predicted it: `README.md:90-104` said the container "**does not trigger decryption**" and `README.md:254`, `:274` said the test "fails on the current container code" / "wait for the M2 fix" — all inaccurate once the repro went GREEN post-M2-T1 *(M2-T1 run report)*. `plans/M2-T4:66` forbids retroactive plan edits; the README conversion was M2-T4 Step 4. **Resolution:** the README was converted per M2-T4 Step 4's spec — the "Known gap" subsection is now the T2-free "Resolved" subsection (`README.md:90`), the "fails on the current container code" / "wait for the M2 fix" claims are replaced by the "**Resolved:** the combined container now triggers decryption itself" paragraph (`README.md:264`; pre-edit `:254`/`:268`/`:274`), the boot-sequence list was rewritten to the real order (`README.md:650-663`), and the `-p` warning was fixed per R3 (`README.md:88`). M2-T4 carries the dated "Step 4 EXECUTED 2026-10-04" note (`plans/M2-T4-flip-to-green-verification-and-docs.md:148-156`); residual M2-T4 scope = Steps 1/3/5 | M2-T4 | `README.md:88`, `:90`, `:650-663`, `:264`; `plans/M2-T4-flip-to-green-verification-and-docs.md:148-156` (EXECUTED note); historical: `plans/_finished/M1-T6-readme-documentation.md:143` (was `:133`) | *(done 2026-10-04)* Executed in M2-T4 Step 4 with T2-free wording (per D2, resolved 2026-10-03) — no further action |
+| E2 | M2-T1 plan-vs-implementation divergences — **RESOLVED 2026-10-04 (recorded)** | (1) Verification gate is the SQLite probe (`entrypoint-combined.sh:689-708`, was `:523-541`), not the planned `ls -l` grep (`plans/_finished/M2-T1-initial-sync-decrypt-and-verify.md:119`); (2) a third fail-closed arm "probe failed / non-integer" (`entrypoint-combined.sh:718-722`, was `:571-575`) is absent from the plan snippet; (3) probe stderr is appended to `e2ee-decrypt-stderr.log` (`:708`, was `:561`); (4) the §6 acceptance scenario "server returns 0 items to decrypt" (`plans/_finished/M2-T1-initial-sync-decrypt-and-verify.md:148`) is superseded — the SQLite probe returns 0 at `:715-717` (was `:567-569`). **Resolution:** recorded 2026-10-04 as a dated Amendment at the end of `plans/_finished/M2-T1-initial-sync-decrypt-and-verify.md` ("## Amendment — 2026-10-04: implementation divergences recorded (backlog §6 E2)", at `:193`, post-§10 Non-goals); the historical §5 snippet was NOT rewritten (`:119` unchanged) | Unowned (record-keeping) → **recorded** | `plans/_finished/M2-T1-initial-sync-decrypt-and-verify.md:193` (Amendment); pointers inline | *(done 2026-10-04)* Recorded as the dated M2-T1 Amendment; no plan text rewritten — `plans/M2-T4:66` respected |
+| E3 | M1 master-plan spike list half-stale — **RESOLVED 2026-10-04 (annotated)** | All 5 spike bullets in `M1-index:177-181` now carry dated answer annotations: `:177` server-start re-read → YES (inference-flagged); `:178` config-triggers-worker → NO; `:179` decrypt-reads-config-password → YES; `:180` the M2-T3 `[Encrypted]` marker spike → marker-half NO / `joplin status`-half NOT answered (honest half-answer; see R5); `:181` REST API → NO (`plans/_finished/M1-T1-test-stack-real-server-and-seed.md:250-270`, §9.1) | Unowned (record-keeping) → **annotated** | `M1-index:177-181` | *(done 2026-10-04)* Answers annotated in place — same record-not-rewrite treatment as E2 |
+| E4 | M1-T6 `:144` (was `:134`): verify relative plan links render on GitHub — **OPEN-conditional, minor** | The README references `plans/M1-T1..T6` / `M2-T1..T4` as relative paths; rendering unverified (the README conversion itself landed with E1, 2026-10-04) | M2-T4 (same pass as E1) | `plans/_finished/M1-T6-readme-documentation.md:144` (was `:134`) | Check on GitHub; the M2-T4 README pass has otherwise executed (see E1) |
+| E5 | M1 compose soft-dependency verification never recorded — **RESOLVED 2026-10-04 (recorded)** | `plans/_finished/M1-T1-test-stack-real-server-and-seed.md:245` and `plans/_finished/M1-T4-runner-script-pass-through.md:155` both posed "verify `docker compose version` ≥ 2.32" — needed for `required: false` soft dependencies, with a `docker-compose.test-e2ee.yml` escape hatch if older. **Resolution:** verified and recorded 2026-10-04 — the devcontainer reports **Docker Compose version 5.5.1** (≥ 2.32 ✓, re-run 2026-10-04); the soft-dep form is in de-facto use on CI (`docker-compose.test.yml:29-35`, `required: false` at `:35`); the `docker-compose.test-e2ee.yml` escape hatch is unused. Recorded at `plans/_finished/M1-T1-test-stack-real-server-and-seed.md:245` (dated VERIFIED annotation) and `plans/_finished/M1-T4-runner-script-pass-through.md:155` (short form); cross-check `.github/workflows/integration-tests.yml:107-108` ("verified on compose 5.5.1") | Unowned (M1 legacy) → **recorded** | `plans/_finished/M1-T1-test-stack-real-server-and-seed.md:245`; `plans/_finished/M1-T4-runner-script-pass-through.md:155`; `docker-compose.test.yml:29-35`; `.github/workflows/integration-tests.yml:107-108` | *(done 2026-10-04)* Verification recorded; no further action |
+
+## 7. Standing duties
+
+| # | Duty | What & why | Owner | Evidence | Next action |
+|---|------|------------|-------|----------|-------------|
+| S1 | Image-drift monitoring | The repro floats `joplin/server:latest` (Decision 2); act only if the gated opt-in CI job fails on a clean re-run. This duty is now also the trigger for the optional M2-T2 hardening (F6) | Maintainer, on each gated run | `M1-index:37`, protocol `:46-53`; `plans/_finished/M1-T1-test-stack-real-server-and-seed.md:246` | Ongoing; respond per the `:46-53` protocol if the gated job fails |
+
+## 8. Already settled — do not re-open
+
+| # | Settled | Pointer |
+|---|---------|---------|
+| G1 | Decision 1 fix scope A + B2 + C (2026-10-03: amended to A + C — B2 descoped; see the inline note at `M1-index:36`); B1 (server restart) and B3 (periodic decrypt worker) **rejected**. Note: M2-T2 §8 Risk 1 re-admits a cold-start-only restart escape hatch — no conflict, read together; moot — T2 is dropped (§1; D1 ratified 2026-10-03) | `M1-index:36`, `:40-44`; `plans/_finished/M2-T2-server-start-reorder.md:173` |
+| G2 | Decision 2: float `joplin/server:latest`, no pinning | `M1-index:37`, `:46-53` |
+| G3 | Decision 3: opt-in `workflow_dispatch`-only CI (shipped) | `M1-index:38`; `.github/workflows/integration-tests.yml:89-90` |
+| G4 | Gap #3: REST API `encryption_applied` — **ANSWERED NO**; marker-file surface is the gate | `plans/_finished/M1-T1-test-stack-real-server-and-seed.md:250-270` |
+| G5 | M1-T1 §9.2 (Data API returns `title:""` — assert on `title`); §9.3 deviations 1–5 (admin@localhost; no curl in image; origin allow-list; no `/data` volume; seeder healthcheck disabled); §9.4 env contract; §10 CLI facts | `plans/_finished/M1-T1-test-stack-real-server-and-seed.md:272-289`, `:291-335`, `:337-350`, `:360-400` |
+| G6 | M1-T2 marker contract: `.e2ee-seed-marker.json` shape is the M1-T2↔M1-T3 interface | `plans/_finished/M1-T2-e2ee-seed-fixture-script.md:206-210` |
+| G7 | M1-T4 invariants: do not revert the M11 baseline; exactly-2× `-e JOPLIN_CONTAINER` (shipped as a compose-side env entry) | `plans/_finished/M1-T4-runner-script-pass-through.md:151`, `:152` + `:130-132`; `docker-compose.test.yml:116-118` |
+| G8 | M1-T5 `if`-expression + timeout choices | `plans/_finished/M1-T5-ci-wiring-e2ee-repro-job.md:113-114` |
+| G9 | M2-T1 §8 Risk 3: cold-start ≤20s acceptable; Risk 6: marker-present skips decrypt | `plans/_finished/M2-T1-initial-sync-decrypt-and-verify.md:167`, `:170` |
+| G10 | M8: structural-grep tests are deliberate accepted debt; M2-T3's pattern expansion must coexist with them but does not cite M8 (minor) | `plans/_finished/M8-structural-grep-tests-brittle.md:5-8`, `:43-53`; `plans/M2-T3-sync-detection-and-healthcheck-hardening.md:164` |
+| G11 | M9: cleanup gating already correct — consistent with M2-T2 Risk 5 | `plans/_finished/M9-final-sync-halt-marker.md:79-85`; `plans/_finished/M2-T2-server-start-reorder.md:177` |
+| G12 | Milestone-number reuse hazard: `_finished/` M1/M2 slugs (sqlite-busy) vs open M1/M2 (e2ee) — acknowledged | `M1-index:15-19` |
+
+## 9. Batch provenance — 2026-10-04
+
+Batch of 2026-10-04, in two passes: a prose pass over the README and plan files
+(dated annotations, corrections, and the E1 README conversion — see (a)–(c)),
+followed by a bookkeeping pass confined to this file. No script or test was
+touched by either pass.
+
+- **(a) USER DECISIONS this session:** D5 = **"fix the wording, keep the mount"**
+  (the M1-T5 rationale was corrected in place; the Docker-socket mount stays —
+  see §3 D5). Everything else = **"fix as you suggest"**, which approved the
+  M2-T3 re-scope recommendation (re-base Changes 2/3 detection on M2-T1's SQLite
+  probe, annotate-don't-delete — landed as the SUPERSEDED annotations and the
+  Amendment in `plans/M2-T3-sync-detection-and-healthcheck-hardening.md`) and
+  folded in the E1 README conversion (executed as M2-T4 Step 4).
+- **(b) HOUSEKEEPING done without new user input:** E2/E3/E5 recorded; the
+  M1-T1 `:73` "relocates under M2-T2" fix and the M1-T6 T2-promise annotations
+  landed in the plan files; the M2-T4 Step 4 execution note was written;
+  every non-D4 `entrypoint-combined.sh` citation in this file was re-derived
+  against the current tree (M2-T1 + D3 preflight uncommitted); the at-a-glance
+  counts were refreshed (28 → 21 open in §3–§7).
+- **(c) SCOPE NOTE:** the user authorized dated corrections IN plan files for
+  exactly this batch — annotating history, never deleting. For these items
+  only, that supersedes this file's header convention ("…recorded here as a
+  backlog item with a recommended action — never applied").
+- **(d) FILING MOVE (2026-10-04, bookkeeping only — no runtime behavior change):**
+  the ten finished milestone plans — `M1-T1..T6`, the M1 index
+  (`M1-e2ee-encrypted-titles-repro-test.md`), `M2-T1`, `M2-T2`, and
+  `M11-fixed-container-name-parallel-stacks.md` — were moved from `plans/` to
+  `plans/_finished/`, each with a provenance header (original path, move date,
+  evidence-based finished reason). `M2-T3`, `M2-T4`, and `M12` remain in
+  `plans/`: M2-T3 retains Q1–Q9 plus implementation, M2-T4 retains Steps 1/3/5,
+  and M12 is genuinely unfinished (doubled idle sleeps at
+  `entrypoint-combined.sh:765` and `:771`). In this file, every `plans/…` path
+  citation and `:LINE` anchor targeting a moved file was re-derived against its
+  new location (grep-verified — no anchor copied), the `M1-index` short form was
+  re-pointed at the moved index, and M2-T4/M1-T6 anchors that had gone stale
+  with the 2026-10-04 README conversion were refreshed. No items were added or
+  removed — counts unchanged (20 open in §3–§7, 12 settled in §8).
+

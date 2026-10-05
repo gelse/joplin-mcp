@@ -1,5 +1,11 @@
 # M1-T3 — E2EE encrypted titles reproduction test
 
+> **Filing note (2026-10-04):** moved verbatim from `plans/M1-T3-e2ee-encrypted-titles-repro-test.md`
+> to `plans/_finished/M1-T3-e2ee-encrypted-titles-repro-test.md` in the finished-milestone
+> filing batch. **Finished:** delivered — `tests/container/e2ee-encrypted-titles-repro.test.ts`
+> exists in the repo; it reproduced issue #29 (RED on pre-fix code) and was flipped GREEN
+> by the M2-T1 implementation (2026-10-03 run) with no assertion edits.
+
 > Subtask of **M1 — E2EE Encrypted Titles Reproduction Integration Test**.
 > Belongs to the verification milestone (M1). Implementation starts in a
 > fresh session from this file alone.

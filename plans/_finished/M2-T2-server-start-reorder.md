@@ -1,5 +1,11 @@
 # M2-T2 — B2: server-start reorder (after sync+decrypt)
 
+> **Filing note (2026-10-04):** moved verbatim from `plans/M2-T2-server-start-reorder.md`
+> to `plans/_finished/M2-T2-server-start-reorder.md` in the finished-milestone
+> filing batch. **Finished (closed):** descoped 2026-10-03 by user ratification
+> (`plans/backlog.md` §1 verdict via §3 D1) after the M2-T1 run went GREEN alone;
+> retained as historical record; residual value tracked as `plans/backlog.md` §5 F6.
+
 > Subtask of **M2 — E2EE Encrypted Titles Fix (scope A + B2 + C)**.
 > Belongs to the fix milestone (M2). Implementation starts in a fresh
 > session from this file alone.
