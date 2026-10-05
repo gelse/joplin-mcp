@@ -85,23 +85,13 @@ Replace `THE_PASSWORD` with the same master password used when enabling E2EE on 
 
 ### ⚠️ Warning: `joplin e2ee decrypt` does NOT persist the password
 
-The command `joplin e2ee decrypt -p 'PASSWORD'` decrypts data **for the current session only** and does **not** store the password for future sync operations. Using it as your setup step will cause encrypted items to silently fail to upload on subsequent syncs. Always use `joplin config encryption.masterPassword` instead.
+The command `joplin e2ee decrypt` decrypts data **for the current session only** and does **not** store the password for future sync operations (the CLI reads the master password from `joplin config encryption.masterPassword`; in Joplin CLI 3.7.1 the `-p` option is only consumed by `joplin e2ee enable`). Using it as your setup step will cause encrypted items to silently fail to upload on subsequent syncs. Always use `joplin config encryption.masterPassword` instead.
 
-### Known gap: encrypted titles served as-is via `list_notebooks` (issue #29)
+### Resolved: encrypted titles served as-is via `list_notebooks` (issue #29)
 
-> **⚠️ Known gap.** With `JOPLIN_MASTER_PASSWORD` set and E2EE enabled on the Joplin Server, the combined container configures the password but **does not trigger decryption** of items already on the server. The `list_notebooks` MCP tool may therefore return notebooks with **empty `title` fields** (or `encryption_applied=1` with non-empty `encryption_cipher_text`). Sync will misleadingly report `SYNC_PASS` even though ciphertext was not decrypted. This is [GitHub issue #29](https://github.com/gelse/joplin-mcp/issues/29).
+> **✅ Resolved in M2.** The combined container now runs `joplin e2ee decrypt` after the initial sync (with bounded retries for master-key propagation timing), verifies zero items remain encrypted before starting the periodic sync loop, and serves plaintext titles via `list_notebooks` — the Data API picks up the post-decrypt state without a restart (the re-read behavior observed in the GREEN repro run; recorded as an inference in `plans/backlog.md` §2 R6). A container integration test ([GitHub issue #29](https://github.com/gelse/joplin-mcp/issues/29)) — `tests/container/e2ee-encrypted-titles-repro.test.ts`, gated by `RUN_E2EE_REPRO_TESTS=1` — reproduces the original bug and now passes.
 >
-> **Workarounds today** (until M2 lands):
->
-> ```bash
-> # Run e2ee decrypt manually inside the container; first attempt may
-> # fail with "DecryptionWorker: cannot start because no master key is
-> # currently loaded" (master-key propagation timing) — re-run if so.
-> docker exec joplin-mcp joplin e2ee decrypt
-> docker restart joplin-mcp
-> ```
->
-> **Permanent fix:** see the M2 milestone plans (`plans/M2-T1..T4`) — post-sync `joplin e2ee decrypt` with verification, startup reorder so `joplin server start` follows sync+decrypt, and tighter sync error detection. A container integration test reproducing this gap ships with M1 (`plans/M1-T3`); the M2 fix flips that test green with zero assertion edits.
+> See the M2 fix-design plans (`plans/_finished/M2-T1-initial-sync-decrypt-and-verify.md`, `plans/_finished/M2-T2-server-start-reorder.md`, `plans/M2-T3-sync-detection-and-healthcheck-hardening.md`, `plans/M2-T4-flip-to-green-verification-and-docs.md`) and the M1 repro-test plans (`plans/_finished/M1-T1..T6`) for the repro test. The repro is opt-in (CI `workflow_dispatch` with input `run_e2ee_repro_tests: true`); default CI is unaffected.
 
 ### How to tell if E2EE is the problem
 
@@ -251,7 +241,7 @@ The test requires the test-runner container to have Docker socket access (`/var/
 
 #### E2EE encrypted-titles reproduction test (issue #29)
 
-A gated integration test reproduces [GitHub issue #29](https://github.com/gelse/joplin-mcp/issues/29) — where the combined container, with `JOPLIN_MASTER_PASSWORD` set and E2EE enabled on a real Joplin Server, serves E2EE-encrypted notebook titles as-is via `list_notebooks`. The test asserts the **safe** behavior (non-empty plaintext titles, no remaining encrypted blobs) and therefore **fails on the current container code** (proving the bug exists) and will flip to pass when the M2 fix lands — without any assertion edits.
+A gated integration test reproduces [GitHub issue #29](https://github.com/gelse/joplin-mcp/issues/29) — where the combined container, with `JOPLIN_MASTER_PASSWORD` set and E2EE enabled on a real Joplin Server, serves E2EE-encrypted notebook titles as-is via `list_notebooks`. The test asserts the **safe** behavior (non-empty plaintext titles, no remaining encrypted blobs). It originally reproduced issue #29 by failing on the pre-fix container — proving the bug existed — and the M2 fix flipped it to **passing** with zero assertion edits; it now guards the fix against regressions.
 
 **Requirements:**
 
@@ -265,13 +255,13 @@ A gated integration test reproduces [GitHub issue #29](https://github.com/gelse/
 RUN_E2EE_REPRO_TESTS=1 ./scripts/run-integration-tests.sh
 ```
 
-The runner brings up the real Joplin Server, runs the one-shot seed container to create an encrypted notebook + note, recreates the combined container against the seeded server, and runs the repro. On current container code it **fails** with the symptom assertion message. Default CI is unaffected.
+The runner brings up the real Joplin Server, runs the one-shot seed container to create an encrypted notebook + note, recreates the combined container against the seeded server, and runs the repro. The repro **passes** against the current (post-M2) container; on pre-M2 code it failed with the symptom assertion message. Default CI is unaffected.
 
 **CI:**
 
 Manual `workflow_dispatch` with input `run_e2ee_repro_tests: true` → the opt-in job `e2ee-encrypted-titles-repro` runs. See [`.github/workflows/integration-tests.yml`](.github/workflows/integration-tests.yml).
 
-**Known gap (M1 → M2):** today's combined container sets the master password but does NOT trigger decryption. Users hitting the symptom need to either run `joplin e2ee decrypt` manually inside the container (see the ⚠️ warning in the E2EE section above) or wait for the M2 fix (scope: post-sync decrypt + verification + startup reorder + tighter sync detection). See `plans/M2-T1..T4` for the fix design.
+**Resolved:** the combined container now triggers decryption itself. After the initial sync it runs `joplin e2ee decrypt` with bounded retries, verifies zero items remain encrypted (fail-closed halt markers `[E2EE_DECRYPT_FAIL]` / `[E2EE_DECRYPT_INCOMPLETE]` otherwise), and only then starts the periodic sync loop; the MCP server starts last. See the **✅ Resolved** note in the E2EE section above and the M2 fix-design plans (`plans/_finished/M2-T1-initial-sync-decrypt-and-verify.md`, `plans/_finished/M2-T2-server-start-reorder.md`, `plans/M2-T3-sync-detection-and-healthcheck-hardening.md`, `plans/M2-T4-flip-to-green-verification-and-docs.md`) for the fix design.
 
 ---
 
@@ -660,15 +650,17 @@ Root-level deployment files:
 **Combined joplin-mcp container ([`entrypoint-combined.sh`](entrypoint-combined.sh)):**
 
 1. **Validate environment variables** — Checks `JOPLIN_SERVER_URL`, `JOPLIN_USERNAME`, `JOPLIN_PASSWORD`
-2. **Configure Joplin CLI** — Sets `sync.target 10` and server credentials in Joplin CLI config
-3. **Extract API token** — Honours a pre-set `JOPLIN_API_TOKEN` from `.env`, or auto-extracts from the Joplin CLI config / `settings.json`
-4. **Start Joplin Data API** — `joplin server start` binding to `127.0.0.1:41184` (loopback-only, no socat proxy)
+2. **Configure Joplin CLI** — Sets `sync.target 10` and server credentials in Joplin CLI config; when `JOPLIN_MASTER_PASSWORD` is set, also configures the E2EE master password
+3. **Start Joplin Data API** — `joplin server start` binding to `127.0.0.1:41184` (loopback-only, no socat proxy); starts *before* the initial sync (unchanged early position)
+4. **Extract API token** — Honours a pre-set `JOPLIN_API_TOKEN` from `.env`, or auto-extracts from the Joplin CLI config / `settings.json`
 5. **Wait for readiness** — Polls `/ping` endpoint (up to 30 retries, 2s intervals)
 6. **Perform initial sync** — `joplin sync` (flock-serialized) with sync-error and destructive-signature diagnostics; creates halt marker on detection
-7. **Start periodic sync** — Bash `while true` loop (runs in its own process group via `setsid`) with configurable `SYNC_INTERVAL_SECONDS`; halt gate checks `.sync-halt` marker before each sync
-8. **Start MCP HTTP server** — `node dist/mcp/entry.js` on port 3000
-9. **Liveness monitor** — `wait -n` on both child PIDs; exits non-zero if either dies (triggers Docker restart)
-10. **Handle signals** — On `SIGTERM`/`SIGINT`: kill sync loop group, stop MCP server, stop Data API, perform final sync, exit 0
+7. **Decrypt E2EE items** — Only when `JOPLIN_MASTER_PASSWORD` is set: a master-key preflight halts early with an `[E2EE_NO_MASTER_KEY]` marker when no master key exists after the sync (E2EE disabled server-side); otherwise `joplin e2ee decrypt` runs with bounded retries for master-key propagation timing, failing closed with an `[E2EE_DECRYPT_FAIL]` halt marker if all attempts fail
+8. **Verify decryption** — A read-only SQLite probe counts remaining encrypted items; any remaining items or a failed probe halt fail-closed with an `[E2EE_DECRYPT_INCOMPLETE]` halt marker, and the periodic sync loop does not start
+9. **Start periodic sync** — Bash `while true` loop (runs in its own process group via `setsid`) with configurable `SYNC_INTERVAL_SECONDS`; halt gate checks `.sync-halt` marker before each sync
+10. **Start MCP HTTP server** — `node /app/dist/mcp/entry.js` on port 3000 (starts last, after the sync + decrypt region)
+11. **Liveness monitor** — `wait -n` on both child PIDs; exits non-zero if either dies (triggers Docker restart)
+12. **Handle signals** — On `SIGTERM`/`SIGINT`: kill sync loop group, stop MCP server, stop Data API, perform final sync, exit 0
 
 ### Integration-Test Stack
 
