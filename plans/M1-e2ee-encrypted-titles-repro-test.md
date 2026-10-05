@@ -1,7 +1,7 @@
 # M1 — E2EE Encrypted Titles Reproduction Integration Test (INDEX)
 
 > **Status:** Plan-only milestone. **Reproduces GitHub issue #29 — does NOT fix it.**
-> Companion fix lives in this same split effort as **M2** (scope A + B2 + C,
+> Companion fix lives in this same split effort as **M2** (scope A + B2 + C, **(B2 descoped 2026-10-03 — see "## Amendment — 2026-10-03" at end of file; scope now A + C.)**
 > defined below). This file is the **index/overview**: detail has moved into
 > the per-subtask files `M1-T1..T6` and `M2-T1..T4`. Implementers start each
 > subtask in a fresh session from its own file.
@@ -27,7 +27,7 @@ and flips to PASS once a fix lands — with **zero assertion edits**.
 
 | #   | Decision                                                                                                                                                        | Where implemented                |
 | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
-| 1   | **Fix scope: A + B2 + C** (robust). B1 (server restart) and B3 (periodic decrypt worker) **REJECTED**. Effort baseline: ~11.5 h (~1.5 days) + ~1.5 h research spikes.   | M2-T1 (A), M2-T2 (B2), M2-T3 (C) |
+| 1   | **Fix scope: A + B2 + C** (robust). B1 (server restart) and B3 (periodic decrypt worker) **REJECTED**. Effort baseline: ~11.5 h (~1.5 days) + ~1.5 h research spikes. **(Amended 2026-10-03 by the user — B2 descoped, scope now A + C; see "## Amendment — 2026-10-03" at end of file.)**   | M2-T1 (A), M2-T2 (B2), M2-T3 (C) |
 | 2   | **Joplin Server image: float `joplin/server:latest`** (no tag pinning). Drift accepted; monitor in gated opt-in job; fix fixtures/test if drift surfaces, do not pin. | M1-T1                            |
 | 3   | **CI cost: opt-in `workflow_dispatch`-only**. Default PR CI untouched. Mirror the `sqlite-busy-repro` job (`run_sync_lock_tests` input).                                  | M1-T5                            |
 
@@ -111,13 +111,13 @@ what is being verified or fixed.
 | Subtask | Scope                                                                                    | Touches                                                                                     | Depends on   |
 | ------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ------------ |
 | **M2-T1**   | A — post-sync `joplin e2ee decrypt` + verification gate                                    | `entrypoint-combined.sh` (inserts `joplin e2ee decrypt` + verification in the initial-sync success branch, after `check_sync_errors "Initial"`, ~`:474`; overrides `START_PERIODIC_LOOP` to 0 fail-closed on failure) | M1 done      |
-| **M2-T2**   | B2 — startup reorder so `joplin server start` follows sync+decrypt                         | `entrypoint-combined.sh` (move `:330-426` block)                                                | M2-T1        |
+| **M2-T2**   | **DESCOPED 2026-10-03 (user ratification; see Amendment):** B2 — startup reorder so `joplin server start` follows sync+decrypt                         | `entrypoint-combined.sh` (move `:330-426` block)                                                | M2-T1        |
 | **M2-T3**   | C — tighten `combined_pattern`, add post-sync encrypted-item check, E2EE-aware `HEALTHCHECK` | `entrypoint-combined.sh`, `Dockerfile.combined`                                                 | M2-T1        |
-| **M2-T4**   | Flip-to-green verification + README correction                                           | (no source changes beyond M2-T3's docs cross-link); re-runs M1-T3 with zero assertion edits | M2-T2, M2-T3 |
+| **M2-T4**   | Flip-to-green verification + README correction                                           | (no source changes beyond M2-T3's docs cross-link); re-runs M1-T3 with zero assertion edits | M2-T1, M2-T3 (M2-T2 descoped 2026-10-03) |
 
 **Ordering rationale (M2-T1 → M2-T2 → M2-T3 → M2-T4):**
-- **T1 first, T2 second.** T1 inserts one step in the initial-sync success branch (after `check_sync_errors "Initial"`, ~`:474`; a single anchor). T2 then relocates a separate block (`:330-426`, api-port + server-start + health-wait + token-extract + server-probe) to after the now-extended sync region. Doing T1 first means T2's relocation does not have to thread through a freshly inserted decrypt step — cleaner diffs. (Final layout is correct regardless of order; T1-first minimises merge risk.)
-- **T3 independent of T2 in placement.** T3's entrypoint edits (`:74` pattern, post-sync check) live in different regions from T2. T3 also touches `Dockerfile.combined`. T3 may be merged in any order relative to T2 but MUST land before T4.
+- **T1 first, T2 second.** T1 inserts one step in the initial-sync success branch (after `check_sync_errors "Initial"`, ~`:474`; a single anchor). T2 then relocates a separate block (`:330-426`, api-port + server-start + health-wait + token-extract + server-probe) to after the now-extended sync region. Doing T1 first means T2's relocation does not have to thread through a freshly inserted decrypt step — cleaner diffs. (Final layout is correct regardless of order; T1-first minimises merge risk.) **(2026-10-03: historical — T2 was descoped by user ratification; the live sequence is M2-T1 → M2-T3 → M2-T4; see Amendment.)**
+- **T3 independent of T2 in placement.** T3's entrypoint edits (`:74` pattern, post-sync check) live in different regions from T2. T3 also touches `Dockerfile.combined`. T3 may be merged in any order relative to T2 but MUST land before T4. **[2026-10-03: T2 descoped (see Amendment) — the T2-relative clause is void; T3 must land before T4.]**
 - **T4 last.** T4 is verification only: run M1-T3, expect PASS, no assertion edits. After T4 the M1 milestone is effectively closed.
 
 ## Tasks (per-subtask files)
@@ -131,7 +131,7 @@ what is being verified or fixed.
 | M1-T5   | `plans/M1-T5-ci-wiring-e2ee-repro-job.md`                 | `.github/workflows/integration-tests.yml` opt-in job                                     |
 | M1-T6   | `plans/M1-T6-readme-documentation.md`                     | `README.md` section + E2EE section correction                                            |
 | M2-T1   | `plans/M2-T1-initial-sync-decrypt-and-verify.md`          | A — post-sync `joplin e2ee decrypt` + verification                                       |
-| M2-T2   | `plans/M2-T2-server-start-reorder.md`                     | B2 — startup reorder                                                                   |
+| M2-T2   | `plans/M2-T2-server-start-reorder.md`                     | B2 — startup reorder — **descoped 2026-10-03** (see Amendment)   |
 | M2-T3   | `plans/M2-T3-sync-detection-and-healthcheck-hardening.md` | C — sync error detection + E2EE-aware healthcheck                                      |
 | M2-T4   | `plans/M2-T4-flip-to-green-verification-and-docs.md`      | Flip-to-green + docs                                                                   |
 
@@ -168,11 +168,11 @@ in place; the new M1 test would still fail.
 
 #### Untested / research spikes (~1.5h total)
 
-- Confirm `joplin server start` behavior post-`e2ee decrypt` (B's actual answer). **~1 h** of investigation. Could downgrade B to A-only or require an in-place restart. → **Assigned to M2-T2.**
-- Confirm `joplin config encryption.masterPassword` triggers DecryptionWorker in-process. (Strongly implied: no.) **~30 min** to verify. → **Assigned to M2-T1.**
-- Confirm `joplin e2ee decrypt` reads master password from existing `joplin config encryption.masterPassword` (no `-p` flag needed). **~15 min**. → **Assigned to M2-T1.**
-- Confirm `joplin ls -l` output marker for encrypted items (`[Encrypted]`) and `joplin status` E2EE block. **~15 min**. → **Assigned to M2-T3.**
-- Confirm whether the Joplin Server REST API exposes `encryption_applied` for the seed-time gate probe. **~15 min**. → **Assigned to M1-T1.**
+- Confirm `joplin server start` behavior post-`e2ee decrypt` (B's actual answer). **~1 h** of investigation. Could downgrade B to A-only or require an in-place restart. → **Assigned to M2-T2.** **→ ANSWERED YES (inference from the GREEN run, not established fact) — 2026-10-03;** see the Amendment in this file (`:202-242`) and `plans/backlog.md` §2 R6.
+- Confirm `joplin config encryption.masterPassword` triggers DecryptionWorker in-process. (Strongly implied: no.) **~30 min** to verify. → **Assigned to M2-T1.** **→ ANSWERED NO** — recorded in `entrypoint-combined.sh:555-559` (worker only scheduled when `hasGui()`, false for app-cli); `plans/backlog.md` §2 R2/R4.
+- Confirm `joplin e2ee decrypt` reads master password from existing `joplin config encryption.masterPassword` (no `-p` flag needed). **~15 min**. → **Assigned to M2-T1.** **→ ANSWERED YES** (no `-p` needed; in 3.7.1 `-p` is only consumed by `e2ee enable`) — `entrypoint-combined.sh:562-565`; `plans/backlog.md` §2 R3.
+- Confirm `joplin ls -l` output marker for encrypted items (`[Encrypted]`) and `joplin status` E2EE block. **~15 min**. → **Assigned to M2-T3.** **→ marker half: ANSWERED NO** in joplin 3.7.1 (`entrypoint-combined.sh:670-676`; `plans/backlog.md` §2 R5). **`joplin status` E2EE-block half: NOT answered** — no repository record (adjacent-only: `joplin e2ee status` exits 0 in both states, `entrypoint-combined.sh:593-596`). Half-answered as of 2026-10-04.
+- Confirm whether the Joplin Server REST API exposes `encryption_applied` for the seed-time gate probe. **~15 min**. → **Assigned to M1-T1.** **→ ANSWERED NO** — `M1-T1-test-stack-real-server-and-seed.md` §9.1 (`:250-270`); `plans/backlog.md` G4.
 
 ## Non-goals
 
@@ -192,3 +192,45 @@ plus ~1.5 h research spikes.)
 ## Review verdict
 
 **APPROVED** — produced via architecture workflow (investigator → plan). Nested review-plan: the plan drafts were reviewed for spec compliance; findings addressed in revision. Post-write verification: see subtask files.
+
+## Amendment — 2026-10-03: Decision 1 amended (user ratification)
+
+**Actor: the USER.** On 2026-10-03 the user resolved backlog item **D1**
+(`plans/backlog.md` §3 D1) with "is ok", ratifying the verdict recorded in
+`plans/backlog.md` §1 to drop M2-T2 (the B2 server-start reorder) from the
+M2 critical path. By that ratification **the user amended Decision 1** (the
+row at `:36` above): Decision 1's fix scope "**A + B2 + C**" becomes
+**A + C** — B2 is descoped. This is the user exercising the amendment
+authority that backlog D1 itself records ("only a human can amend that
+scope", `plans/backlog.md` §3 D1, citing Decision 1 at `:36` above) — a dated amendment
+recorded here, not a silent edit and not a re-opening by a later agent.
+
+**Reason.** Root-cause B is NOT disputed and stands (root-cause table row B,
+`:91`); only the B2 remedy became unnecessary. The M2-T1 run was **GREEN
+with M2-T1 alone** *(M2-T1 run report; outcome recorded in
+`plans/backlog.md` §1)*, and by the M2-T1 §7 decision rule
+(`M2-T1-initial-sync-decrypt-and-verify.md:158`) GREEN ⇒ "Gap 1 = NO
+mitigations needed" ⇒ the reorder is not required. This answers M2-T2 §9
+Spike 1 (`M2-T2-server-start-reorder.md:181`; see that file's status
+header): **YES** — the Data API re-reads the SQLite DB after an
+out-of-process `e2ee decrypt` *(inference from the GREEN outcome, not
+established fact; recorded in `plans/backlog.md` §2 R6)*.
+
+**Knock-ons applied the same day.** M2-T2 is descoped / not required — its
+file now carries a dated status header directly under the title
+(`M2-T2-server-start-reorder.md`), with dated annotations on §9
+Spike 1, §8 Risk 1, and §8 Risk 2. Its residual value is retained as `plans/backlog.md`
+§5 **F6** (drift-triggered optional hardening tied to the Decision-2
+image-drift duty — Decision 2 at `:37`, monitoring protocol at `:46-53`).
+M2-T4 was re-scoped the same day (backlog §3 D2, user-approved) to residual
+work — Steps 1/3/4/5 of `plans/M2-T4-flip-to-green-verification-and-docs.md`
+(see its Re-scope note); its old Step 2 (the GREEN flip) was already
+satisfied during the M2-T1 run.
+
+**What this amendment does NOT change.** B1 (server restart) and B3
+(periodic decrypt worker) stay REJECTED — the considered-and-rejected text
+at `:40-44` stands. The root-cause analysis (root-cause table `:86-94`)
+stands. Decision 2 (`:37`, image float) and Decision 3 (`:38`, opt-in CI)
+stand unchanged. The historical narrative above (`:10`, `:40-44`, `:76`,
+`:91`, `:94`, `:98`, `:169`, `:177`, `:195`) is preserved as the record of
+what was decided at the time; this section is the overlay.

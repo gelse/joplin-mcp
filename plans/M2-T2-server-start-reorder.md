@@ -4,6 +4,31 @@
 > Belongs to the fix milestone (M2). Implementation starts in a fresh
 > session from this file alone.
 
+> **STATUS — DESCOPED, NOT REQUIRED (2026-10-03).** The user ratified
+> dropping this task from the M2 critical path: `plans/backlog.md` §1
+> verdict, ratified via §3 D1 (the user resolved D1 with "is ok",
+> 2026-10-03). The amendment is recorded in
+> `M1-e2ee-encrypted-titles-repro-test.md` ("## Amendment —
+> 2026-10-03" section at end of file). Do NOT implement the reorder; this
+> file is retained as the historical record.
+>
+> **Reason:** the M2-T1 run was GREEN with M2-T1 alone (outcome recorded in
+> `plans/backlog.md` §1); by the M2-T1 §7 decision rule
+> (`M2-T1-initial-sync-decrypt-and-verify.md:158`) GREEN ⇒ Gap 1 = NO
+> mitigations needed ⇒ Spike 1 (§9 below) answered **YES** — the Data API
+> re-reads the SQLite DB after out-of-process `e2ee decrypt` *(inference
+> from the GREEN outcome; `plans/backlog.md` §2 R6)* — so the reorder is
+> unnecessary for serving plaintext.
+>
+> **Residual value retained:** `plans/backlog.md` §5 **F6** — the reorder
+> (or the §8 Risk 1 cold-start restart escape) remains the candidate
+> response if the Decision-2 image-drift duty ever sees the repro go RED
+> again on a future `joplin/server` image (Decision 2: `M1-e2ee-encrypted-titles-repro-test.md:37`;
+> monitoring protocol: `M1-e2ee-encrypted-titles-repro-test.md:46-53`).
+>
+> Historical record: §9 Spike 1, §8 Risk 1, and §8 Risk 2 below remain
+> unchanged as the record; see the dated annotations appended to them.
+
 ## 1. Header
 
 - **Subtask ID:** M2-T2
@@ -139,15 +164,15 @@ In `entrypoint-combined.sh`:
 
 ## 8. Risks / gotchas
 
-- **Risk 1 (Gap 1 — does `joplin server start` re-read the SQLite DB after out-of-process `e2ee decrypt`)?** This subtask assumes YES (it re-orders, not restart). If NO, the M2-T1+T2 fix is insufficient: the Data API may serve ciphertext regardless of sync+decrypt order. **Escape hatch:** supplement M2-T2 with an in-place restart of the server between sync and the moved block. Concrete addition: between the M2-T1 decrypt block and the moved block, add `kill "${JOPLIN_SERVER_PID}" 2>/dev/null || true; wait "${JOPLIN_SERVER_PID}" 2>/dev/null || true; rm -f /home/joplin/.config/joplin/.sync-flock` (the lock is released on process exit, so this is defensive). Then proceed with the moved block (which now includes the `nohup joplin server start` call). This adds ~2-5s to cold-start. **Justification for accepting this escape hatch as a B2 supplement (not a B1 re-introduction):** B1's "in-flight MCP request drops" concern applies to MID-RUN restarts, not cold-start. At cold-start, the MCP server has not yet started (it starts AFTER the moved block), so there are no in-flight MCP requests to drop. The supplement is therefore acceptable within B2's "no in-flight MCP request drops" constraint.
-- **Risk 2: line-number citations in code comments are stale after the move.** Many of the entrypoint's comments cite `:443`, `:347-367`, etc. (verified in this plan's evidence). After M2-T2, those line numbers are off by ~100 lines. **Mitigation:** do a final pass to update stale citations, OR (cleaner) replace the `:N-M` form with a function/anchor name. The latter is more durable but touches more lines. Pick the former: update stale citations only.
+- **Risk 1 (Gap 1 — does `joplin server start` re-read the SQLite DB after out-of-process `e2ee decrypt`)?** This subtask assumes YES (it re-orders, not restart). If NO, the M2-T1+T2 fix is insufficient: the Data API may serve ciphertext regardless of sync+decrypt order. **Escape hatch:** supplement M2-T2 with an in-place restart of the server between sync and the moved block. Concrete addition: between the M2-T1 decrypt block and the moved block, add `kill "${JOPLIN_SERVER_PID}" 2>/dev/null || true; wait "${JOPLIN_SERVER_PID}" 2>/dev/null || true; rm -f /home/joplin/.config/joplin/.sync-flock` (the lock is released on process exit, so this is defensive). Then proceed with the moved block (which now includes the `nohup joplin server start` call). This adds ~2-5s to cold-start. **Justification for accepting this escape hatch as a B2 supplement (not a B1 re-introduction):** B1's "in-flight MCP request drops" concern applies to MID-RUN restarts, not cold-start. At cold-start, the MCP server has not yet started (it starts AFTER the moved block), so there are no in-flight MCP requests to drop. The supplement is therefore acceptable within B2's "no in-flight MCP request drops" constraint. **[2026-10-03: CLOSED — the plan's YES assumption held (M2-T1 run GREEN with M2-T1 alone; decision rule `M2-T1-initial-sync-decrypt-and-verify.md:158`); the escape hatch was not needed; retained as the `plans/backlog.md` §5 F6 candidate if a future image regresses the behavior.]**
+- **Risk 2: line-number citations in code comments are stale after the move.** Many of the entrypoint's comments cite `:443`, `:347-367`, etc. (verified in this plan's evidence). After M2-T2, those line numbers are off by ~100 lines. **Mitigation:** do a final pass to update stale citations, OR (cleaner) replace the `:N-M` form with a function/anchor name. The latter is more durable but touches more lines. Pick the former: update stale citations only. **[2026-10-03: MOOT — the move does not happen (task descoped; see the status header); no citation pass is needed.]**
 - **Risk 3: `wait -n -p` portability.** `wait -n -p WAIT_PID` is bash ≥ 5.1 (per the comment at `:712-714`); the image ships bash 5.2. The move does not affect this. **No change needed.**
 - **Risk 4: Race between periodic loop and the moved block.** The periodic loop starts (`setsid bash -c ... &`) BEFORE the moved block (which is the api-port config + server start). The periodic loop's first action is `sleep ${SYNC_INTERVAL_SECONDS}` (`:506`); on a fresh volume with `SYNC_INTERVAL_SECONDS=300` (default), the loop sleeps 300s before its first sync. By the time it wakes, the moved block has executed (it runs in the foreground). **No race.** For test environments with `SYNC_INTERVAL_SECONDS=9999`, even safer. **No change needed.**
 - **Risk 5: Reordering + M9 halt-marker interaction.** M9's final-sync halt-marker write on line 685 is inside the cleanup() function; it references `SYNC_HALT_MARKER`. The move does not change the cleanup function. **No interaction.**
 
 ## 9. Research spikes assigned
 
-- **Spike 1 (~1h, CRITICAL): does `joplin server start` re-read the SQLite DB after out-of-process `e2ee decrypt`?** This is the question whose answer determines whether M2-T2 is sufficient. Reporter's experience suggests YES (API served plaintext without restart after manual decrypt), but unverified. **Test:** spin up a local combined container, sync, manually run `joplin e2ee decrypt` in another shell, then call `curl http://127.0.0.1:41184/folders` and check `title` is plaintext. **If YES** → M2-T2 as specified is sufficient. **If NO** → apply the Risk #1 escape hatch (in-place server restart between sync+decrypt and the moved block); document the rationale in the code comment.
+- **Spike 1 (~1h, CRITICAL): does `joplin server start` re-read the SQLite DB after out-of-process `e2ee decrypt`?** This is the question whose answer determines whether M2-T2 is sufficient. Reporter's experience suggests YES (API served plaintext without restart after manual decrypt), but unverified. **Test:** spin up a local combined container, sync, manually run `joplin e2ee decrypt` in another shell, then call `curl http://127.0.0.1:41184/folders` and check `title` is plaintext. **If YES** → M2-T2 as specified is sufficient. **If NO** → apply the Risk #1 escape hatch (in-place server restart between sync+decrypt and the moved block); document the rationale in the code comment. **[2026-10-03: ANSWERED YES — via the M2-T1 run, GREEN with M2-T1 alone *(inference from the GREEN outcome)*; recorded in `plans/backlog.md` §2 R6 and §1; M2-T2 is descoped (see status header), so neither branch of this spike executes as planned work.]**
 
 ## 10. Handoff note
 
