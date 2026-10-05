@@ -472,6 +472,198 @@ else
         fi
     else
         log_sync "PASS" "Initial sync completed successfully"
+
+        # ----- M2-T1: post-sync E2EE decrypt + verification gate (A) -----
+        # Placement: inside the initial-sync SUCCESS branch — after
+        # `check_sync_errors "Initial"` returns success, next to the
+        # `log_sync "PASS"` line (~:474). `START_PERIODIC_LOOP=1` at :445 has
+        # already executed; this block must only ever override it to 0
+        # (fail-closed) on decrypt/verify failure, plus write the halt marker.
+        # It must NOT set it to 1.
+        # Risk #1 guard (issue #29): with no master password configured there
+        # is nothing to decrypt, so this whole block is a NO-OP — without the
+        # guard, `joplin e2ee decrypt` would burn the full retry budget
+        # (~20 s) on a deployment that never enabled E2EE.
+        if [ -n "${JOPLIN_MASTER_PASSWORD:-}" ]; then
+            # After the initial sync, master keys are synced but the
+            # DecryptionWorker has not been triggered. `joplin config
+            # encryption.masterPassword` does NOT trigger it in the CLI
+            # (command-config.ts only sets the setting; the worker is only
+            # scheduled from the setting side-effect when hasGui() is true —
+            # false for app-cli). We trigger it here, bounded-retry to absorb
+            # master-key propagation timing (issue #29), then verify zero
+            # remaining encrypted items before starting the periodic sync
+            # loop. No `-p` flag is needed: the CLI loads master keys from
+            # settings at startup (loadMasterKeysFromSettings), and
+            # findMasterKeyPassword checks encryption.masterPassword first;
+            # in 3.7.1 the `-p` option is only consumed by `e2ee enable`.
+            #
+            # D3 preflight (plans/backlog.md §3 D3 — "no silent
+            # fails"): if the master password is configured but E2EE is fully
+            # disabled on the server, the initial sync pulls NO master keys
+            # and every `joplin e2ee decrypt` attempt deterministically fails
+            # (CLI 3.7.1 DecryptionWorker.start_ returns its "cannot start
+            # because no master key is currently loaded" error exactly when
+            # the profile has zero master keys), so retrying cannot succeed.
+            # Detect that inconsistent configuration BEFORE the retry loop
+            # and halt with a dedicated [E2EE_NO_MASTER_KEY] marker naming
+            # the real cause, instead of burning the 4×5 s retry budget and
+            # ending in the generic [E2EE_DECRYPT_FAIL].
+            #
+            # Signal chosen: a read-only SQLite read of the `syncInfoCache`
+            # setting (settings table), counting its `masterKeys` array —
+            # the same probe mechanism as the verification gate below. This
+            # is the authoritative store: CLI 3.7.1 resolves every
+            # "which master keys exist?" query through
+            # `localSyncInfo().masterKeys` (MasterKey.all()/allIds()/
+            # count() in models/MasterKey.ts all return it, and
+            # loadMasterKeysFromSettings iterates it), and after a
+            # successful sync it mirrors the server's keys. NOT the
+            # `master_keys` SQL table: it can be empty even when a key was
+            # synced via the sync-info merge (empirically falsified on the
+            # compose test stack — the table read 0 while the CLI loaded 1
+            # key and decrypt succeeded), so counting it would false-halt
+            # healthy deployments. Also chosen over `joplin e2ee status`
+            # (exits 0 in BOTH states, and its "Disabled" verdict would
+            # false-halt servers that disabled E2EE but still hold master
+            # keys able to decrypt legacy items) and over stderr
+            # string-matching (free-form log text, only observable after
+            # burning an attempt). Count 0 (or a missing setting row —
+            # localSyncInfo() defaults to no keys) is EXACTLY the
+            # DecryptionWorker "no master key is currently loaded"
+            # condition, so decrypt cannot succeed and retrying is wasted.
+            # Fail direction: a failed or non-integer probe means we CANNOT
+            # confirm the inconsistent state, so we fall through to the
+            # bounded retry loop — the pre-existing fail-closed gates
+            # ([E2EE_DECRYPT_FAIL] / [E2EE_DECRYPT_INCOMPLETE]) still halt
+            # there, so this is never a silent pass; it only avoids
+            # false-halting healthy deployments on a transient probe error.
+            E2EE_MK_PROBE_SCRIPT='const s = require("/usr/local/lib/node_modules/joplin/node_modules/sqlite3").verbose();
+const db = new s.Database(process.env.JOPLIN_DB_PATH, s.OPEN_READONLY, (err) => {
+  if (err) { console.error(err.message); process.exit(1); }
+  db.run("PRAGMA busy_timeout = 10000", (pe) => {
+    if (pe) { console.error(pe.message); process.exit(1); }
+    db.get("SELECT value FROM settings WHERE key = ?", ["syncInfoCache"], (e, row) => {
+      if (e) { console.error(e.message); process.exit(1); }
+      if (!row) { console.log(0); db.close(); return; }
+      let syncInfo = null;
+      try {
+        syncInfo = JSON.parse(row.value);
+      } catch (e2) {
+        console.error(e2.message);
+        process.exit(1);
+      }
+      const masterKeys = (syncInfo && Array.isArray(syncInfo.masterKeys)) ? syncInfo.masterKeys : [];
+      console.log(masterKeys.length);
+      db.close();
+    });
+  });
+});'
+            MASTER_KEY_COUNT=$(JOPLIN_DB_PATH="${JOPLIN_PROFILE_DIR}/database.sqlite" node -e "${E2EE_MK_PROBE_SCRIPT}" 2>>"${LOG_DIR}/e2ee-decrypt-stderr.log") || MASTER_KEY_COUNT=""
+            # The count is validated as a plain non-negative integer before
+            # any branch use (`case`, like the verification gate): "0" is
+            # the ONLY value that confirms the inconsistent state.
+            case "${MASTER_KEY_COUNT}" in
+                0)
+                    log "ERROR" "E2EE configuration inconsistent: JOPLIN_MASTER_PASSWORD is set but no master key is present after the initial sync (E2EE is disabled or was never enabled on the server) — decrypt cannot succeed; skipping the retry loop and refusing to start periodic sync (issue #29)"
+                    echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') [E2EE_NO_MASTER_KEY] master password configured but no master key is present (E2EE disabled on the server). See issue #29." > "${SYNC_HALT_MARKER}"
+                    START_PERIODIC_LOOP=0
+                    ;;
+                ''|*[!0-9]*)
+                    log "WARN" "E2EE master-key preflight probe failed or returned a non-integer — cannot confirm master-key presence; proceeding with the bounded decrypt retry (downstream gates remain fail-closed)"
+                    ;;
+                *)
+                    log "INFO" "E2EE master-key preflight passed: ${MASTER_KEY_COUNT} master key(s) present after initial sync"
+                    ;;
+            esac
+
+            if [ "${MASTER_KEY_COUNT}" != "0" ]; then
+                DECRYPT_MAX_ATTEMPTS=4
+                DECRYPT_BACKOFF_S=5
+                DECRYPT_EXIT=1
+                for dc in $(seq 1 "${DECRYPT_MAX_ATTEMPTS}"); do
+                    log "INFO" "Running post-sync E2EE decrypt (attempt ${dc}/${DECRYPT_MAX_ATTEMPTS})…"
+                    if flock -w 120 "${SYNC_LOCK_FILE}" -c 'joplin e2ee decrypt' \
+                        > "${LOG_DIR}/e2ee-decrypt-stdout.log" 2> "${LOG_DIR}/e2ee-decrypt-stderr.log"; then
+                        DECRYPT_EXIT=0
+                        break
+                    fi
+                    log "WARN" "joplin e2ee decrypt attempt ${dc} failed — backing off ${DECRYPT_BACKOFF_S}s (master-key propagation timing per issue #29)"
+                    sleep "${DECRYPT_BACKOFF_S}"
+                done
+
+                if [ "${DECRYPT_EXIT}" -ne 0 ]; then
+                    log "ERROR" "E2EE decrypt failed after ${DECRYPT_MAX_ATTEMPTS} attempts — refusing to start periodic sync (issue #29)"
+                    echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') [E2EE_DECRYPT_FAIL] decrypt did not complete after ${DECRYPT_MAX_ATTEMPTS} attempts. See issue #29." > "${SYNC_HALT_MARKER}"
+                    START_PERIODIC_LOOP=0
+                else
+                    # Verify: zero items still encrypted. This is the verification
+                    # gate — a partially completed decrypt (skipped items) exits 0
+                    # and can only be caught here.
+                    #
+                    # Spike 3 (resolved — Risk #5 escape hatch IS in effect):
+                    # `joplin ls -l` does NOT emit an `[Encrypted]` marker in
+                    # joplin 3.7.1 — command-ls.ts prints the raw `title` column
+                    # (empty while an item is encrypted) and the literal string
+                    # "[Encrypted]" appears nowhere in the v3.7.1 sources
+                    # (BaseItem.displayTitle renders "🔑 Encrypted", which `ls`
+                    # never calls). A grep-based gate is impossible; count rows
+                    # with non-empty encryption_cipher_text instead —
+                    # BaseItem.decrypt clears that column to '' on success, so
+                    # the count converges to 0 only when decryption completed.
+                    # Read-only probe against the profile DB; the sqlite3 module
+                    # path is the pinned global npm root already exercised by
+                    # tests/container/sqlite-busy-repro.test.ts (LOCK_SCRIPT).
+                    # Scope note: this is a METADATA gate (per the milestone's
+                    # fallback definition — non-empty encryption_cipher_text).
+                    # Resource BLOBS (encryption_blob_encrypted) are out of scope;
+                    # they are not served via the MCP surface (issue #29 is about
+                    # titles). The JS must stay free of single quotes: it is
+                    # assigned via a single-quoted shell string.
+                    E2EE_VERIFY_SCRIPT='const s = require("/usr/local/lib/node_modules/joplin/node_modules/sqlite3").verbose();
+const db = new s.Database(process.env.JOPLIN_DB_PATH, s.OPEN_READONLY, (err) => {
+  if (err) { console.error(err.message); process.exit(1); }
+  db.run("PRAGMA busy_timeout = 10000", (pe) => {
+    if (pe) { console.error(pe.message); process.exit(1); }
+    const sql = "SELECT " +
+      "(SELECT count(*) FROM notes WHERE length(encryption_cipher_text) > 0) + " +
+      "(SELECT count(*) FROM folders WHERE length(encryption_cipher_text) > 0) + " +
+      "(SELECT count(*) FROM resources WHERE length(encryption_cipher_text) > 0) + " +
+      "(SELECT count(*) FROM tags WHERE length(encryption_cipher_text) > 0) + " +
+      "(SELECT count(*) FROM note_tags WHERE length(encryption_cipher_text) > 0) + " +
+      "(SELECT count(*) FROM revisions WHERE length(encryption_cipher_text) > 0) AS n";
+    db.get(sql, (e, row) => {
+      if (e) { console.error(e.message); process.exit(1); }
+      console.log(row.n);
+      db.close();
+    });
+  });
+});'
+                    REMAINING_ENC=$(JOPLIN_DB_PATH="${JOPLIN_PROFILE_DIR}/database.sqlite" node -e "${E2EE_VERIFY_SCRIPT}" 2>>"${LOG_DIR}/e2ee-decrypt-stderr.log") || REMAINING_ENC=""
+                    # The count is validated as a plain non-negative integer
+                    # before any numeric use (`case`, not `[ -gt ]`): a failed
+                    # probe or garbage output cannot produce an "integer
+                    # expression expected" error and falls through to the
+                    # fail-closed arm.
+                    case "${REMAINING_ENC}" in
+                        0)
+                            log "INFO" "E2EE decrypt complete; 0 encrypted items remaining"
+                            ;;
+                        ''|*[!0-9]*)
+                            log "ERROR" "E2EE verification failed: encrypted-item count probe failed or returned a non-integer — refusing to start periodic sync (issue #29)"
+                            echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') [E2EE_DECRYPT_INCOMPLETE] verification probe failed. See issue #29." > "${SYNC_HALT_MARKER}"
+                            START_PERIODIC_LOOP=0
+                            ;;
+                        *)
+                            log "ERROR" "E2EE verification failed: ${REMAINING_ENC} item(s) still encrypted after decrypt (issue #29)"
+                            echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') [E2EE_DECRYPT_INCOMPLETE] ${REMAINING_ENC} item(s) still encrypted after decrypt. See issue #29." > "${SYNC_HALT_MARKER}"
+                            START_PERIODIC_LOOP=0
+                            ;;
+                    esac
+                fi
+            fi
+        fi
+        # ----- end M2-T1 block -----
     fi
 fi
 
