@@ -64,6 +64,72 @@ log_sync() {
 }
 
 # -----------------------------------------------------------------------------
+# Sync halt marker — tag-aware read side (backlog decision D4)
+# -----------------------------------------------------------------------------
+# The WRITE side of the halt marker is specific: every halt site emits its own
+# bracketed tag plus the responsible issue number ([CIRCUIT_BREAKER] /
+# [SYNC_ABORT] → issue #27, [E2EE_*] → issue #29). The READ side used to
+# hardcode "issue #27" for ANY marker, wrongly routing E2EE halts (#29) to the
+# destructive-deletion bug. The helpers below extract the tag from the marker's
+# FIRST line and map it to the correct issue. Read path only: one `head` plus a
+# pure-bash parse, executed solely in the refusal path.
+#
+# Fail-safe contract: any unknown state — missing/empty marker, no bracketed
+# tag, unrecognized/future tag, unreadable file — yields an empty issue ref and
+# callers fall back to the pre-D4 generic wording. Never a wrong issue.
+# -----------------------------------------------------------------------------
+# ----- D4 block begin: halt-marker read-side helpers (extracted verbatim by tests/test-sync-halt-tag-aware.sh) -----
+halt_marker_tag() {
+    local first_line tag=""
+    # Guarded read: a missing/unreadable marker must never crash the caller.
+    first_line="$(head -n 1 "${SYNC_HALT_MARKER}" 2>/dev/null || true)"
+    # First bracketed UPPERCASE tag on the first line. Writer format:
+    #   "<utc-timestamp> [TAG] reason. See issue #NN."
+    # Anything else (no tag, lowercase/unknown shape) yields "" → generic wording.
+    if [[ "${first_line}" =~ ^[^[]*\[([A-Z][A-Z0-9_]*)\] ]]; then
+        tag="${BASH_REMATCH[1]}"
+    fi
+    echo "${tag}"
+}
+
+halt_marker_issue() {
+    local tag="$1"
+    case "${tag}" in
+        CIRCUIT_BREAKER|SYNC_ABORT) echo "27" ;;
+        E2EE_DECRYPT_FAIL|E2EE_DECRYPT_INCOMPLETE|E2EE_NO_MASTER_KEY) echo "29" ;;
+        *) echo "" ;;
+    esac
+}
+
+# Emits the two-line refusal pair for an existing halt marker, routing the
+# operator to the issue named by the marker's tag. Unknown/unreadable states
+# fall back to the pre-D4 generic wording (never a wrong issue).
+log_halt_marker_refusal() {
+    local tag issue
+    tag="$(halt_marker_tag)"
+    issue="$(halt_marker_issue "${tag}")"
+    if [ -n "${issue}" ]; then
+        log "ERROR" "Sync halt marker exists — refusing to sync (see ${SYNC_HALT_MARKER}, tag [${tag}], issue #${issue})"
+        log "ERROR" "Remove ${SYNC_HALT_MARKER} to re-enable sync after investigating issue #${issue}"
+    else
+        log "ERROR" "Sync halt marker exists — refusing to sync (see ${SYNC_HALT_MARKER})"
+        log "ERROR" "Remove ${SYNC_HALT_MARKER} to re-enable sync after investigating issue #27"
+    fi
+}
+
+# Suffix for single-line logs that reference an existing halt marker:
+# ", tag [TAG], issue #NN" — or empty (wording unchanged) for unknown states.
+halt_marker_issue_note() {
+    local tag issue
+    tag="$(halt_marker_tag)"
+    issue="$(halt_marker_issue "${tag}")"
+    if [ -n "${issue}" ]; then
+        echo ", tag [${tag}], issue #${issue}"
+    fi
+}
+# ----- D4 block end -----
+
+# -----------------------------------------------------------------------------
 # Check log files for sync error patterns
 # Returns 0 if no errors found, 1 if error patterns detected
 # Usage: check_sync_errors <label> [log_offset]
@@ -430,10 +496,10 @@ fi
 # -----------------------------------------------------------------------------
 log "INFO" "Starting periodic sync loop (interval: ${SYNC_INTERVAL_SECONDS}s)..."
 
-# Halt gate: refuse to sync if a destructive signature was previously detected
+# Halt gate: refuse to sync if a halt marker was previously written
+# (tag-aware refusal — routes the operator to the issue named by the marker)
 if [ -f "${SYNC_HALT_MARKER}" ]; then
-    log "ERROR" "Sync halt marker exists — refusing to sync (see ${SYNC_HALT_MARKER})"
-    log "ERROR" "Remove ${SYNC_HALT_MARKER} to re-enable sync after investigating issue #27"
+    log_halt_marker_refusal
 else
 
 log_sync "START" "Performing initial sync..."
@@ -683,11 +749,12 @@ fi  # end of halt gate else block
 # so we must export everything the loop body references:
 #   - variables: SYNC_INTERVAL_SECONDS, LOG_DIR, LOG_FILE, SYNC_LOG_FILE, JOPLIN_LOG_FILE,
 #     SYNC_HALT_MARKER, SYNC_LOCK_FILE, SYNC_MAX_DELETE_COUNT
-#   - functions: log, log_sync, check_sync_errors, check_sync_danger,
-#     get_sync_item_count, check_deletion_circuit_breaker
+#   - functions: log, log_sync, halt_marker_tag, halt_marker_issue,
+#     log_halt_marker_refusal, halt_marker_issue_note, check_sync_errors,
+#     check_sync_danger, get_sync_item_count, check_deletion_circuit_breaker
 # Note: JOPLIN_PROFILE_DIR is intentionally not exported — JOPLIN_LOG_FILE is fully resolved at declaration time.
 export SYNC_INTERVAL_SECONDS LOG_DIR LOG_FILE SYNC_LOG_FILE JOPLIN_LOG_FILE SYNC_HALT_MARKER SYNC_LOCK_FILE SYNC_MAX_DELETE_COUNT
-export -f log log_sync check_sync_errors check_sync_danger get_sync_item_count check_deletion_circuit_breaker
+export -f log log_sync halt_marker_tag halt_marker_issue log_halt_marker_refusal halt_marker_issue_note check_sync_errors check_sync_danger get_sync_item_count check_deletion_circuit_breaker
 # Fail-safe default: when the halt marker is present the else block above never
 # assigns START_PERIODIC_LOOP, and `set -u` would abort the entrypoint here —
 # before MCP/Data API start.  Default to 0 (do not start the loop).
@@ -697,10 +764,10 @@ if [ "${START_PERIODIC_LOOP}" = "1" ]; then
         while true; do
             sleep "${SYNC_INTERVAL_SECONDS}"
 
-            # Halt gate: refuse to sync if a destructive signature was previously detected
+            # Halt gate: refuse to sync if a halt marker was previously written
+            # (tag-aware refusal — routes the operator to the issue named by the marker)
             if [ -f "${SYNC_HALT_MARKER}" ]; then
-                log "ERROR" "Sync halt marker exists — refusing to sync (see ${SYNC_HALT_MARKER})"
-                log "ERROR" "Remove ${SYNC_HALT_MARKER} to re-enable sync after investigating issue #27"
+                log_halt_marker_refusal
                 sleep "${SYNC_INTERVAL_SECONDS}"
                 continue
             fi
@@ -749,7 +816,8 @@ if [ "${START_PERIODIC_LOOP}" = "1" ]; then
     ' &
     SYNC_LOOP_PID=$!
 else
-    log "ERROR" "Periodic sync loop not started — halt marker present (see ${SYNC_HALT_MARKER})"
+    _HALT_NOTE="$(halt_marker_issue_note)"
+    log "ERROR" "Periodic sync loop not started — halt marker present (see ${SYNC_HALT_MARKER}${_HALT_NOTE})"
 fi
 
 log "INFO" "Periodic sync loop started (PID: ${SYNC_LOOP_PID:-none}, own process group)"
@@ -885,7 +953,8 @@ cleanup() {
             log_sync "FAIL" "Final sync failed (exit code: ${SYNC_EXIT})"
         fi
     elif [ -f "${SYNC_HALT_MARKER}" ]; then
-        log "WARN" "Skipping final sync — halt marker exists (see ${SYNC_HALT_MARKER})"
+        _HALT_NOTE="$(halt_marker_issue_note)"
+        log "WARN" "Skipping final sync — halt marker exists (see ${SYNC_HALT_MARKER}${_HALT_NOTE})"
     else
         log "WARN" "Skipping final sync — Data API is not running"
     fi
