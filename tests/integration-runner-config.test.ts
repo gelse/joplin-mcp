@@ -20,6 +20,10 @@
  *      running dev stack) whenever `ps -q` came up empty.
  *   4. Direct vitest (without the runner script) keeps working: the repro test
  *      reads `JOPLIN_CONTAINER` with a `joplin-mcp` name fallback.
+ *   5. The E2EE repro branch's server-URL export is override-aware
+ *      (`E2EE_REPRO_SERVER_URL`, falling back to the historical default), so
+ *      the repro's FIXTURE_NOT_SYNCED anti-vacuous gate stays reachable
+ *      (backlog Q15).
  */
 import { readFileSync } from 'fs';
 import { describe, expect, it } from 'vitest';
@@ -71,6 +75,23 @@ describe('container test infrastructure config (M11)', () => {
     // ... and forward it into the test-runner container: vitest runs inside
     // `docker compose run`, where a host-side export alone does not reach it.
     expect(script.match(/-e "JOPLIN_CONTAINER=\$\{JOPLIN_CONTAINER\}"/g)?.length).toBe(2);
+  });
+
+  it('runner script exports the E2EE repro server URL as override-aware', () => {
+    const script = readFileSync(RUNNER_SCRIPT, 'utf-8');
+    // Backlog Q15 (M2-T4 Step 3b): the recreated joplin-mcp must be pointable
+    // at a bad/unreachable server URL via E2EE_REPRO_SERVER_URL so the
+    // repro's FIXTURE_NOT_SYNCED anti-vacuous gate can actually fire.
+    // Exactly one override-aware export, with the historical default
+    // (`http://joplin-server:22300`) as the fallback.
+    expect(
+      script.match(
+        /export JOPLIN_SERVER_URL="\$\{E2EE_REPRO_SERVER_URL:-http:\/\/joplin-server:22300\}"/g,
+      )?.length,
+    ).toBe(1);
+    // The pre-override unconditional export made the gate unreachable via any
+    // documented command; that form must never return.
+    expect(script).not.toMatch(/export JOPLIN_SERVER_URL="http:\/\/joplin-server:22300"/);
   });
 
   it('repro test keeps its JOPLIN_CONTAINER env override with joplin-mcp fallback', () => {

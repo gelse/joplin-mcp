@@ -248,6 +248,7 @@ A gated integration test reproduces [GitHub issue #29](https://github.com/gelse/
 - A real `joplin/server:latest` container with E2EE enabled and an account matching `JOPLIN_USERNAME` / `JOPLIN_PASSWORD`.
 - `JOPLIN_MASTER_PASSWORD` set to the password used to encrypt fixtures.
 - A fresh `joplin_data` volume.
+- Optionally, `E2EE_REPRO_SERVER_URL` — overrides the server URL the recreated combined container syncs against (default `http://joplin-server:22300`).
 
 **Local one-shot run:**
 
@@ -255,7 +256,7 @@ A gated integration test reproduces [GitHub issue #29](https://github.com/gelse/
 RUN_E2EE_REPRO_TESTS=1 ./scripts/run-integration-tests.sh
 ```
 
-The runner brings up the real Joplin Server, runs the one-shot seed container to create an encrypted notebook + note, recreates the combined container against the seeded server, and runs the repro. The repro **passes** against the current (post-M2) container; on pre-M2 code it failed with the symptom assertion message. Default CI is unaffected.
+The runner brings up the real Joplin Server, runs the one-shot seed container to create an encrypted notebook + note, recreates the combined container against the seeded server, and runs the repro. The repro **passes** against the current (post-M2) container; on pre-M2 code it failed with the symptom assertion message. Default CI is unaffected. To prove the repro's `FIXTURE_NOT_SYNCED` anti-vacuous gate can actually fail, set `E2EE_REPRO_SERVER_URL` to an unreachable host (for example `http://nonexistent.example.invalid:1`): the recreated combined container then cannot sync the fixture, and the run exits non-zero.
 
 **CI:**
 

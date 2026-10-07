@@ -79,7 +79,22 @@ if [ "${RUN_E2EE_REPRO_TESTS:-0}" -eq 1 ]; then
   # joplin-mcp was already started above (before the seed) with the dummy
   # defaults, and its startup initial sync has already run — recreating it
   # below with these values is what points it at the seeded real server.
-  export JOPLIN_SERVER_URL="http://joplin-server:22300"
+  #
+  # E2EE_REPRO_SERVER_URL is an opt-in override for this URL: set it to a
+  # bad/unreachable host (e.g. http://nonexistent.example.invalid:1) to point
+  # the recreated joplin-mcp at a server it cannot reach — proving the
+  # repro's FIXTURE_NOT_SYNCED anti-vacuous gate
+  # (tests/container/e2ee-encrypted-titles-repro.test.ts:246-251) can actually
+  # fail. Unset — the default — yields byte-identical behavior (the same URL
+  # as before the override existed). A dedicated var, not a pre-set
+  # JOPLIN_SERVER_URL: compose interpolates JOPLIN_SERVER_URL from this shell
+  # at EVERY `up` (docker-compose.test.yml:11), including the pre-seed
+  # `up -d joplin-mcp` above — honoring a pre-set value would poison that
+  # container too — whereas E2EE_REPRO_SERVER_URL is read only here, so it
+  # reaches only the --force-recreate below. The credentials below stay
+  # exactly as they are even for a bad URL: bad URL + real credentials is
+  # precisely the Step-3b scenario the gate must survive.
+  export JOPLIN_SERVER_URL="${E2EE_REPRO_SERVER_URL:-http://joplin-server:22300}"
   export JOPLIN_USERNAME="admin@localhost"
   export JOPLIN_PASSWORD="admin"
   export JOPLIN_MASTER_PASSWORD="test-password"
