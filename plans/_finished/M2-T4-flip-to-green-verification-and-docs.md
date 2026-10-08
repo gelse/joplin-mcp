@@ -1,5 +1,35 @@
 # M2-T4 — Flip-to-green verification + docs update
 
+> **Filing note (2026-10-08):** moved from `plans/M2-T4-flip-to-green-verification-and-docs.md`
+> to `plans/_finished/M2-T4-flip-to-green-verification-and-docs.md` in the 2026-10-08
+> backlog-triage filing batch (body untouched; the file contains no markdown links, so no
+> link re-depth was needed). **Finished:** delivered across commits `7fa0754` ("Update
+> README for the E2EE decrypt fix and correct M1-T5 gating wording (M2-T4)") and `b10c038`
+> ("Make the E2EE repro server URL overridable via E2EE_REPRO_SERVER_URL (Q15)"); resolved
+> E1 and Q15; the Step-4 README conversion and the Step-1 immutability check executed
+> 2026-10-04/05.
+>
+> **E6 annotation:** the Step 1/Step 5 worktree-relative `git diff` commands ran vacuously
+> empty on the clean, fully-committed execution tree. History proof instead: exactly one
+> commit touches the repro test (`45851e3`; empty diff since), and the authoritative
+> `git diff --stat 94796c0..HEAD` spans 45 files (+5491/−200) — legitimate extras beyond
+> the plan's 8-file list: the pre-e2ee `d7a0a7a` docker-test batch (CHANGELOG.md,
+> Dockerfile.unittests, Makefile, scripts/run-unit-tests-docker.sh,
+> tests/docker-test-config.test.ts), `45851e3`'s tests/container/helpers.ts and
+> tests/integration-runner-config.test.ts, the M2-T1/M2-T3 `tests/test-*.sh` harness
+> extensions (69818d0/9034126/451845c), and the `plans/` doc tree
+> (45851e3/e391d54/a54f259); no further action required.
+>
+> **Q15 residual:** the documented Step-3b trigger is dead on the current tree — the
+> runner's real-server branch exports
+> `JOPLIN_SERVER_URL="${E2EE_REPRO_SERVER_URL:-http://joplin-server:22300}"`
+> (`scripts/run-integration-tests.sh:97`; rationale comment `:83-96` — a pre-set
+> JOPLIN_SERVER_URL is compose-interpolated at every `up`, poisoning the pre-seed
+> container), pinned by `tests/integration-runner-config.test.ts:80-95` (assertions
+> `:87-94`); verified 2026-10-07 — negative case exits 1 via the predicted
+> `FIXTURE_NOT_SYNCED` path (`tests/container/e2ee-encrypted-titles-repro.test.ts:246-251`).
+> Step-3b's trigger is kept as historical record; set `E2EE_REPRO_SERVER_URL` instead.
+
 > Subtask of **M2 — E2EE Encrypted Titles Fix (scope A + B2 + C)** (B2
 > descoped 2026-10-03 — see the Re-scope note below).
 > Belongs to the fix milestone (M2). Implementation starts in a fresh

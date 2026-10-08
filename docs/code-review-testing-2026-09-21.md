@@ -11,6 +11,20 @@ The branch adds a defense-in-depth sync-safety layer to `entrypoint-combined.sh`
 
 **Verdict: NEEDS CHANGES** — 3 WARNING, 6 SUGGESTION.
 
+> **Status (2026-10-08):** This review's nine findings (3 WARNING, 6 SUGGESTION) are all dispositioned: eight are addressed by the finished milestone plans M4–M11, and one — S6, the periodic halt-gate double sleep — remains open, planned in [`plans/M12-periodic-halt-gate-double-sleep.md`](../plans/M12-periodic-halt-gate-double-sleep.md). The Findings below are preserved verbatim as the original 2026-09-21 snapshot; the `entrypoint-combined.sh` line numbers they cite are historical — the entrypoint has grown since the review (commit `451845c`), so they no longer match the current file.
+
+| Finding | Plan |
+| --- | --- |
+| W1 — dead `syncMaxDeleteCount` config | [M4](../plans/_finished/M4-dead-sync-max-delete-count-config.md) |
+| W2 — vacuous final-sync danger check | [M5](../plans/_finished/M5-final-sync-vacuous-danger-check.md) |
+| W3 — circuit-breaker pre-count blind spot | [M6](../plans/_finished/M6-circuit-breaker-pre-count-blind-spot.md) |
+| S1 — sync-safety logic triplicated | [M7](../plans/_finished/M7-sync-safety-function-duplication.md) |
+| S2 — brittle structural grep tests | [M8](../plans/_finished/M8-structural-grep-tests-brittle.md) |
+| S3 — final-sync halt marker missing | [M9](../plans/_finished/M9-final-sync-halt-marker.md) |
+| S4 — docker.sock mount privilege | [M10](../plans/_finished/M10-docker-socket-privilege-doc.md) |
+| S5 — fixed `container_name` blocks parallel stacks | [M11](../plans/_finished/M11-fixed-container-name-parallel-stacks.md) |
+| S6 — periodic halt-gate double sleep | **Open** — [M12](../plans/M12-periodic-halt-gate-double-sleep.md) |
+
 ## Findings
 
 ### WARNING

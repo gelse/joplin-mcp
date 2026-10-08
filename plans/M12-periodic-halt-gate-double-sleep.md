@@ -7,11 +7,11 @@
 
 The periodic sync loop body starts with
 `sleep "${SYNC_INTERVAL_SECONDS}"`
-([`entrypoint-combined.sh:492`](../entrypoint-combined.sh:492)). Once the halt
+([`entrypoint-combined.sh:884`](../entrypoint-combined.sh:884)). Once the halt
 marker is present, the gate branch
-([`entrypoint-combined.sh:495-500`](../entrypoint-combined.sh:495)) logs the
+([`entrypoint-combined.sh:888-892`](../entrypoint-combined.sh:888)) logs the
 refusal, **then performs another full `sleep "${SYNC_INTERVAL_SECONDS}"`
-(line 498) before `continue`** — even though `continue` returns to the
+(line 890) before `continue`** — even though `continue` returns to the
 top-of-loop sleep anyway.
 
 Effect: with a marker present, the gate message repeats every
@@ -28,7 +28,7 @@ branch logs and continues only.
 ## Proposed Approach
 
 In the periodic loop inside the `setsid bash -c` block
-([`entrypoint-combined.sh:490-543`](../entrypoint-combined.sh:490)), change the
+([`entrypoint-combined.sh:862-940`](../entrypoint-combined.sh:862)), change the
 gate branch from:
 
 ```bash
@@ -60,7 +60,7 @@ fi
   per `SYNC_INTERVAL_SECONDS` (not once per `2 ×`), and no sync runs.
 - Loop behavior in the non-gated path is byte-identical.
 - The structural test asserting the gate mechanism
-  ([`tests/test-sync-failure-diagnostics.sh:93-94`](../tests/test-sync-failure-diagnostics.sh:93),
+  ([`tests/test-sync-failure-diagnostics.sh:93-101`](../tests/test-sync-failure-diagnostics.sh:93),
   `grep -A5 "Sync halt marker exists" | grep -q "continue"`) still passes —
   removing the sleep does not affect that window.
 
@@ -79,7 +79,7 @@ fi
 ## Non-goals
 
 - Changing the halt-gate semantics on the initial-sync site
-  ([`entrypoint-combined.sh:419-422`](../entrypoint-combined.sh:419)) — it has
+  ([`entrypoint-combined.sh:590-594`](../entrypoint-combined.sh:590)) — it has
   no loop and correctly has no sleep.
 - Any change to sync timing, interval defaults, or `SYNC_INTERVAL_SECONDS`
   handling.

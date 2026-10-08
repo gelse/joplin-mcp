@@ -91,7 +91,7 @@ The command `joplin e2ee decrypt` decrypts data **for the current session only**
 
 > **✅ Resolved in M2.** The combined container now runs `joplin e2ee decrypt` after the initial sync (with bounded retries for master-key propagation timing), verifies zero items remain encrypted before starting the periodic sync loop, and serves plaintext titles via `list_notebooks` — the Data API picks up the post-decrypt state without a restart (the re-read behavior observed in the GREEN repro run; recorded as an inference in `plans/backlog.md` §2 R6). A container integration test ([GitHub issue #29](https://github.com/gelse/joplin-mcp/issues/29)) — `tests/container/e2ee-encrypted-titles-repro.test.ts`, gated by `RUN_E2EE_REPRO_TESTS=1` — reproduces the original bug and now passes.
 >
-> See the M2 fix-design plans (`plans/_finished/M2-T1-initial-sync-decrypt-and-verify.md`, `plans/_finished/M2-T2-server-start-reorder.md`, `plans/M2-T3-sync-detection-and-healthcheck-hardening.md`, `plans/M2-T4-flip-to-green-verification-and-docs.md`) and the M1 repro-test plans (`plans/_finished/M1-T1..T6`) for the repro test. The repro is opt-in (CI `workflow_dispatch` with input `run_e2ee_repro_tests: true`); default CI is unaffected.
+> See the M2 fix-design plans (`plans/_finished/M2-T1-initial-sync-decrypt-and-verify.md`, `plans/_finished/M2-T2-server-start-reorder.md`, `plans/_finished/M2-T3-sync-detection-and-healthcheck-hardening.md`, `plans/_finished/M2-T4-flip-to-green-verification-and-docs.md`) and the M1 repro-test plans (`plans/_finished/M1-T1..T6`) for the repro test. The repro is opt-in (CI `workflow_dispatch` with input `run_e2ee_repro_tests: true`); default CI is unaffected.
 
 ### How to tell if E2EE is the problem
 
@@ -262,7 +262,7 @@ The runner brings up the real Joplin Server, runs the one-shot seed container to
 
 Manual `workflow_dispatch` with input `run_e2ee_repro_tests: true` → the opt-in job `e2ee-encrypted-titles-repro` runs. See [`.github/workflows/integration-tests.yml`](.github/workflows/integration-tests.yml).
 
-**Resolved:** the combined container now triggers decryption itself. After the initial sync it runs `joplin e2ee decrypt` with bounded retries, verifies zero items remain encrypted (fail-closed halt markers `[E2EE_DECRYPT_FAIL]` / `[E2EE_DECRYPT_INCOMPLETE]` otherwise), and only then starts the periodic sync loop; the MCP server starts last. See the **✅ Resolved** note in the E2EE section above and the M2 fix-design plans (`plans/_finished/M2-T1-initial-sync-decrypt-and-verify.md`, `plans/_finished/M2-T2-server-start-reorder.md`, `plans/M2-T3-sync-detection-and-healthcheck-hardening.md`, `plans/M2-T4-flip-to-green-verification-and-docs.md`) for the fix design.
+**Resolved:** the combined container now triggers decryption itself. After the initial sync it runs `joplin e2ee decrypt` with bounded retries, verifies zero items remain encrypted (fail-closed halt markers `[E2EE_DECRYPT_FAIL]` / `[E2EE_DECRYPT_INCOMPLETE]` otherwise), and only then starts the periodic sync loop; the MCP server starts last. See the **✅ Resolved** note in the E2EE section above and the M2 fix-design plans (`plans/_finished/M2-T1-initial-sync-decrypt-and-verify.md`, `plans/_finished/M2-T2-server-start-reorder.md`, `plans/_finished/M2-T3-sync-detection-and-healthcheck-hardening.md`, `plans/_finished/M2-T4-flip-to-green-verification-and-docs.md`) for the fix design.
 
 ---
 
@@ -428,7 +428,7 @@ Validation error: note_id: Expected 32-character hex ID
 ## Sync Behaviour
 
 - **Initial sync**: The entrypoint runs `joplin sync` (flock-serialized) once before starting the MCP server. If a destructive signature is detected, a halt marker is created and the periodic loop is not started. The container healthcheck (`start-period=90s` in [`Dockerfile.combined`](Dockerfile.combined)) may report unhealthy until the initial sync completes.
-- **Initial sync throughput**: Governed by the pinned Joplin CLI's per-item sync algorithm (`joplin@3.7.1`). The historically observed ~12 items/min on the pre-0.2.0 two-container setup had a known contributing factor (Data API contention during sync) that was removed in 0.2.0. Actual post-0.2.0 throughput is unmeasured — see [Plan #7 Resolution](plans/007-slow-initial-sync-followup.md#resolution-2026-09-01-re-investigation-after-v020-combined-container-overhaul).
+- **Initial sync throughput**: Governed by the pinned Joplin CLI's per-item sync algorithm (`joplin@3.7.1`). The historically observed ~12 items/min on the pre-0.2.0 two-container setup had a known contributing factor (Data API contention during sync) that was removed in 0.2.0. Actual post-0.2.0 throughput is unmeasured — the Plan #7 investigation verdict (remaining bottleneck intrinsic to the Joplin CLI) is recorded in [CHANGELOG.md](CHANGELOG.md), and throughput can be measured with [`scripts/measure-initial-sync.sh`](scripts/measure-initial-sync.sh).
 - **Periodic sync**: Every 5 minutes (configurable via `SYNC_INTERVAL_SECONDS`); each iteration checks the halt marker before syncing.
 - **Scheduled sync**: Every create/update/delete/untag operation is picked up by the periodic scheduler (within ≤ `SYNC_INTERVAL_SECONDS`)
 - **Conflict resolution**: Remote always wins (Joplin CLI built-in behaviour; conflicted copies are flagged in Joplin)

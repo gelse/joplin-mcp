@@ -1,5 +1,12 @@
 # M2-T3 — C: sync error detection + E2EE-aware healthcheck
 
+> **Filing note (2026-10-08):** moved from `plans/M2-T3-sync-detection-and-healthcheck-hardening.md`
+> to `plans/_finished/M2-T3-sync-detection-and-healthcheck-hardening.md` in the 2026-10-08
+> backlog-triage filing batch (body untouched; the file contains no markdown links, so no
+> link re-depth was needed). **Finished:** delivered — landed in commit `451845c` ("Expand
+> sync-error patterns and gate boot on E2EE state (M2-T3)"); resolved backlog Q1–Q6, Q8,
+> Q9 and F1 (re-verified against the tree 2026-10-08).
+
 > Subtask of **M2 — E2EE Encrypted Titles Fix (scope A + B2 + C)**.
 > Belongs to the fix milestone (M2). Implementation starts in a fresh
 > session from this file alone.
