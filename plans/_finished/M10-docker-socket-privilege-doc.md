@@ -1,25 +1,25 @@
 # M10 — Document the `docker.sock` Root-Privilege Mount
 
-> Source: [`docs/code-review-testing-2026-09-21.md`](../docs/code-review-testing-2026-09-21.md)
+> Source: [`docs/code-review-testing-2026-09-21.md`](../../docs/code-review-testing-2026-09-21.md)
 > finding **S4** (SUGGESTION).
 
 ## Problem
 
-[`docker-compose.test.yml:36`](../docker-compose.test.yml:36) mounts
+[`docker-compose.test.yml:36`](../../docker-compose.test.yml:36) mounts
 `/var/run/docker.sock` into the `test-runner` service. Mounting the host
 Docker socket grants the container **root-equivalent control over the host
 daemon** (any image, any mount, host filesystem access via bind mounts).
 
 The mount is necessary for the repro harness
-([`tests/container/sqlite-busy-repro.test.ts`](../tests/container/sqlite-busy-repro.test.ts:31)
+([`tests/container/sqlite-busy-repro.test.ts`](../../tests/container/sqlite-busy-repro.test.ts:31)
 needs `docker exec` into the sibling `joplin-mcp` container) and is confined
 to the test compose file plus the manually dispatched CI job
 (`workflow_dispatch` gate in
-[`.github/workflows/integration-tests.yml:50`](../.github/workflows/integration-tests.yml:50)),
+[`.github/workflows/integration-tests.yml:50`](../../.github/workflows/integration-tests.yml:50)),
 but nothing at the mount site itself states the privilege implication. The
 CI workflow comment partially covers it — one line at the mount site completes
 the picture. (The existing two-line comment at
-[`docker-compose.test.yml:35-36`](../docker-compose.test.yml:35) explains the
+[`docker-compose.test.yml:35-36`](../../docker-compose.test.yml:35) explains the
 *purpose*, not the *risk*.)
 
 ## Goal
@@ -32,7 +32,7 @@ non-test compose file unawares.
 
 Documentation only:
 
-- [`docker-compose.test.yml`](../docker-compose.test.yml:35): extend the
+- [`docker-compose.test.yml`](../../docker-compose.test.yml:35): extend the
   existing comment above the socket mount:
   ```yaml
   # Docker socket for container-to-container docker exec (sqlite-busy-repro tests).
@@ -40,11 +40,11 @@ Documentation only:
   # Docker daemon. Test infrastructure only — never replicate in a production
   # compose file.
   ```
-- [`.github/workflows/integration-tests.yml`](../.github/workflows/integration-tests.yml:6):
+- [`.github/workflows/integration-tests.yml`](../../.github/workflows/integration-tests.yml:6):
   add one comment line near the `workflow_dispatch` trigger noting the gated
   job mounts the host Docker socket into the test runner (root-equivalent) and
   is therefore manual-dispatch only.
-- [`README.md`](../README.md): in the sqlite-busy repro section (around line
+- [`README.md`](../../README.md): in the sqlite-busy repro section (around line
   200), add a short caveat paragraph: the gated test run mounts the host
   Docker socket into the test-runner container — a root-equivalent credential —
   and the job is manually dispatched only.
@@ -70,5 +70,5 @@ Documentation only:
 - Removing the socket mount or replacing it with a socket-proxy (the repro
   harness genuinely needs `docker exec` into a sibling; a proxy would be
   disproportionate for test infra).
-- Changing the production [`docker-compose.yml`](../docker-compose.yml) — it
+- Changing the production [`docker-compose.yml`](../../docker-compose.yml) — it
   correctly has no socket mount.

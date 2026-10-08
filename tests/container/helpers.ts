@@ -1,3 +1,4 @@
+import { exec } from 'child_process';
 import { Client } from '@modelcontextprotocol/sdk/client';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp';
 
@@ -61,4 +62,35 @@ export class CleanupTracker {
         .catch(() => {});
     }
   }
+}
+
+/**
+ * Poll a URL with `curl -sf` until it responds non-error, or reject after
+ * `timeoutMs`. Used by the e2ee-repro suite to confirm the real Joplin Server is
+ * serving before the seed container (or any client) talks to it.
+ *
+ * Runs inside the test-runner container, which has curl via its base image.
+ */
+export function waitForHttp(
+  url: string,
+  timeoutMs = 30_000,
+  intervalMs = 1_000,
+): Promise<void> {
+  const start = Date.now();
+  return new Promise((resolve, reject) => {
+    const tick = (): void => {
+      exec(`curl -sf '${url}' -o /dev/null`, (err) => {
+        if (!err) {
+          resolve();
+          return;
+        }
+        if (Date.now() - start >= timeoutMs) {
+          reject(new Error(`Timeout waiting for ${url}`));
+          return;
+        }
+        setTimeout(tick, intervalMs);
+      });
+    };
+    tick();
+  });
 }

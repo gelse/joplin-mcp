@@ -66,7 +66,7 @@ halt marker.
 ## Prerequisites / Dependencies
 
 - **M1 must be complete.** The repro test
-  ([`tests/container/sqlite-busy-repro.test.ts`](../tests/container/sqlite-busy-repro.test.ts))
+  ([`tests/container/sqlite-busy-repro.test.ts`](../../tests/container/sqlite-busy-repro.test.ts))
   exists and its safe-behavior assertions are already in place; M2 only
   removes its stale scaffolding (Step 9).
 
@@ -74,7 +74,7 @@ halt marker.
 
 ### Step 1 — Add destructive log-pattern detection to `check_sync_errors()`
 
-**File: [`entrypoint-combined.sh`](../entrypoint-combined.sh:69)**
+**File: [`entrypoint-combined.sh`](../../entrypoint-combined.sh:69)**
 
 Extend the `combined_pattern` regex at line 72 to also match the destructive
 signatures:
@@ -129,7 +129,7 @@ create the halt marker.
 
 ### Step 2 — Halt marker file for permanent sync disable
 
-**File: [`entrypoint-combined.sh`](../entrypoint-combined.sh)**
+**File: [`entrypoint-combined.sh`](../../entrypoint-combined.sh)**
 
 Define a halt marker path near the top (~line 30), next to where
 `JOPLIN_PROFILE_DIR` is defined (it is defined at line 30 but **not
@@ -148,7 +148,7 @@ verification pass (Step 10 / Verification).
 Add a **halt-check gate** at the very beginning of the periodic sync loop
 body (inside the `bash -c` block at line 324, before `log_sync "START"`).
 **Do NOT kill the sync loop** — killing it would trip the parent liveness
-monitor ([`entrypoint-combined.sh`](../entrypoint-combined.sh:473), ~line
+monitor ([`entrypoint-combined.sh`](../../entrypoint-combined.sh:473), ~line
 486 `wait -n` over the MCP/Data API PIDs plus entrypoint-combined.sh
 cleanup semantics at ~line 473 — a dead loop subshell is reaped and the
 container exits, Docker restarts, and the initial-sync race repeats).
@@ -179,7 +179,7 @@ echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') [SYNC_ABORT] Destructive sync signature d
 
 ### Step 3 — Serialization: flock around all `joplin sync` / `joplin` CLI calls
 
-**File: [`entrypoint-combined.sh`](../entrypoint-combined.sh)**
+**File: [`entrypoint-combined.sh`](../../entrypoint-combined.sh)**
 
 `flock` is empirically present in the node:22-bookworm-slim image
 (`/usr/bin/flock`, util-linux 2.38.1) — no installation needed. Optionally
@@ -224,8 +224,8 @@ circuit-breaker (Step 5). Document this trade-off in the README.
 
 ### Step 4 — Document that `database.busyTimeout` is unsupported
 
-**File: [`entrypoint-combined.sh`](../entrypoint-combined.sh)** (and
-[`README.md`](../README.md), in Step 10)
+**File: [`entrypoint-combined.sh`](../../entrypoint-combined.sh)** (and
+[`README.md`](../../README.md), in Step 10)
 
 **Investigation note (empirically settled):** Joplin CLI 3.7.1 **rejects**
 `database.busyTimeout`: `joplin config database.busyTimeout 30000` prints
@@ -245,7 +245,7 @@ log "WARN" "database.busyTimeout not supported by Joplin CLI 3.7.1 — relying o
 
 ### Step 5 — Deletion circuit-breaker
 
-**File: [`entrypoint-combined.sh`](../entrypoint-combined.sh)**
+**File: [`entrypoint-combined.sh`](../../entrypoint-combined.sh)**
 
 Add new environment variable default near the top (~line 134, in the
 defaults section at lines 132–135):
@@ -396,7 +396,7 @@ contexts — see the `set -e` invariant above):
 
 ### Step 6 — Wire detection into all three sync sites
 
-**File: [`entrypoint-combined.sh`](../entrypoint-combined.sh)**
+**File: [`entrypoint-combined.sh`](../../entrypoint-combined.sh)**
 
 For each sync site, after the existing `check_sync_errors` call, add
 `check_sync_danger` and `check_deletion_circuit_breaker`. On trip: create
@@ -503,11 +503,11 @@ process and sees neither unexported variables nor shell functions. Extend:
 
 ### Step 7 — Config wiring
 
-**File: [`entrypoint-combined.sh`](../entrypoint-combined.sh:132–135)**
+**File: [`entrypoint-combined.sh`](../../entrypoint-combined.sh:132–135)**
 Add default for `SYNC_MAX_DELETE_COUNT` in the defaults section (covered in
 Step 5).
 
-**File: [`.env.example`](../.env.example:26)**
+**File: [`.env.example`](../../.env.example:26)**
 Add after `SYNC_INTERVAL_SECONDS` (line 26):
 ```bash
 # Maximum number of items that sync may delete before the circuit breaker
@@ -517,7 +517,7 @@ Add after `SYNC_INTERVAL_SECONDS` (line 26):
 # SYNC_MAX_DELETE_COUNT=100
 ```
 
-**File: [`src/config.ts`](../src/config.ts:38)**
+**File: [`src/config.ts`](../../src/config.ts:38)**
 Three insertion points:
 - Schema (lines 38–43, alongside `syncIntervalSeconds`):
   ```typescript
@@ -537,7 +537,7 @@ Three insertion points:
     SYNC_MAX_DELETE_COUNT (optional, default: 100, -1 disables the deletion circuit-breaker)
   ```
 
-**File: [`tests/config.test.ts`](../tests/config.test.ts)**
+**File: [`tests/config.test.ts`](../../tests/config.test.ts)**
 Add `SYNC_MAX_DELETE_COUNT` to the `ENV_VARS` allowlist (lines 3–11) and add
 boundary tests following the existing pattern (lines 170–178): accept `100`,
 accept `0` (valid threshold), accept `-1` (disable), reject `-2` (below the
@@ -545,7 +545,7 @@ accept `0` (valid threshold), accept `-1` (disable), reject `-2` (below the
 
 ### Step 8 — Shell tests
 
-**File: [`tests/test-check-sync-errors.sh`](../tests/test-check-sync-errors.sh)**
+**File: [`tests/test-check-sync-errors.sh`](../../tests/test-check-sync-errors.sh)**
 
 The harness **duplicates `check_sync_errors` verbatim** from
 entrypoint-combined.sh (comment at line 13, copy at lines 14–~48) — update
@@ -586,7 +586,7 @@ Add test cases for `check_deletion_circuit_breaker()`:
   or `get_sync_item_count` invocation at any sync site; the post-count
   assignment inside the breaker is guarded with `|| post_count="skip"`
 
-**File: [`tests/test-sync-failure-diagnostics.sh`](../tests/test-sync-failure-diagnostics.sh)**
+**File: [`tests/test-sync-failure-diagnostics.sh`](../../tests/test-sync-failure-diagnostics.sh)**
 
 Add structure-validation tests:
 - `check_sync_danger` function is exported
@@ -600,7 +600,7 @@ Add structure-validation tests:
 
 ### Step 9 — Remove stale M1 test scaffolding
 
-**File: [`tests/container/sqlite-busy-repro.test.ts`](../tests/container/sqlite-busy-repro.test.ts)** (created in M1)
+**File: [`tests/container/sqlite-busy-repro.test.ts`](../../tests/container/sqlite-busy-repro.test.ts)** (created in M1)
 
 The M1 flip **already happened**: the safe-behavior assertions
 (no destructive signatures; note count preserved) are in place at lines
@@ -621,7 +621,7 @@ The M1 flip **already happened**: the safe-behavior assertions
 
 ### Step 10 — Documentation updates
 
-**File: [`README.md`](../README.md)**
+**File: [`README.md`](../../README.md)**
 
 - Update the SQLITE_BUSY caveat (~line 242–246) to explain the new
   container-level fixes honestly: **damage limitation** (detection + halt
@@ -637,7 +637,7 @@ The M1 flip **already happened**: the safe-behavior assertions
   `${JOPLIN_PROFILE_DIR}/.sync-halt` (on the profile volume, survives
   restarts) to re-enable sync after investigating.
 
-**File: [`CHANGELOG.md`](../CHANGELOG.md)**
+**File: [`CHANGELOG.md`](../../CHANGELOG.md)**
 
 Add under `## [Unreleased]` → `### Fixed`, using the repository's real
 issue-URL convention as used in 0.2.1
@@ -674,10 +674,10 @@ issue-URL convention as used in 0.2.1
   conditional context** (`set -e`-safe).
 - Config wired: `entrypoint-combined.sh`, `.env.example`, `src/config.ts`
   (schema + env map + error list), `tests/config.test.ts`.
-- Shell tests updated: [`tests/test-check-sync-errors.sh`](../tests/test-check-sync-errors.sh)
+- Shell tests updated: [`tests/test-check-sync-errors.sh`](../../tests/test-check-sync-errors.sh)
   (duplicated `check_sync_errors` copy updated in lockstep; new functions
   duplicated; `joplin` stub for breaker tests) and
-  [`tests/test-sync-failure-diagnostics.sh`](../tests/test-sync-failure-diagnostics.sh).
+  [`tests/test-sync-failure-diagnostics.sh`](../../tests/test-sync-failure-diagnostics.sh).
 - Exports at lines 322–323 and their comment (lines 317–321) include the
   new variables and functions.
 - M1 test scaffolding de-staled (header comment, TODO removal); safe-behavior

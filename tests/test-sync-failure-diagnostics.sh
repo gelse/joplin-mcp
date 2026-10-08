@@ -91,14 +91,14 @@ run_test "flock wraps all joplin sync call sites (>=3 occurrences)" 0 \
     bash -c 'count=$(grep -c "flock.*SYNC_LOCK_FILE.*joplin sync\|flock.*SYNC_LOCK_FILE.*-c.*joplin sync" "$1"); [ "${count}" -ge 3 ]' _ "${ENTRYPOINT}"
 
 # --- Test 10: Halt marker gate exists in periodic loop ---
-# The gate's log line is `... exists — refusing to sync (see ${SYNC_HALT_MARKER})`,
-# i.e. the expanded path precedes the literal variable token, so a same-line
-# `SYNC_HALT_MARKER.*refusing` pattern can never match.  Assert the actual
-# loop-gate mechanism instead: the marker check is immediately followed by the
-# sleep+continue that keeps the loop alive (an ordering-independent check on
-# line content would also match the initial-sync gate, which has no `continue`).
+# D4 refactor: both halt gates now delegate to the shared tag-aware refusal
+# helper (log_halt_marker_refusal), so the gate no longer carries the literal
+# "Sync halt marker exists" text. Assert the loop-gate mechanism instead: the
+# refusal helper call is immediately followed by the sleep+continue that keeps
+# the loop alive (an ordering-independent check would also match the
+# initial-sync gate, which has no `continue`).
 run_test "Halt marker gate exists in periodic loop" 0 \
-    bash -c 'grep -A5 "Sync halt marker exists" "$1" | grep -q "continue"' _ "${ENTRYPOINT}"
+    bash -c 'grep -A5 "log_halt_marker_refusal" "$1" | grep -q "continue"' _ "${ENTRYPOINT}"
 
 # --- Test 11: No kill of sync loop tied to destructive detection ---
 # The sync loop must NOT be killed on detection; it should sleep+continue
