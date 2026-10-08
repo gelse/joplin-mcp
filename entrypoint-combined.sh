@@ -887,7 +887,6 @@ if [ "${START_PERIODIC_LOOP}" = "1" ]; then
             # (tag-aware refusal — routes the operator to the issue named by the marker)
             if [ -f "${SYNC_HALT_MARKER}" ]; then
                 log_halt_marker_refusal
-                sleep "${SYNC_INTERVAL_SECONDS}"
                 continue
             fi
 

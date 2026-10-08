@@ -137,14 +137,16 @@ assert_eq "Hardcoded '#27' refusal remains only as the helper fallback" "1" "${G
 # Fail-safe default is intact: halt-gated startup must not abort under set -u.
 assert_file_contains "START_PERIODIC_LOOP fail-safe default intact" "${ENTRYPOINT}" ': "${START_PERIODIC_LOOP:=0}"'
 
-# Loop-gate mechanism preserved: refusal call is followed by sleep+continue
-# (the refusal helper must never turn the alive-loop into an exit).
+# Loop-gate mechanism preserved: refusal call is followed by `continue`
+# (the refusal helper must never turn the alive-loop into an exit; M12
+# removed the gate's second sleep, so `continue` returns to the single
+# top-of-loop sleep).
 grep -A5 "log_halt_marker_refusal" "${ENTRYPOINT}" | grep -q "continue"
 if [ $? -eq 0 ]; then
-    echo "PASS: Loop gate still sleep+continues after the refusal (alive-loop intact)"
+    echo "PASS: Loop gate still continues after the refusal (alive-loop intact)"
     PASS_COUNT=$((PASS_COUNT + 1))
 else
-    echo "FAIL: Loop gate lost its sleep+continue after the refusal"
+    echo "FAIL: Loop gate lost its continue after the refusal"
     FAIL_COUNT=$((FAIL_COUNT + 1))
 fi
 
