@@ -88,7 +88,7 @@ This prune is the closing step of the 2026-10-07/08 backlog triage. The batch
 wrote the M13 and M14 plan files for the F2/F3 survivors; filed M2-T3 and
 M2-T4 under `plans/_finished/` with dated provenance notes (M2-T4's note also
 carries the E6 discharge and the Q15 residual); added a status banner to
-`docs/code-review-testing-2026-09-21.md` (nine findings; S6 open = M12);
+`docs/code-review-testing-2026-09-21.md` (nine findings; S6 fixed 2026-10-08 = M12);
 updated the README's plan-path references to the `plans/_finished/` paths; and
 pruned this file to live work plus one-line closed dispositions.
 
