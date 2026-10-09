@@ -103,13 +103,25 @@ run_test "Halt marker gate exists in periodic loop" 0 \
 # --- Test 10b: M12 — no second sleep in the halt gate ---
 # The loop body sleeps once at the top of every iteration; the gate must log
 # the refusal and `continue` back to that sleep without sleeping again
-# (the M12 double-sleep defect). Any `sleep` within five lines after a
-# refusal call would reintroduce it — expect none (grep exits 1).
-run_test "Halt gate refuses and continues without a second sleep (M12)" 1 \
-    bash -c 'grep -A5 "log_halt_marker_refusal" "$1" | grep -q "sleep"' _ "${ENTRYPOINT}"
+# (the M12 double-sleep defect). Anchor on the gate's own indented
+# `if [ -f "${SYNC_HALT_MARKER}" ]; then ... fi` block — not on the refusal
+# helper call — so the assertion covers the whole branch body and cannot
+# pass vacuously: a `sleep` anywhere inside the gate flips it red, and if
+# the gate block vanishes, or the refusal call is renamed/removed out of
+# it, the existence/shape checks fail loudly instead of tripping the
+# no-sleep probe on an empty match.
+run_test "Halt gate refuses and continues without a second sleep (M12)" 0 \
+    bash -c '
+        gates=$(sed -n "/^[[:space:]]\{1,\}if \\[ -f \"\${SYNC_HALT_MARKER\}\" \\]; then\$/,/^[[:space:]]*fi[[:space:]]*\$/p" "$1")
+        [ -n "${gates}" ] || exit 1                                                          # gate block must exist
+        echo "${gates}" | grep -Eq "^[[:space:]]*log_halt_marker_refusal[[:space:]]*\$" || exit 1  # refusal call in the gate
+        echo "${gates}" | grep -Eq "^[[:space:]]*continue[[:space:]]*\$" || exit 1                 # gate continues (periodic loop gate)
+        ! echo "${gates}" | grep -q "sleep"                                                  # and never sleeps (M12)
+    ' _ "${ENTRYPOINT}"
 
 # --- Test 11: No kill of sync loop tied to destructive detection ---
-# The sync loop must NOT be killed on detection; it should sleep+continue
+# The sync loop must NOT be killed on detection; the gate logs the refusal
+# and `continue`s back to the top-of-loop sleep
 run_test "No kill -TERM on sync loop for destructive detection" 1 \
     grep -q 'kill.*SYNC_LOOP.*DANGEROUS\|kill.*SYNC_LOOP.*danger\|kill.*SYNC_LOOP.*halt' "${ENTRYPOINT}"
 
