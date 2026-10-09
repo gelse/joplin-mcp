@@ -101,12 +101,12 @@ runs in the HEALTHCHECK with a 5 s `busy_timeout` and a 10 s
 
 ### Interaction with M12 (periodic halt-gate double sleep)
 
-Out of scope for M13. M12's defect lives at
+Out of scope for M13. M12's defect lived at
 [`entrypoint-combined.sh:888-892`](../entrypoint-combined.sh:888) (gate) and
 the inner sleep at `:890`; M13 inserts after `:933`, well below the gate.
-M12's fix, when it lands, will shorten the wait between gate refusal and
-the loop's `continue` — it does not change M13's call cadence or its
-post-probe control flow.
+M12's fix landed 2026-10-08 (plan filed under `plans/_finished/`): it
+shortened the wait between gate refusal and the loop's `continue` — it
+does not change M13's call cadence or its post-probe control flow.
 
 ## Acceptance Criteria
 
@@ -171,8 +171,8 @@ post-probe control flow.
 ## Non-goals
 
 - No fix to the M12 defect (the periodic halt-gate double sleep). M13
-  inserts below the gate; the two are independent. M12 stays in
-  `plans/` until its own milestone lands.
+  inserts below the gate; the two are independent. M12 was filed under
+  `plans/_finished/` when its fix landed 2026-10-08.
 - No change to the probe JS in
   [`check_e2ee_state`](../entrypoint-combined.sh:280). The
   triple-lockstep rule (entrypoint:280-298, M2-T1 verification at
@@ -199,5 +199,5 @@ post-probe control flow.
   debt is cleared: M12's entrypoint line cites were re-derived and
   refreshed on 2026-10-08 (this triage) and now match the tree
   (`:884`, `:888-892`, `:890`, `:862-940`, `:590-594`, plus
-  `tests/test-sync-failure-diagnostics.sh:93-101`). The drift finding
+  `tests/test-sync-failure-diagnostics.sh:93-116`). The drift finding
   is discharged; M13 cites the same current line numbers.
