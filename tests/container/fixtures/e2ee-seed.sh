@@ -24,6 +24,28 @@ log() { echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] [seed] $*" >&2; }
 NOTEBOOK_TITLE="EncryptedNotebook"
 NOTE_TITLE="EncryptedNote"
 
+# ---------------------------------------------------------------------------
+# Phase-2 resync fixtures (issue #29 decrypt-on-resync repro).
+#
+# When E2EE_RESYNC_NOTEBOOK_TITLE + E2EE_RESYNC_NOTE_TITLE are BOTH set, an
+# ADDITIONAL notebook+note pair is created (in this same E2EE-enabled profile,
+# so it syncs to the server as ciphertext exactly like the base fixture) and
+# recorded in .e2ee-resync-marker.json on this volume. The runner invokes the
+# seeder a SECOND time with these vars AFTER joplin-mcp has booted and
+# decrypted the base fixture — so the pair can only reach joplin-mcp via the
+# PERIODIC sync loop, which is precisely the path that (pre-fix) never
+# decrypts. With the vars unset the whole block is a no-op and phase-1
+# behavior is byte-identical.
+#
+# Anti-vacuous: the pair is only trusted as "encrypted at the source" after
+# the same throwaway keyless-profile verification as the base fixture proves
+# the ciphertext is on the server; the marker is written ONLY after that
+# proof. Without it, a silently unencrypted phase-2 fixture would arrive
+# already plaintext and the resync repro would pass vacuously.
+# ---------------------------------------------------------------------------
+E2EE_RESYNC_NOTEBOOK_TITLE="${E2EE_RESYNC_NOTEBOOK_TITLE:-}"
+E2EE_RESYNC_NOTE_TITLE="${E2EE_RESYNC_NOTE_TITLE:-}"
+
 # Throwaway profile used only for the post-sync verification below. It is
 # deliberately created WITHOUT a master password, so items sync down exactly
 # as the server stores them (still encrypted). The seeder's own profile is
@@ -190,6 +212,100 @@ cat > "${MARKER_DIR}/.e2ee-seed-marker.json" <<EOF
 }
 EOF
 log "Marker written: ${MARKER_DIR}/.e2ee-seed-marker.json (encrypted=${ENCRYPTED})"
+
+# ---------------------------------------------------------------------------
+# Phase 2: resync fixtures (see header comment). Runs only when both env vars
+# are set. Mirror of the base flow: create at the E2EE-enabled source client,
+# push, verify ciphertext on the server via a fresh keyless profile, then —
+# and only then — write the marker.
+# ---------------------------------------------------------------------------
+if [ -n "${E2EE_RESYNC_NOTEBOOK_TITLE}" ] && [ -n "${E2EE_RESYNC_NOTE_TITLE}" ]; then
+  log "Phase 2: creating resync fixtures: notebook '${E2EE_RESYNC_NOTEBOOK_TITLE}', note '${E2EE_RESYNC_NOTE_TITLE}'"
+
+  ROOT_JSON=$(joplin ls / -f json) || { log "Phase 2: could not list notebooks — aborting"; exit 1; }
+  RESYNC_NB_ID=$(printf '%s' "${ROOT_JSON}" | json_item_field title "${E2EE_RESYNC_NOTEBOOK_TITLE}" id) || RESYNC_NB_ID=""
+  if [ -z "${RESYNC_NB_ID}" ]; then
+    log "Phase 2: creating notebook: ${E2EE_RESYNC_NOTEBOOK_TITLE}"
+    joplin mkbook "${E2EE_RESYNC_NOTEBOOK_TITLE}"
+    ROOT_JSON=$(joplin ls / -f json)
+    RESYNC_NB_ID=$(printf '%s' "${ROOT_JSON}" | json_item_field title "${E2EE_RESYNC_NOTEBOOK_TITLE}" id) || {
+      log "Phase 2: could not resolve created notebook id — aborting"; exit 1; }
+  else
+    log "Phase 2: resync notebook already exists: id=${RESYNC_NB_ID}"
+  fi
+
+  joplin use "${RESYNC_NB_ID}" || { log "Phase 2: could not select resync notebook — aborting"; exit 1; }
+  NOTES_JSON=$(joplin ls -f json) || { log "Phase 2: could not list notes — aborting"; exit 1; }
+  RESYNC_NOTE_ID=$(printf '%s' "${NOTES_JSON}" | json_item_field title "${E2EE_RESYNC_NOTE_TITLE}" id) || RESYNC_NOTE_ID=""
+  if [ -z "${RESYNC_NOTE_ID}" ]; then
+    log "Phase 2: creating note: ${E2EE_RESYNC_NOTE_TITLE}"
+    joplin mknote "${E2EE_RESYNC_NOTE_TITLE}"
+    NOTES_JSON=$(joplin ls -f json)
+    RESYNC_NOTE_ID=$(printf '%s' "${NOTES_JSON}" | json_item_field title "${E2EE_RESYNC_NOTE_TITLE}" id) || {
+      log "Phase 2: could not resolve created note id — aborting"; exit 1; }
+  else
+    log "Phase 2: resync note already exists: id=${RESYNC_NOTE_ID}"
+  fi
+  joplin set "${RESYNC_NOTE_ID}" body "secret-content-${E2EE_RESYNC_NOTE_TITLE}"
+
+  log "Phase 2: settling 2s, then syncing to push ciphertext to server"
+  sleep 2
+  joplin sync || { log "Phase 2: seed sync failed — aborting"; exit 1; }
+
+  # Fresh throwaway keyless profile: proves the PHASE-2 ciphertext is on the
+  # server (same mechanism and rate-limit handling as the base verification).
+  log "Phase 2: verifying ciphertext reached the server (throwaway keyless profile)"
+  rm -rf "${VERIFY_HOME}"
+  mkdir -p "${VERIFY_HOME}"
+  HOME="${VERIFY_HOME}" joplin config sync.target 10 >/dev/null
+  HOME="${VERIFY_HOME}" joplin config "sync.10.path" "${JOPLIN_SERVER_URL}" >/dev/null
+  HOME="${VERIFY_HOME}" joplin config "sync.10.username" "${JOPLIN_USERNAME}" >/dev/null
+  HOME="${VERIFY_HOME}" joplin config "sync.10.password" "${JOPLIN_PASSWORD}" >/dev/null
+
+  RESYNC_ENCRYPTED="false"
+  R_NB_ENC=""
+  R_NOTE_ENC=""
+  for attempt in $(seq 1 "${VERIFY_ATTEMPTS}"); do
+    if R_SYNC_OUT=$(HOME="${VERIFY_HOME}" joplin sync 2>&1); then
+      V_ROOT_JSON=$(HOME="${VERIFY_HOME}" joplin ls / -f json 2>/dev/null) || V_ROOT_JSON=""
+      R_NB_ENC=$(printf '%s' "${V_ROOT_JSON}" | json_item_field id "${RESYNC_NB_ID}" encryption_applied) || R_NB_ENC=""
+      HOME="${VERIFY_HOME}" joplin use "${RESYNC_NB_ID}" >/dev/null 2>&1 || true
+      V_NOTES_JSON=$(HOME="${VERIFY_HOME}" joplin ls -f json 2>/dev/null) || V_NOTES_JSON=""
+      R_NOTE_ENC=$(printf '%s' "${V_NOTES_JSON}" | json_item_field id "${RESYNC_NOTE_ID}" encryption_applied) || R_NOTE_ENC=""
+      if [ "${R_NB_ENC}" = "1" ] && [ "${R_NOTE_ENC}" = "1" ]; then
+        RESYNC_ENCRYPTED="true"
+        break
+      fi
+      log "Phase 2 attempt ${attempt}/${VERIFY_ATTEMPTS}: fixtures not yet encrypted on server (notebook enc='${R_NB_ENC:-none}' note enc='${R_NOTE_ENC:-none}')"
+      sleep 2
+    else
+      RETRY_IN=$(printf '%s' "${R_SYNC_OUT}" | grep -oE 'try again in [0-9]+ seconds' | grep -oE '[0-9]+' | head -1)
+      WAIT_SEC=$(( ${RETRY_IN:-5} + 2 ))
+      log "Phase 2 verify sync attempt ${attempt}/${VERIFY_ATTEMPTS} failed: $(printf '%s' "${R_SYNC_OUT}" | tr '\n' ' ' | tail -c 300); retrying in ${WAIT_SEC}s"
+      sleep "${WAIT_SEC}"
+    fi
+  done
+
+  if [ "${RESYNC_ENCRYPTED}" != "true" ]; then
+    log "ERROR: phase-2 fixtures are NOT encrypted on the server after ${VERIFY_ATTEMPTS} attempts (notebook enc='${R_NB_ENC:-none}', note enc='${R_NOTE_ENC:-none}')"
+    log "ERROR: refusing to write a passing resync marker — aborting"
+    exit 1
+  fi
+  log "Phase 2 verified encrypted on server: notebook enc=1, note enc=1"
+
+  cat > "${MARKER_DIR}/.e2ee-resync-marker.json" <<EOF
+{
+  "notebook_title": "${E2EE_RESYNC_NOTEBOOK_TITLE}",
+  "notebook_id": "${RESYNC_NB_ID}",
+  "note_title": "${E2EE_RESYNC_NOTE_TITLE}",
+  "note_id": "${RESYNC_NOTE_ID}",
+  "note_body": "secret-content-${E2EE_RESYNC_NOTE_TITLE}",
+  "encrypted": ${RESYNC_ENCRYPTED},
+  "seeded_at": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+}
+EOF
+  log "Phase 2 marker written: ${MARKER_DIR}/.e2ee-resync-marker.json (encrypted=${RESYNC_ENCRYPTED})"
+fi
 
 log "Seed complete; exiting 0"
 exit 0

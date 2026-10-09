@@ -326,6 +326,161 @@ const db = new s.Database(process.env.JOPLIN_DB_PATH, s.OPEN_READONLY, (err) => 
     esac
 }
 
+# ----- periodic-E2EE block begin: post-sync decrypt for the loop body (extracted verbatim by tests/test-periodic-e2ee-decrypt.sh) -----
+# -----------------------------------------------------------------------------
+# Periodic-path post-sync E2EE decrypt (issue #29 comment 6072403277)
+# -----------------------------------------------------------------------------
+# The boot path decrypts in the M2-T1 block below, but notes added remotely
+# AFTER boot reach this container only through a PERIODIC sync — and the loop
+# body never decrypted, so such notes stayed encrypted until the operator ran
+# `joplin e2ee decrypt` by hand. This helper is the loop-side counterpart of
+# the M2-T1 block: same gating (JOPLIN_MASTER_PASSWORD), same master-key
+# preflight, same flock-serialized `joplin e2ee decrypt --force`, same
+# 4×5 s bounded retry, same SQLite verification gate.
+#
+# Deliberate differences from the boot block (do NOT unify them away):
+#   - NEVER writes the halt marker and NEVER touches START_PERIODIC_LOOP.
+#     Halt-on-E2EE-failure in the loop is M13's detect-and-halt scope
+#     (plans/M13-periodic-e2ee-state-check.md); a transient decrypt failure
+#     here must only be logged — the next periodic sync retries naturally.
+#   - Failures use log_sync FAIL/SKIP (never ABORT) and return nonzero for
+#     the decrypt/verify failures; the loop body ignores the exit code.
+#
+# Runtime context — the function executes inside the `setsid bash -c` loop
+# child, so:
+#   - it MUST be listed in the `export -f` line below,
+#   - it must not reference non-exported variables (JOPLIN_PROFILE_DIR
+#     therefore gets the same `:-` default as check_e2ee_state above),
+#   - decrypt output goes to the dedicated e2ee-decrypt-*.log files, NOT to
+#     sync-stdout/stderr.log: the NEXT cycle's check_sync_errors greps those
+#     files in full, so stale decrypt stderr there would false-FAIL a later
+#     clean sync (decrypt runs after those checks in the same cycle, and the
+#     next cycle's log.txt tail offset already excludes this cycle's lines).
+#
+# LOCKSTEP: the probe JS below duplicates the M2-T1 block's master-key probe
+# (E2EE_MK_PROBE_SCRIPT) and its verification gate (E2EE_VERIFY_SCRIPT),
+# which in turn duplicate check_e2ee_state and Dockerfile.combined's
+# HEALTHCHECK probe (same SQL: syncInfoCache masterKeys count; rows with
+# non-empty encryption_cipher_text). Deliberate duplication — the M2-T1
+# block is extracted VERBATIM by tests/test-e2ee-master-key-preflight.sh and
+# must not gain external dependencies. Update all copies in the same commit.
+# The JS must stay free of single quotes: it is assigned via single-quoted
+# shell strings.
+# -----------------------------------------------------------------------------
+run_periodic_e2ee_decrypt() {
+    # Risk #1 guard (same as the boot block): no master password configured ⇒
+    # E2EE was never enabled here; neither the probes nor the decrypt retry
+    # budget may be spent on such deployments.
+    if [ -z "${JOPLIN_MASTER_PASSWORD:-}" ]; then
+        return 0
+    fi
+
+    # D3 preflight (same rationale as the boot block): zero master keys after
+    # the sync means every decrypt attempt deterministically fails
+    # ("cannot start because no master key is currently loaded"), so a doomed
+    # 4×5 s retry is skipped instead of burned. NOT a halt: E2EE may be
+    # (re)enabled on the server later; the next periodic sync re-checks.
+    local periodic_mk_probe_script='const s = require("/usr/local/lib/node_modules/joplin/node_modules/sqlite3").verbose();
+const db = new s.Database(process.env.JOPLIN_DB_PATH, s.OPEN_READONLY, (err) => {
+  if (err) { console.error(err.message); process.exit(1); }
+  db.run("PRAGMA busy_timeout = 10000", (pe) => {
+    if (pe) { console.error(pe.message); process.exit(1); }
+    db.get("SELECT value FROM settings WHERE key = ?", ["syncInfoCache"], (e, row) => {
+      if (e) { console.error(e.message); process.exit(1); }
+      if (!row) { console.log(0); db.close(); return; }
+      let syncInfo = null;
+      try {
+        syncInfo = JSON.parse(row.value);
+      } catch (e2) {
+        console.error(e2.message);
+        process.exit(1);
+      }
+      const masterKeys = (syncInfo && Array.isArray(syncInfo.masterKeys)) ? syncInfo.masterKeys : [];
+      console.log(masterKeys.length);
+      db.close();
+    });
+  });
+});'
+    local master_key_count
+    master_key_count=$(JOPLIN_DB_PATH="${JOPLIN_PROFILE_DIR:-/home/joplin/.config/joplin}/database.sqlite" node -e "${periodic_mk_probe_script}" 2>>"${LOG_DIR}/e2ee-decrypt-stderr.log") || master_key_count=""
+    case "${master_key_count}" in
+        0)
+            log_sync "SKIP" "Periodic E2EE decrypt skipped: no master key is present after the sync (E2EE disabled on the server?) — decrypt cannot succeed; retrying on the next periodic sync (issue #29)"
+            return 0
+            ;;
+        ''|*[!0-9]*)
+            log "WARN" "Periodic E2EE master-key preflight probe failed or returned a non-integer — cannot confirm master-key presence; proceeding with the bounded decrypt retry (downstream verification remains fail-closed) (issue #29)"
+            ;;
+        *)
+            log "INFO" "Periodic E2EE master-key preflight passed: ${master_key_count} master key(s) present"
+            ;;
+    esac
+
+    local decrypt_max_attempts=4
+    local decrypt_backoff_s=5
+    local decrypt_exit=1
+    local dc
+    for dc in $(seq 1 "${decrypt_max_attempts}"); do
+        log "INFO" "Running periodic post-sync E2EE decrypt (attempt ${dc}/${decrypt_max_attempts})…"
+        # --force mirrors the boot block (F1b): without it a non-interactive
+        # prompt failure would exit 0 — a false pass the retry loop cannot
+        # distinguish from success.
+        if flock -w 120 "${SYNC_LOCK_FILE}" -c 'joplin e2ee decrypt --force' \
+            > "${LOG_DIR}/e2ee-decrypt-stdout.log" 2> "${LOG_DIR}/e2ee-decrypt-stderr.log"; then
+            decrypt_exit=0
+            break
+        fi
+        local stderr_summary
+        stderr_summary="$(decrypt_stderr_summary)"
+        log "WARN" "Periodic joplin e2ee decrypt attempt ${dc} failed — backing off ${decrypt_backoff_s}s (last stderr: ${stderr_summary:-(none)})"
+        sleep "${decrypt_backoff_s}"
+    done
+
+    if [ "${decrypt_exit}" -ne 0 ]; then
+        log_sync "FAIL" "Periodic E2EE decrypt failed after ${decrypt_max_attempts} attempts — items synced this cycle may remain encrypted; continuing the loop, will retry on the next periodic sync (issue #29)"
+        return 1
+    fi
+
+    # Verification gate (same SQLite count as the boot block / check_e2ee_state):
+    # a partially completed decrypt exits 0 and can only be caught here.
+    local periodic_verify_script='const s = require("/usr/local/lib/node_modules/joplin/node_modules/sqlite3").verbose();
+const db = new s.Database(process.env.JOPLIN_DB_PATH, s.OPEN_READONLY, (err) => {
+  if (err) { console.error(err.message); process.exit(1); }
+  db.run("PRAGMA busy_timeout = 10000", (pe) => {
+    if (pe) { console.error(pe.message); process.exit(1); }
+    const sql = "SELECT " +
+      "(SELECT count(*) FROM notes WHERE length(encryption_cipher_text) > 0) + " +
+      "(SELECT count(*) FROM folders WHERE length(encryption_cipher_text) > 0) + " +
+      "(SELECT count(*) FROM resources WHERE length(encryption_cipher_text) > 0) + " +
+      "(SELECT count(*) FROM tags WHERE length(encryption_cipher_text) > 0) + " +
+      "(SELECT count(*) FROM note_tags WHERE length(encryption_cipher_text) > 0) + " +
+      "(SELECT count(*) FROM revisions WHERE length(encryption_cipher_text) > 0) AS n";
+    db.get(sql, (e, row) => {
+      if (e) { console.error(e.message); process.exit(1); }
+      console.log(row.n);
+      db.close();
+    });
+  });
+});'
+    local remaining_enc
+    remaining_enc=$(JOPLIN_DB_PATH="${JOPLIN_PROFILE_DIR:-/home/joplin/.config/joplin}/database.sqlite" node -e "${periodic_verify_script}" 2>>"${LOG_DIR}/e2ee-decrypt-stderr.log") || remaining_enc=""
+    case "${remaining_enc}" in
+        0)
+            log_sync "PASS" "Periodic E2EE decrypt complete; 0 encrypted items remaining"
+            return 0
+            ;;
+        ''|*[!0-9]*)
+            log_sync "FAIL" "Periodic E2EE verification failed: encrypted-item count probe failed or returned a non-integer — items may remain encrypted; continuing the loop, will retry on the next periodic sync (issue #29)"
+            return 1
+            ;;
+        *)
+            log_sync "FAIL" "Periodic E2EE verification failed: ${remaining_enc} item(s) still encrypted after decrypt — continuing the loop, will retry on the next periodic sync (issue #29)"
+            return 1
+            ;;
+    esac
+}
+# ----- periodic-E2EE block end -----
+
 # -----------------------------------------------------------------------------
 # Post-sync deletion circuit-breaker
 # Return-code contract: 0 = check passed, 1 = check skipped (WARN), 2 = breaker tripped
@@ -865,15 +1020,20 @@ fi  # end of halt gate else block
 # `bash -c` children do not inherit shell functions or non-exported variables,
 # so we must export everything the loop body references:
 #   - variables: SYNC_INTERVAL_SECONDS, LOG_DIR, LOG_FILE, SYNC_LOG_FILE, JOPLIN_LOG_FILE,
-#     SYNC_HALT_MARKER, SYNC_LOCK_FILE, SYNC_MAX_DELETE_COUNT
+#     SYNC_HALT_MARKER, SYNC_LOCK_FILE, SYNC_MAX_DELETE_COUNT, JOPLIN_MASTER_PASSWORD
+#     (the loop body's post-sync decrypt step — run_periodic_e2ee_decrypt —
+#     gates on it; the entrypoint itself only ever reads it from the
+#     environment, so exporting it here covers the plain-shell-var case)
 #   - functions: log, log_sync, halt_marker_tag, halt_marker_issue,
 #     log_halt_marker_refusal, halt_marker_issue_note, check_sync_errors,
 #     check_sync_danger, get_sync_item_count, check_deletion_circuit_breaker,
 #     check_e2ee_state (M2-T3; not yet called by the loop body — exported so
-#     a future periodic call works, per M2-T3 Risk 5 / backlog F2)
+#     the future M13 detect-and-halt call works, per M2-T3 Risk 5 / backlog F2),
+#     decrypt_stderr_summary + run_periodic_e2ee_decrypt (the loop body's
+#     post-sync E2EE decrypt step, issue #29 comment 6072403277)
 # Note: JOPLIN_PROFILE_DIR is intentionally not exported — JOPLIN_LOG_FILE is fully resolved at declaration time.
-export SYNC_INTERVAL_SECONDS LOG_DIR LOG_FILE SYNC_LOG_FILE JOPLIN_LOG_FILE SYNC_HALT_MARKER SYNC_LOCK_FILE SYNC_MAX_DELETE_COUNT
-export -f log log_sync halt_marker_tag halt_marker_issue log_halt_marker_refusal halt_marker_issue_note check_sync_errors check_sync_danger get_sync_item_count check_deletion_circuit_breaker check_e2ee_state
+export SYNC_INTERVAL_SECONDS LOG_DIR LOG_FILE SYNC_LOG_FILE JOPLIN_LOG_FILE SYNC_HALT_MARKER SYNC_LOCK_FILE SYNC_MAX_DELETE_COUNT JOPLIN_MASTER_PASSWORD
+export -f log log_sync halt_marker_tag halt_marker_issue log_halt_marker_refusal halt_marker_issue_note check_sync_errors check_sync_danger get_sync_item_count check_deletion_circuit_breaker check_e2ee_state decrypt_stderr_summary run_periodic_e2ee_decrypt
 # Fail-safe default: when the halt marker is present the else block above never
 # assigns START_PERIODIC_LOOP, and `set -u` would abort the entrypoint here —
 # before MCP/Data API start.  Default to 0 (do not start the loop).
@@ -924,6 +1084,16 @@ if [ "${START_PERIODIC_LOOP}" = "1" ]; then
                     fi
                 else
                     log_sync "PASS" "Periodic sync completed successfully"
+                    # Post-sync E2EE decrypt on EVERY sync (issue #29 comment
+                    # 6072403277): remotely added items arrive through THIS
+                    # loop; without a decrypt step here they stay encrypted
+                    # until the operator intervenes. The helper is gated on
+                    # JOPLIN_MASTER_PASSWORD internally (no cost for non-E2EE
+                    # deployments) and logs failures without halting — halt
+                    # semantics in the loop are the M13 detect-and-halt scope.
+                    # NOTE: no apostrophes in comments here — this body is a
+                    # single-quoted string, so quotes in it are syntax.
+                    run_periodic_e2ee_decrypt || true
                 fi
             fi
 

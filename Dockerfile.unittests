@@ -15,9 +15,11 @@ COPY tsconfig.json tsconfig.build.json vitest.config.ts ./
 COPY src/ src/
 COPY tests/ tests/
 # Copied only so the unit-suite structural tests can read these files at
-# runtime (tests/integration-runner-config.test.ts and
-# tests/docker-test-config.test.ts); they are NOT executed by the unit suite.
-COPY docker-compose.test.yml Makefile Dockerfile.unittests ./
+# runtime (tests/integration-runner-config.test.ts,
+# tests/docker-test-config.test.ts, and
+# tests/periodic-sync-e2ee-decrypt.test.ts, which pins the entrypoint's
+# periodic E2EE decrypt structure); they are NOT executed by the unit suite.
+COPY docker-compose.test.yml Makefile Dockerfile.unittests entrypoint-combined.sh ./
 COPY scripts/ scripts/
 
 RUN pnpm run build

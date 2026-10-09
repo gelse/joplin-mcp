@@ -15,7 +15,15 @@ services:
       # (`if [ -n "${JOPLIN_MASTER_PASSWORD:-}" ]`) on the no-master-password path,
       # exactly as before this file gained the line.
       - JOPLIN_MASTER_PASSWORD=${JOPLIN_MASTER_PASSWORD:-}
-      - SYNC_INTERVAL_SECONDS=9999
+      # Interpolated from the DEDICATED resync variable only (NOT the generic
+      # SYNC_INTERVAL_SECONDS): unset — the default path, including hosts that
+      # export SYNC_INTERVAL_SECONDS or carry a .env — yields the historical
+      # 9999 pin byte-identically, which the sqlite-busy repro's "periodic
+      # loop never fires" reasoning depends on. Only the E2EE decrypt-on-resync
+      # runner (scripts/run-integration-tests.sh, e2ee branch) sets
+      # E2EE_RESYNC_SYNC_INTERVAL so the recreated joplin-mcp's PERIODIC loop
+      # actually fires inside the test window.
+      - SYNC_INTERVAL_SECONDS=${E2EE_RESYNC_SYNC_INTERVAL:-9999}
       - LOG_LEVEL=warn
     volumes:
       - joplin_data:/home/joplin/.config/joplin
