@@ -94,11 +94,19 @@ run_test "flock wraps all joplin sync call sites (>=3 occurrences)" 0 \
 # D4 refactor: both halt gates now delegate to the shared tag-aware refusal
 # helper (log_halt_marker_refusal), so the gate no longer carries the literal
 # "Sync halt marker exists" text. Assert the loop-gate mechanism instead: the
-# refusal helper call is immediately followed by the sleep+continue that keeps
+# refusal helper call is immediately followed by the `continue` that keeps
 # the loop alive (an ordering-independent check would also match the
 # initial-sync gate, which has no `continue`).
 run_test "Halt marker gate exists in periodic loop" 0 \
     bash -c 'grep -A5 "log_halt_marker_refusal" "$1" | grep -q "continue"' _ "${ENTRYPOINT}"
+
+# --- Test 10b: M12 — no second sleep in the halt gate ---
+# The loop body sleeps once at the top of every iteration; the gate must log
+# the refusal and `continue` back to that sleep without sleeping again
+# (the M12 double-sleep defect). Any `sleep` within five lines after a
+# refusal call would reintroduce it — expect none (grep exits 1).
+run_test "Halt gate refuses and continues without a second sleep (M12)" 1 \
+    bash -c 'grep -A5 "log_halt_marker_refusal" "$1" | grep -q "sleep"' _ "${ENTRYPOINT}"
 
 # --- Test 11: No kill of sync loop tied to destructive detection ---
 # The sync loop must NOT be killed on detection; it should sleep+continue

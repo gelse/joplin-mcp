@@ -9,15 +9,14 @@
 
 Short form: `M1-index` = `plans/_finished/M1-e2ee-encrypted-titles-repro-test.md`.
 
-**At a glance:** 3 live plans · 2 maintainer actions · 1 standing duty ·
-1 grouped dormant-conditionals row (Q10/Q11/Q12, never observed) · 34 closed
-lines — 33 closed IDs plus one G1–G12 aggregate line.
+**At a glance:** 2 live plans · 2 maintainer actions · 1 standing duty ·
+1 grouped dormant-conditionals row (Q10/Q11/Q12, never observed) · 35 closed
+lines — 34 closed IDs plus one G1–G12 aggregate line.
 
 ## 1. Live plans
 
 | ID | Item | State and what | Pointer |
 |----|------|----------------|---------|
-| M12 | Periodic halt-gate double sleep | **Open defect, unfixed.** The periodic sync loop sleeps at the top of every iteration (`entrypoint-combined.sh:884`), and the halt gate sleeps the same interval again before `continue` (`:890`) — a halted loop idles twice per cycle. Halt gate `:888-892`; the initial-sync counterpart (`:590-594`) does not double-sleep. Keep-alive: do not file this plan away until the double sleep is fixed. | `plans/M12-periodic-halt-gate-double-sleep.md` |
 | F2 → M13 | Periodic `check_e2ee_state()` in the sync loop | Deferred by M2-T3 Risk 5 (the delivered check runs once at boot, not periodically); now planned. Owner: unowned. | `plans/M13-periodic-e2ee-state-check.md` |
 | F3 → M14 | Node-side `/health/e2ee` endpoint | Deferred by both M2-T3 and M2-T4 (M2 excluded `src/`); would replace the shell-side SQLite probe with a real endpoint. Owner: unowned. | `plans/M14-node-health-e2ee-endpoint.md` |
 
@@ -48,6 +47,7 @@ One line per closed ID: subject — disposition — date — evidence. The full
 pre-prune text: `git show HEAD:plans/backlog.md`.
 
 - **§1 verdict (M2-T2 re-evaluation)** — DROP M2-T2 from the M2 critical path; ratified by the user 2026-10-03. Amendment `M1-index:202`; descope STATUS header `plans/_finished/M2-T2-server-start-reorder.md:13`; residual value → F6 (§2).
+- **M12** — periodic halt-gate double sleep — RESOLVED 2026-10-08 (deleted the redundant inner `sleep` in the periodic halt gate; a halted loop now idles one interval per cycle and the refusal message repeats once per `SYNC_INTERVAL_SECONDS`, not once per `2 ×`) — gate `entrypoint-combined.sh:888-891`; regression pin `tests/test-sync-failure-diagnostics.sh` Test 10b; plan filed `plans/_finished/M12-periodic-halt-gate-double-sleep.md` (keep-alive discharged).
 - **R1** — does `joplin server start` re-read the SQLite DB after out-of-process `e2ee decrypt`? — RESOLVED: YES (M2-T1 run, GREEN; R1/R6 answers backfilled into the plan files 2026-10-03) — decision rule + outcome `plans/_finished/M2-T1-initial-sync-decrypt-and-verify.md:158`.
 - **R2** — does `joplin config encryption.masterPassword` trigger the DecryptionWorker? — RESOLVED: NO (M2-T1 run) — answer lives as a code comment, `entrypoint-combined.sh:646-650`.
 - **R3** — does `joplin e2ee decrypt` read the config-set master password with no `-p` flag? — RESOLVED: YES (M2-T1 run) — code comment `entrypoint-combined.sh:653-656`.
