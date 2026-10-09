@@ -15,7 +15,15 @@ services:
       # (`if [ -n "${JOPLIN_MASTER_PASSWORD:-}" ]`) on the no-master-password path,
       # exactly as before this file gained the line.
       - JOPLIN_MASTER_PASSWORD=${JOPLIN_MASTER_PASSWORD:-}
-      - SYNC_INTERVAL_SECONDS=9999
+      # `${VAR:-default}` form (same pattern as the URL above): unset — the
+      # default path — yields the historical 9999 pin, under which the periodic
+      # loop effectively never fires. The E2EE decrypt-on-resync repro
+      # (scripts/run-integration-tests.sh, e2ee branch) exports a SHORT value
+      # before recreating joplin-mcp so the bug's real path — the PERIODIC
+      # loop pulling remotely added items — actually runs inside the test
+      # window. Only the recreated container sees the short value; the first
+      # `up -d joplin-mcp` at the top of the runner still gets 9999.
+      - SYNC_INTERVAL_SECONDS=${SYNC_INTERVAL_SECONDS:-9999}
       - LOG_LEVEL=warn
     volumes:
       - joplin_data:/home/joplin/.config/joplin

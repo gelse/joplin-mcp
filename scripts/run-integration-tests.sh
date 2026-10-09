@@ -120,15 +120,24 @@ if [ "${RUN_E2EE_REPRO_TESTS:-0}" -eq 1 ]; then
   # Ordering: joplin-mcp came up at the top of this script against the dummy
   # server and its one startup initial sync (entrypoint-combined.sh initial
   # `joplin sync`, before the MCP server starts) has already happened, with
-  # nothing to download. SYNC_INTERVAL_SECONDS=9999 means it will never
-  # re-sync on its own, so the seeded ciphertext would never arrive. Recreate
-  # it: `up` picks up the changed environment above and the fresh container
-  # performs a new startup initial sync against the now-seeded real server —
-  # the bug's download path. --no-deps because the seeder already ran to
-  # completion above (a dependency re-run here would double-seed and risks
-  # the server's per-IP login rate limit) and joplin-server health was
-  # already established by the explicit `up --wait joplin-server` above.
-  # A plain `restart` would NOT pick up the new environment.
+  # nothing to download. Recreate it: `up` picks up the changed environment
+  # above and the fresh container performs a new startup initial sync against
+  # the now-seeded real server — the bug's download path. --no-deps because
+  # the seeder already ran to completion above (a dependency re-run here would
+  # double-seed and risks the server's per-IP login rate limit) and
+  # joplin-server health was already established by the explicit
+  # `up --wait joplin-server` above. A plain `restart` would NOT pick up the
+  # new environment.
+  #
+  # The recreate also SHORTENS the periodic interval (compose interpolates
+  # SYNC_INTERVAL_SECONDS from this shell; unset above → the 9999 default):
+  # the decrypt-on-resync repro below needs the PERIODIC loop to actually fire
+  # inside the test window, and 9999 would pin it silent. E2EE_RESYNC_SYNC_INTERVAL
+  # is an opt-in override so the interval itself stays tunable; 20s keeps the
+  # whole resync scenario well inside the vitest polling budget. The first
+  # `up -d joplin-mcp` at the top of this script ran before this export and
+  # keeps 9999 — the short interval reaches only the recreated container.
+  export SYNC_INTERVAL_SECONDS="${E2EE_RESYNC_SYNC_INTERVAL:-20}"
   if [ "${E2EE_REPRO_EXIT}" -eq 0 ]; then
     echo "=== Recreating joplin-mcp against the seeded real server ==="
     docker compose -f "$COMPOSE_FILE" --profile e2ee-repro up -d --force-recreate --wait --no-deps joplin-mcp \
@@ -167,6 +176,47 @@ if [ "${RUN_E2EE_REPRO_TESTS:-0}" -eq 1 ]; then
       || E2EE_REPRO_EXIT=$?
     echo "=== E2EE repro exit code: ${E2EE_REPRO_EXIT} ==="
   fi
+
+  # Phase-2 seeding for the decrypt-on-resync repro (issue #29 comment
+  # 6072403277): joplin-mcp has now booted against the real server and
+  # decrypted the base fixture (the repro above proves it). Re-run the seeder
+  # with unique resync titles so a NEW encrypted notebook+note pair is created
+  # at the E2EE-enabled source client and pushed to the server AFTER boot —
+  # the pair can then only reach joplin-mcp via the PERIODIC sync loop, which
+  # is the exact path that never decrypted. The seeder refuses to write its
+  # passing marker unless the pair is verified encrypted on the server.
+  # Unique-per-run titles keep re-runs idempotent and make stale-marker
+  # false-passes impossible to confuse with this run's fixtures.
+  if [ "${E2EE_REPRO_EXIT}" -eq 0 ]; then
+    echo "=== Running phase-2 seeder (remote resync fixtures) ==="
+    E2EE_RESYNC_MARKER="resync-$(date +%s)-$RANDOM"
+    docker compose -f "$COMPOSE_FILE" --profile e2ee-repro run --rm \
+      -e "E2EE_RESYNC_NOTEBOOK_TITLE=ResyncNotebook-${E2EE_RESYNC_MARKER}" \
+      -e "E2EE_RESYNC_NOTE_TITLE=ResyncNote-${E2EE_RESYNC_MARKER}" \
+      joplin-e2ee-seed \
+      || { echo "ERROR: phase-2 seeder failed — aborting E2EE repro" >&2; E2EE_REPRO_EXIT=1; }
+  fi
+
+  if [ "${E2EE_REPRO_EXIT}" -eq 0 ]; then
+    echo "=== Running E2EE decrypt-on-resync repro (separate vitest invocation) ==="
+    # --no-deps is REQUIRED here: pre-fix, the encrypted items pulled by the
+    # periodic loop flip the container's E2EE-aware HEALTHCHECK (count of
+    # encrypted items > 0) to unhealthy — exactly the state under test. The
+    # test compose has no restart policy, so the container stays up and
+    # reachable; without --no-deps, `compose run` would block on the
+    # service_healthy dependency instead of letting the repro report the
+    # decrypt failure. RUN_E2EE_REPRO_TESTS gates the suite; the unique
+    # marker is cross-checked against the seeder's marker file inside the
+    # test (anti-stale-marker gate).
+    docker compose -f "$COMPOSE_FILE" run --no-deps --rm \
+      -e "RUN_E2EE_REPRO_TESTS=1" \
+      -e "E2EE_RESYNC_MARKER=${E2EE_RESYNC_MARKER:-}" \
+      test-runner \
+      pnpm vitest run --config vitest.config.container.ts \
+        tests/container/e2ee-decrypt-on-resync.test.ts \
+      || E2EE_REPRO_EXIT=$?
+    echo "=== E2EE resync repro exit code: ${E2EE_REPRO_EXIT} ==="
+  fi
 fi
 
 echo "=== Collecting logs ==="
@@ -203,9 +253,9 @@ fi
 
 if [ "${RUN_E2EE_REPRO_TESTS:-0}" -eq 1 ]; then
     if [ "$E2EE_REPRO_EXIT" -eq 0 ]; then
-        echo "E2EE encrypted-titles repro passed — M1 safe-behaviour verified (RED on current code; GREEN after M2)."
+        echo "E2EE repros passed — encrypted-titles (boot decrypt) and decrypt-on-resync (periodic decrypt) both verified."
     else
-        echo "E2EE encrypted-titles repro failed (exit code: ${E2EE_REPRO_EXIT})."
+        echo "E2EE repros failed (exit code: ${E2EE_REPRO_EXIT}) — see the per-repro exit codes above."
     fi
 fi
 
