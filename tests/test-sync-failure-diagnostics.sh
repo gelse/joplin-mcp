@@ -90,16 +90,6 @@ run_test "SYNC_LOCK_FILE is defined" 0 \
 run_test "flock wraps all joplin sync call sites (>=3 occurrences)" 0 \
     bash -c 'count=$(grep -c "flock.*SYNC_LOCK_FILE.*joplin sync\|flock.*SYNC_LOCK_FILE.*-c.*joplin sync" "$1"); [ "${count}" -ge 3 ]' _ "${ENTRYPOINT}"
 
-# --- Test 10: Halt marker gate exists in periodic loop ---
-# D4 refactor: both halt gates now delegate to the shared tag-aware refusal
-# helper (log_halt_marker_refusal), so the gate no longer carries the literal
-# "Sync halt marker exists" text. Assert the loop-gate mechanism instead: the
-# refusal helper call is immediately followed by the `continue` that keeps
-# the loop alive (an ordering-independent check would also match the
-# initial-sync gate, which has no `continue`).
-run_test "Halt marker gate exists in periodic loop" 0 \
-    bash -c 'grep -A5 "log_halt_marker_refusal" "$1" | grep -q "continue"' _ "${ENTRYPOINT}"
-
 # --- Test 10b: M12 — no second sleep in the halt gate ---
 # The loop body sleeps once at the top of every iteration; the gate must log
 # the refusal and `continue` back to that sleep without sleeping again
@@ -110,6 +100,12 @@ run_test "Halt marker gate exists in periodic loop" 0 \
 # the gate block vanishes, or the refusal call is renamed/removed out of
 # it, the existence/shape checks fail loudly instead of tripping the
 # no-sleep probe on an empty match.
+# Former Test 10 (D4: "halt marker gate exists in periodic loop") is folded
+# in here rather than kept as a separate continue-check: it pinned the
+# refusal-helper anchor with a substring `grep -A5 "log_halt_marker_refusal"
+# | grep -q "continue"`, which slides past a prefix-only rename that the
+# block-anchored assertions below catch — so the continue assertion lives
+# in this test.
 run_test "Halt gate refuses and continues without a second sleep (M12)" 0 \
     bash -c '
         gates=$(sed -n "/^[[:space:]]\{1,\}if \\[ -f \"\${SYNC_HALT_MARKER\}\" \\]; then\$/,/^[[:space:]]*fi[[:space:]]*\$/p" "$1")

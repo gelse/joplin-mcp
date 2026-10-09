@@ -199,5 +199,5 @@ does not change M13's call cadence or its post-probe control flow.
   debt is cleared: M12's entrypoint line cites were re-derived and
   refreshed on 2026-10-08 (this triage) and now match the tree
   (`:884`, `:888-892`, `:890`, `:862-940`, `:590-594`, plus
-  `tests/test-sync-failure-diagnostics.sh:93-101`). The drift finding
+  `tests/test-sync-failure-diagnostics.sh:93-116`). The drift finding
   is discharged; M13 cites the same current line numbers.
