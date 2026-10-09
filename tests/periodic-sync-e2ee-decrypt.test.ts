@@ -64,12 +64,17 @@ describe('periodic post-sync E2EE decrypt structure (issue #29 comment 607240327
 
   it('gates the helper on JOPLIN_MASTER_PASSWORD (non-E2EE deployments pay nothing)', () => {
     const block = periodicBlock();
-    const guardIdx = block.indexOf('if [ -z "${JOPLIN_MASTER_PASSWORD:-}" ]; then');
-    const firstProbeIdx = block.indexOf('syncInfoCache');
-    const firstDecryptIdx = block.indexOf('joplin e2ee decrypt --force');
-    expect(guardIdx).toBeGreaterThan(-1);
-    expect(firstProbeIdx).toBeGreaterThan(guardIdx);
-    expect(firstDecryptIdx).toBeGreaterThan(guardIdx);
+    // Line-based on real anchors: the block's header comment also mentions
+    // the decrypt command, so raw indexOf would match prose, not code.
+    const guardLine = lineOf(/if \[ -z "\$\{JOPLIN_MASTER_PASSWORD:-\}" \]; then/, block);
+    const probeLine = lineOf(/local periodic_mk_probe_script=/, block);
+    const decryptLine = lineOf(
+      /flock -w 120 "\$\{SYNC_LOCK_FILE\}" -c 'joplin e2ee decrypt --force'/,
+      block,
+    );
+    expect(guardLine).toBeGreaterThan(0);
+    expect(probeLine).toBeGreaterThan(guardLine);
+    expect(decryptLine).toBeGreaterThan(guardLine);
   });
 
   it('keeps the boot ordering inside the helper: master-key preflight before decrypt', () => {

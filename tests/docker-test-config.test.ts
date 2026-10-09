@@ -99,6 +99,7 @@ describe('docker unit test infrastructure config', () => {
     // tests/integration-runner-config.test.ts reads these repo-root-relative
     // paths at runtime — without them the unit suite fails in-container.
     expect(dockerfile).toMatch(/^COPY\s+.*docker-compose\.test\.yml/m);
+    expect(dockerfile).toMatch(/^COPY\s+.*entrypoint-combined\.sh/m);
     expect(dockerfile).toMatch(/^COPY scripts\/ scripts\//m);
     expect(dockerfile).toMatch(/^COPY tests\/ tests\//m);
     // This guard test itself reads the Makefile and the unit Dockerfile.
