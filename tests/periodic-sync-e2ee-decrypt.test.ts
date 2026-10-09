@@ -147,17 +147,22 @@ describe('periodic post-sync E2EE decrypt structure (issue #29 comment 607240327
 });
 
 describe('decrypt-on-resync harness structure (issue #29 reproduction)', () => {
-  it('compose interpolates SYNC_INTERVAL_SECONDS with the historical 9999 default', () => {
+  it('compose interpolates SYNC_INTERVAL_SECONDS from the dedicated resync variable only', () => {
     const compose = readFileSync(COMPOSE_FILE, 'utf-8');
-    expect(compose).toContain('SYNC_INTERVAL_SECONDS=${SYNC_INTERVAL_SECONDS:-9999}');
+    // The dedicated variable keeps the default path byte-identical under ANY
+    // host environment (a host-exported SYNC_INTERVAL_SECONDS or a .env must
+    // not leak in — the sqlite-busy repro relies on the 9999 pin).
+    expect(compose).toContain('SYNC_INTERVAL_SECONDS=${E2EE_RESYNC_SYNC_INTERVAL:-9999}');
+    expect(compose).not.toMatch(/^\s*- SYNC_INTERVAL_SECONDS=\$\{SYNC_INTERVAL_SECONDS/m);
+    expect(compose).not.toMatch(/^\s*- SYNC_INTERVAL_SECONDS=9999$/m);
   });
 
-  it('runner shortens the interval for the recreated joplin-mcp only', () => {
+  it('runner defaults the dedicated interval variable for the recreated joplin-mcp only', () => {
     const runner = readFileSync(RUNNER_SCRIPT, 'utf-8');
     // Overridable, short-by-default export, placed inside the e2ee branch
     // (after the first `up -d joplin-mcp`, before the --force-recreate).
-    expect(runner).toContain('export SYNC_INTERVAL_SECONDS="${E2EE_RESYNC_SYNC_INTERVAL:-20}"');
-    const exportLine = lineOf(/export SYNC_INTERVAL_SECONDS="\$\{E2EE_RESYNC_SYNC_INTERVAL:-20\}"/, runner);
+    expect(runner).toContain('export E2EE_RESYNC_SYNC_INTERVAL="${E2EE_RESYNC_SYNC_INTERVAL:-20}"');
+    const exportLine = lineOf(/export E2EE_RESYNC_SYNC_INTERVAL="\$\{E2EE_RESYNC_SYNC_INTERVAL:-20\}"/, runner);
     const recreateLine = lineOf(/up -d --force-recreate --wait --no-deps joplin-mcp/, runner);
     expect(exportLine).toBeGreaterThan(0);
     expect(recreateLine).toBeGreaterThan(exportLine);

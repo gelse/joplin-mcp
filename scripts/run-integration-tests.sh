@@ -129,15 +129,17 @@ if [ "${RUN_E2EE_REPRO_TESTS:-0}" -eq 1 ]; then
   # `up --wait joplin-server` above. A plain `restart` would NOT pick up the
   # new environment.
   #
-  # The recreate also SHORTENS the periodic interval (compose interpolates
-  # SYNC_INTERVAL_SECONDS from this shell; unset above → the 9999 default):
-  # the decrypt-on-resync repro below needs the PERIODIC loop to actually fire
-  # inside the test window, and 9999 would pin it silent. E2EE_RESYNC_SYNC_INTERVAL
-  # is an opt-in override so the interval itself stays tunable; 20s keeps the
-  # whole resync scenario well inside the vitest polling budget. The first
-  # `up -d joplin-mcp` at the top of this script ran before this export and
-  # keeps 9999 — the short interval reaches only the recreated container.
-  export SYNC_INTERVAL_SECONDS="${E2EE_RESYNC_SYNC_INTERVAL:-20}"
+  # The recreate also SHORTENS the periodic interval: docker-compose.test.yml
+  # interpolates SYNC_INTERVAL_SECONDS from the DEDICATED variable
+  # E2EE_RESYNC_SYNC_INTERVAL (never the generic one — a host-exported
+  # SYNC_INTERVAL_SECONDS or a .env must not leak into the default test path,
+  # whose 9999 pin the sqlite-busy repro relies on). The decrypt-on-resync
+  # repro needs the PERIODIC loop to actually fire inside the test window;
+  # 20s keeps the whole resync scenario well inside the vitest polling
+  # budget. The first `up -d joplin-mcp` at the top of this script ran before
+  # this export and keeps 9999 — the short interval reaches only the
+  # recreated container.
+  export E2EE_RESYNC_SYNC_INTERVAL="${E2EE_RESYNC_SYNC_INTERVAL:-20}"
   if [ "${E2EE_REPRO_EXIT}" -eq 0 ]; then
     echo "=== Recreating joplin-mcp against the seeded real server ==="
     docker compose -f "$COMPOSE_FILE" --profile e2ee-repro up -d --force-recreate --wait --no-deps joplin-mcp \
