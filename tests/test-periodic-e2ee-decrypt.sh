@@ -325,9 +325,14 @@ echo "=== Group 8: loop-body call-site pin ==="
 # The call must sit INSIDE the setsid loop string and AFTER the periodic
 # [SYNC_PASS] line (line-number ordering, drift-proof like Group 0 of
 # tests/test-e2ee-master-key-preflight.sh).
+# Anchor on the call INSIDE the loop string: since the issue #29 follow-up
+# the shared routine is ALSO invoked from the boot error branches and the
+# shutdown final sync, so the first match in the file is no longer the loop
+# call site. (Trailing-quote pattern: must match the setsid INVOCATION, not
+# the "setsid bash -c" prose in the helper header comment.)
+LOOP_START=$(grep -n "setsid bash -c '" "${ENTRYPOINT}" | head -1 | cut -d: -f1)
 PASS_LINE=$(grep -n 'log_sync "PASS" "Periodic sync completed successfully"' "${ENTRYPOINT}" | head -1 | cut -d: -f1)
-CALL_LINE=$(grep -n 'run_periodic_e2ee_decrypt || true' "${ENTRYPOINT}" | head -1 | cut -d: -f1)
-LOOP_START=$(grep -n 'setsid bash -c' "${ENTRYPOINT}" | head -1 | cut -d: -f1)
+CALL_LINE=$(grep -n 'run_periodic_e2ee_decrypt || true' "${ENTRYPOINT}" | awk -F: -v loop_start="${LOOP_START}" '$1 + 0 > loop_start + 0 {print $1; exit}')
 if [ -n "${PASS_LINE}" ] && [ -n "${CALL_LINE}" ] && [ "${PASS_LINE}" -lt "${CALL_LINE}" ]; then
     echo "PASS: Loop body calls the decrypt step after the periodic [SYNC_PASS] line"
     PASS_COUNT=$((PASS_COUNT + 1))

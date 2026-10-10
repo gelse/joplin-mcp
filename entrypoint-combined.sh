@@ -770,6 +770,13 @@ if [ "${SYNC_EXIT}" -ne 0 ]; then
         echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') [SYNC_ABORT] Destructive sync signature detected — sync halted. See issue #27." > "${SYNC_HALT_MARKER}"
         START_PERIODIC_LOOP=0
     fi
+    # Issue #29 (every sync is followed by a decrypt): even a FAILED initial
+    # sync may have pulled partial items that would otherwise stay encrypted,
+    # so the decrypt pass runs here too. The helper is the non-halting
+    # loop-side variant (failures are logged only); boot fail-closed decrypt
+    # semantics stay with the M2-T1 block in the success branch below.
+    # (Its log prefix says "Periodic" — historical naming of the shared routine.)
+    run_periodic_e2ee_decrypt || true
 else
     ERR_RC=0
     check_sync_errors "Initial" "${LOG_TAIL_START}" || ERR_RC=$?
@@ -782,6 +789,10 @@ else
             echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') [SYNC_ABORT] Destructive sync signature detected — sync halted. See issue #27." > "${SYNC_HALT_MARKER}"
             START_PERIODIC_LOOP=0
         fi
+        # Issue #29 (every sync is followed by a decrypt): the sync exited 0
+        # but logged error patterns — items may still have arrived, so the
+        # decrypt pass runs here too instead of only on the clean branch.
+        run_periodic_e2ee_decrypt || true
     else
         log_sync "PASS" "Initial sync completed successfully"
 
@@ -1084,18 +1095,22 @@ if [ "${START_PERIODIC_LOOP}" = "1" ]; then
                     fi
                 else
                     log_sync "PASS" "Periodic sync completed successfully"
-                    # Post-sync E2EE decrypt on EVERY sync (issue #29 comment
-                    # 6072403277): remotely added items arrive through THIS
-                    # loop; without a decrypt step here they stay encrypted
-                    # until the operator intervenes. The helper is gated on
-                    # JOPLIN_MASTER_PASSWORD internally (no cost for non-E2EE
-                    # deployments) and logs failures without halting — halt
-                    # semantics in the loop are the M13 detect-and-halt scope.
-                    # NOTE: no apostrophes in comments here — this body is a
-                    # single-quoted string, so quotes in it are syntax.
-                    run_periodic_e2ee_decrypt || true
                 fi
             fi
+
+            # Post-sync E2EE decrypt on EVERY sync (issue #29): remotely added
+            # items arrive through THIS loop, and a sync that exited nonzero
+            # or logged error patterns may still have pulled items that would
+            # otherwise stay encrypted until the operator intervenes. The
+            # call therefore sits OUTSIDE the outcome branches above: it runs
+            # on every cycle regardless of SYNC_EXIT / check_sync_errors /
+            # danger outcomes. The helper is gated on JOPLIN_MASTER_PASSWORD
+            # internally (no cost for non-E2EE deployments) and logs failures
+            # without halting — halt semantics in the loop are the M13
+            # detect-and-halt scope.
+            # NOTE: no apostrophes in comments here — this body is a
+            # single-quoted string, so quotes in it are syntax.
+            run_periodic_e2ee_decrypt || true
 
             # Deletion circuit-breaker (after sync + danger checks)
             BREAKER_RC=0
@@ -1240,6 +1255,13 @@ cleanup() {
         else
             log_sync "FAIL" "Final sync failed (exit code: ${SYNC_EXIT})"
         fi
+        # Issue #29 (every sync is followed by a decrypt): the shutdown final
+        # sync runs the decrypt pass too, regardless of its exit code or any
+        # logged error patterns. The helper is gated on JOPLIN_MASTER_PASSWORD
+        # internally and never halts; its bounded retry (4x5s) completes
+        # before the container exits.
+        # (Its log prefix says "Periodic" — historical naming of the shared routine.)
+        run_periodic_e2ee_decrypt || true
     elif [ -f "${SYNC_HALT_MARKER}" ]; then
         _HALT_NOTE="$(halt_marker_issue_note)"
         log "WARN" "Skipping final sync — halt marker exists (see ${SYNC_HALT_MARKER}${_HALT_NOTE})"

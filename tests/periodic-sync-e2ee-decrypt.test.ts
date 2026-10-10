@@ -16,7 +16,11 @@
  *      markers, is `export -f`'d (the setsid loop child cannot see
  *      non-exported functions), and gates on JOPLIN_MASTER_PASSWORD.
  *   2. The periodic loop body calls it AFTER the periodic [SYNC_PASS] line —
- *      decrypt runs on every successful periodic sync, only there.
+ *      and (issue #29 follow-up) the call sits OUTSIDE the loop outcome
+ *      branches, so decrypt runs on EVERY periodic cycle, not only on the
+ *      fully-clean one. The boot error branches and the shutdown final sync
+ *      invoke the same helper from their own call sites (guarded by
+ *      tests/sync-followed-by-decrypt.test.ts).
  *   3. The periodic helper NEVER halts: no SYNC_HALT_MARKER write and no
  *      START_PERIODIC_LOOP assignment inside it (halt semantics in the loop
  *      are M13's detect-and-halt scope).
@@ -121,8 +125,15 @@ describe('periodic post-sync E2EE decrypt structure (issue #29 comment 607240327
 
   it('the periodic loop body calls the helper after the periodic [SYNC_PASS] line', () => {
     const passLine = lineOf(/log_sync "PASS" "Periodic sync completed successfully"/);
-    const callLine = lineOf(/run_periodic_e2ee_decrypt \|\| true/);
     const setsidLine = lineOf(/setsid bash -c '/);
+    // Anchor on the call INSIDE the setsid loop string: since the issue #29
+    // follow-up the shared decrypt routine is ALSO invoked from the boot
+    // error branches and the shutdown final sync, so the first match in the
+    // file is no longer the loop call site.
+    const callLine =
+      entrypointLines.findIndex(
+        (l, i) => i > setsidLine && /run_periodic_e2ee_decrypt \|\| true/.test(l),
+      ) + 1;
     expect(passLine).toBeGreaterThan(0);
     expect(setsidLine).toBeGreaterThan(0);
     expect(callLine).toBeGreaterThan(setsidLine); // inside the loop string

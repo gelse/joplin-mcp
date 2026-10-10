@@ -68,6 +68,11 @@ export class SyncManager {
       this.status = 'error';
       this.logger.error({ err: error }, 'Initial sync failed');
       throw error;
+    } finally {
+      // Issue #29: every sync — success or failure — is followed by an E2EE
+      // decrypt pass. decryptAfterSync never throws, so this cannot mask
+      // the sync outcome above.
+      await this.decryptAfterSync('initial');
     }
   }
 
@@ -147,6 +152,11 @@ export class SyncManager {
         this.syncPromise = null;
       }
 
+      // Issue #29: every sync — success or failure — is followed by an E2EE
+      // decrypt pass (decryptAfterSync never throws). A queued pending sync
+      // decrypts after its own sync via the recursive runSync below.
+      await this.decryptAfterSync(source);
+
       // If a sync was queued while this one was running, execute it now
       if (this.pendingSync) {
         this.pendingSync = false;
@@ -156,5 +166,32 @@ export class SyncManager {
     })();
 
     return this.syncPromise;
+  }
+
+  /**
+   * Post-sync E2EE decrypt pass (issue #29: every sync is followed by a
+   * decrypt). Mirrors the entrypoint's shell-side gating: with no
+   * JOPLIN_MASTER_PASSWORD configured, E2EE was never enabled here and the
+   * CLI call is skipped (logged). Failures are logged and never propagated —
+   * a decrypt problem must not fail the sync that just completed; the next
+   * sync cycle retries naturally.
+   */
+  private async decryptAfterSync(source: string): Promise<void> {
+    if (!process.env['JOPLIN_MASTER_PASSWORD']) {
+      this.logger.debug(
+        { source },
+        'JOPLIN_MASTER_PASSWORD not configured — skipping post-sync E2EE decrypt',
+      );
+      return;
+    }
+    try {
+      await this.cli.e2eeDecrypt();
+      this.logger.info({ source }, 'Post-sync E2EE decrypt completed');
+    } catch (error) {
+      this.logger.warn(
+        { err: error, source },
+        'Post-sync E2EE decrypt failed — synced items may remain encrypted until the next sync cycle',
+      );
+    }
   }
 }
