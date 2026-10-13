@@ -80,10 +80,10 @@ USER joplin
 # inside the container, so port 41184 is not exposed to the host.
 EXPOSE 3000
 
-# Health check: verify both MCP server and Data API are responding.
-# NOTE: Probes the default ports only; does not honour JOPLIN_DATA_API_PORT
-# or MCP_PORT overrides — matches core's existing healthcheck pattern.
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=90s \
-    CMD curl -f http://127.0.0.1:41184/ping && curl -f http://127.0.0.1:3000/health || exit 1
+# Health check: verify MCP server, Data API, AND E2EE state (M2-T3). The E2EE leg re-uses
+# the entrypoint's SQLite verification probe (fail-closed: any non-"0" count or probe failure fails; skipped without JOPLIN_MASTER_PASSWORD; probe busy_timeout (5 s) < --timeout).
+# NOTE: Probes the default ports only — does not honour JOPLIN_DATA_API_PORT or MCP_PORT overrides (matches core's existing healthcheck pattern).
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=120s \
+    CMD curl -f http://127.0.0.1:41184/ping && curl -f http://127.0.0.1:3000/health && { [ -z "${JOPLIN_MASTER_PASSWORD:-}" ] || [ "$(JOPLIN_DB_PATH="${JOPLIN_PROFILE_DIR:-/home/joplin/.config/joplin}/database.sqlite" node -e 'const s=require("/usr/local/lib/node_modules/joplin/node_modules/sqlite3").verbose();const db=new s.Database(process.env.JOPLIN_DB_PATH,s.OPEN_READONLY,(err)=>{if(err){process.exit(1)}db.run("PRAGMA busy_timeout = 5000",(pe)=>{if(pe){process.exit(1)}db.get("SELECT (SELECT count(*) FROM notes WHERE length(encryption_cipher_text) > 0)+(SELECT count(*) FROM folders WHERE length(encryption_cipher_text) > 0)+(SELECT count(*) FROM resources WHERE length(encryption_cipher_text) > 0)+(SELECT count(*) FROM tags WHERE length(encryption_cipher_text) > 0)+(SELECT count(*) FROM note_tags WHERE length(encryption_cipher_text) > 0)+(SELECT count(*) FROM revisions WHERE length(encryption_cipher_text) > 0) AS n",(e,row)=>{if(e){process.exit(1)}console.log(row.n);db.close()})})});' 2>>/var/log/joplin/e2ee-decrypt-stderr.log)" = "0" ]; }
 
 ENTRYPOINT ["./entrypoint-combined.sh"]

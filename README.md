@@ -35,6 +35,7 @@ docker run -d \
 | `JOPLIN_DATA_API_PORT`   | No       | `41184` | Internal Data API listen port (rarely changed)                    |
 | `LOG_LEVEL`              | No       | `info`  | Log level: `debug`, `info`, `warn`, `error`, `silent`             |
 | `SYNC_INTERVAL_SECONDS`  | No       | `300`   | Periodic sync interval in seconds                                 |
+| `SYNC_MAX_DELETE_COUNT`  | No       | `100`   | Max items sync may delete before circuit-breaker halts (`-1` disables; `0` = no deletion allowed) |
 | `MCP_HOST_PORT`          | No       | `3000`  | Host-side MCP port (mapped via `-p 127.0.0.1:MCP_HOST_PORT:3000`) |
 | `JOPLIN_MASTER_PASSWORD` | No       | —       | E2EE master password (leave empty to skip encryption)             |
 
@@ -84,7 +85,13 @@ Replace `THE_PASSWORD` with the same master password used when enabling E2EE on 
 
 ### ⚠️ Warning: `joplin e2ee decrypt` does NOT persist the password
 
-The command `joplin e2ee decrypt -p 'PASSWORD'` decrypts data **for the current session only** and does **not** store the password for future sync operations. Using it as your setup step will cause encrypted items to silently fail to upload on subsequent syncs. Always use `joplin config encryption.masterPassword` instead.
+The command `joplin e2ee decrypt` decrypts data **for the current session only** and does **not** store the password for future sync operations (the CLI reads the master password from `joplin config encryption.masterPassword`; in Joplin CLI 3.7.1 the `-p` option is only consumed by `joplin e2ee enable`). Using it as your setup step will cause encrypted items to silently fail to upload on subsequent syncs. Always use `joplin config encryption.masterPassword` instead.
+
+### Resolved: encrypted titles served as-is via `list_notebooks` (issue #29)
+
+> **✅ Resolved in M2.** The combined container now runs `joplin e2ee decrypt` after the initial sync (with bounded retries for master-key propagation timing), verifies zero items remain encrypted before starting the periodic sync loop, and serves plaintext titles via `list_notebooks` — the Data API picks up the post-decrypt state without a restart (the re-read behavior observed in the GREEN repro run; recorded as an inference in `plans/backlog.md` §2 R6). A container integration test ([GitHub issue #29](https://github.com/gelse/joplin-mcp/issues/29)) — `tests/container/e2ee-encrypted-titles-repro.test.ts`, gated by `RUN_E2EE_REPRO_TESTS=1` — reproduces the original bug and now passes.
+>
+> See the M2 fix-design plans (`plans/_finished/M2-T1-initial-sync-decrypt-and-verify.md`, `plans/_finished/M2-T2-server-start-reorder.md`, `plans/_finished/M2-T3-sync-detection-and-healthcheck-hardening.md`, `plans/_finished/M2-T4-flip-to-green-verification-and-docs.md`) and the M1 repro-test plans (`plans/_finished/M1-T1..T6`) for the repro test. The repro is opt-in (CI `workflow_dispatch` with input `run_e2ee_repro_tests: true`); default CI is unaffected.
 
 ### How to tell if E2EE is the problem
 
@@ -142,7 +149,16 @@ docker compose down
 
 ### Testing
 
-A dedicated [`Dockerfile.tests`](Dockerfile.tests) and `test` service in [`docker-compose.yml`](docker-compose.yml) allow running the test suite in a container:
+The unit suite ([Vitest](https://vitest.dev/), configured in [`vitest.config.ts`](vitest.config.ts): `tests/**/*.test.ts` excluding `tests/container/**`) runs with `make test` when the host has Node.js and pnpm — or with the route below when it does not:
+
+```bash
+# Runs the unit suite in a container; only docker and make are required on the host
+make docker-test
+```
+
+`make docker-test` ([`scripts/run-unit-tests-docker.sh`](scripts/run-unit-tests-docker.sh)) builds [`Dockerfile.unittests`](Dockerfile.unittests), tags it `joplin-mcp-unittests`, and runs the suite inside it. Nothing else is involved: no Docker socket mount, no compose stack, and `RUN_INTEGRATION_TESTS` is never set, so [`tests/integration.test.ts`](tests/integration.test.ts) self-skips. The JUnit report is bind-mounted out to `reports/docker-test/junit.xml`; the container runs as root, so the file is root-owned on the host (readable, but deleting it may need sudo). The image's `CMD` is `pnpm run test`, so `docker run --rm joplin-mcp-unittests` also works for ad hoc runs.
+
+A second container route runs the same unit suite: the `test` service in [`docker-compose.yml`](docker-compose.yml), built from [`Dockerfile.tests`](Dockerfile.tests), mounts `./reports` into the container so reports persist on the host:
 
 ```bash
 # Build the test image
@@ -155,9 +171,11 @@ docker run --rm joplin-api-tests
 docker compose --profile test run --rm tests
 ```
 
-Tests use [Vitest](https://vitest.dev/) with v8 coverage (thresholds: 70% statements, 60% branches, 70% functions, 70% lines) and output JUnit XML reports to `./reports/`. When running via docker compose, the `./reports` directory is mounted into the container so reports persist on the host.
+Coverage thresholds (70% statements, 60% branches, 70% functions, 70% lines) are configured in `vitest.config.ts` but are only enforced when coverage is explicitly requested (`pnpm run test -- --coverage`); `make test`, `make docker-test`, and CI all run plain `vitest run`. JUnit report locations: `reports/junit.xml` for host runs and the compose `test` service, `reports/docker-test/junit.xml` for `make docker-test`, `reports/container/junit.xml` for the container integration tests below.
 
-The test suite does not require a running Joplin instance — unit tests use mocks, and integration tests are skipped when the Joplin Data API is unavailable.
+The unit suite does not require a running Joplin instance — it uses mocks. [`tests/integration.test.ts`](tests/integration.test.ts) targets a real Data API and is opt-in: it self-skips unless `RUN_INTEGRATION_TESTS` is set to a truthy value.
+
+Shell harnesses such as [`tests/test-sync-failure-diagnostics.sh`](tests/test-sync-failure-diagnostics.sh) also include a structural-test layer that asserts entrypoint text rather than behavior — an intentional, accepted trade-off (review 2026-09-21, finding S2).
 
 ### Container Integration Tests
 
@@ -193,6 +211,58 @@ The API token is auto-extracted from the Joplin CLI config at startup.
 
 - JUnit XML: `reports/container/junit.xml`
 - Container logs: `reports/container/*.log`
+
+#### SQLITE_BUSY Reproduction Tests
+
+A dedicated test suite reproduces the destructive `SQLITE_BUSY` migration bug described in [issue #27](https://github.com/gelse/joplin-mcp/issues/27). The test spawns a plain Node process inside the `joplin-mcp` container that holds an exclusive SQLite write lock using the image's built-in `sqlite3` module (`BEGIN EXCLUSIVE` plus a statement inside the transaction to actually acquire the lock). The lock holder sets `PRAGMA busy_timeout = 10000` and retries `BEGIN EXCLUSIVE` with exponential backoff (500ms × 1.5^n, up to ~30s) to survive transient contention. After the test confirms the lock is held via an independent probe (a second `docker exec` node one-liner that fails with `SQLITE_BUSY`), it triggers `joplin sync` while the lock is still held. The upstream Joplin CLI retries for ~43 seconds on `SQLITE_BUSY`; the lock holder outlasts this window at 120 seconds, then self-rolls back.
+
+The test's assertions check what the M2 fixes actually guarantee: the bypass sync — a direct `joplin sync` that bypasses the entrypoint's flock/halt gate, which remains a documented non-goal for the fix — still reproduces the destructive-migration signatures in the captured log, `check_sync_danger`'s regex detects those signatures, and no secondary corruption (`table folders already exists`) occurs. The suite **passes** on the current, post-M2 code.
+
+The evidence comes from a capture file on the project's `joplin_data` volume (Docker prefixes the project name, so the volume is `joplin-mcp_joplin_data`), not from exec stdout. Exec stdout is unreliable here: the container may die mid-sync, and the capture file survives that. The sync run streams `log.txt` into the file for the whole sync window and records the sync exit code, and the test reads the file back through a throwaway helper container that mounts the same volume.
+
+This test is **gated behind a separate environment variable** and does **not** run in the default integration test suite. When enabled, the repro runs as a **separate vitest invocation** after the regular suite completes — the destructive `joplin sync` re-runs migrations from version 0 under the held lock, which kills the shared `joplin-mcp` container's Data API. Running it in the same invocation as the other suites would cause sibling failures due to file-parallelism overlap.
+
+```bash
+RUN_SYNC_LOCK_TESTS=1 ./scripts/run-integration-tests.sh
+```
+
+The runner script resolves the `joplin-mcp` service's container ID from the compose project (`docker compose ps -q`) and exports it to the tests as `JOPLIN_CONTAINER`. Because compose generates project-scoped container names, the tests target the container that actually came up instead of pinning a fixed name, so the stack does not collide with a locally running dev stack or concurrent CI jobs. If you run vitest directly without the script, set `JOPLIN_CONTAINER` yourself; the built-in `joplin-mcp` default only resolves if a container is actually named `joplin-mcp` (for example, a running dev stack).
+
+The test requires the test-runner container to have Docker socket access (`/var/run/docker.sock`), which is mounted automatically by [`docker-compose.test.yml`](docker-compose.test.yml).
+
+> **Caveat — root-equivalent credential:** mounting the host Docker socket into
+> the `test-runner` container grants it **root-equivalent control over the host
+> Docker daemon** (any image, any mount, host filesystem access via bind mounts).
+> This is acceptable for the throwaway repro test, but the CI job is therefore
+> **manually dispatched only** (it does not run on every PR). Never replicate the
+> socket mount in a non-test compose file.
+
+> **Note:** This test is deliberately destructive to its throwaway volume, and the joplin-mcp container may exit or become unresponsive during the repro by design — the bypass sync still triggers the destructive migration because it bypasses the entrypoint's protections. The suite **passes** on the current, post-M2 code (see the [CHANGELOG](CHANGELOG.md)).
+
+#### E2EE encrypted-titles reproduction test (issue #29)
+
+A gated integration test reproduces [GitHub issue #29](https://github.com/gelse/joplin-mcp/issues/29) — where the combined container, with `JOPLIN_MASTER_PASSWORD` set and E2EE enabled on a real Joplin Server, serves E2EE-encrypted notebook titles as-is via `list_notebooks`. The test asserts the **safe** behavior (non-empty plaintext titles, no remaining encrypted blobs). It originally reproduced issue #29 by failing on the pre-fix container — proving the bug existed — and the M2 fix flipped it to **passing** with zero assertion edits; it now guards the fix against regressions.
+
+**Requirements:**
+
+- A real `joplin/server:latest` container with E2EE enabled and an account matching `JOPLIN_USERNAME` / `JOPLIN_PASSWORD`.
+- `JOPLIN_MASTER_PASSWORD` set to the password used to encrypt fixtures.
+- A fresh `joplin_data` volume.
+- Optionally, `E2EE_REPRO_SERVER_URL` — overrides the server URL the recreated combined container syncs against (default `http://joplin-server:22300`).
+
+**Local one-shot run:**
+
+```bash
+RUN_E2EE_REPRO_TESTS=1 ./scripts/run-integration-tests.sh
+```
+
+The runner brings up the real Joplin Server, runs the one-shot seed container to create an encrypted notebook + note, recreates the combined container against the seeded server, and runs the repro. The repro **passes** against the current (post-M2) container; on pre-M2 code it failed with the symptom assertion message. Default CI is unaffected. To prove the repro's `FIXTURE_NOT_SYNCED` anti-vacuous gate can actually fail, set `E2EE_REPRO_SERVER_URL` to an unreachable host (for example `http://nonexistent.example.invalid:1`): the recreated combined container then cannot sync the fixture, and the run exits non-zero.
+
+**CI:**
+
+Manual `workflow_dispatch` with input `run_e2ee_repro_tests: true` → the opt-in job `e2ee-encrypted-titles-repro` runs. See [`.github/workflows/integration-tests.yml`](.github/workflows/integration-tests.yml).
+
+**Resolved:** the combined container now triggers decryption itself. After the initial sync it runs `joplin e2ee decrypt` with bounded retries, verifies zero items remain encrypted (fail-closed halt markers `[E2EE_DECRYPT_FAIL]` / `[E2EE_DECRYPT_INCOMPLETE]` otherwise), and only then starts the periodic sync loop; the MCP server starts last. See the **✅ Resolved** note in the E2EE section above and the M2 fix-design plans (`plans/_finished/M2-T1-initial-sync-decrypt-and-verify.md`, `plans/_finished/M2-T2-server-start-reorder.md`, `plans/_finished/M2-T3-sync-detection-and-healthcheck-hardening.md`, `plans/_finished/M2-T4-flip-to-green-verification-and-docs.md`) for the fix design.
 
 ---
 
@@ -239,14 +309,26 @@ graph TD
 6. Write operations persist to the local Joplin Data API and reach Joplin Server on the next scheduled sync (every `SYNC_INTERVAL_SECONDS`)
 7. The container uses a **single healthcheck** probing both the Data API (`/ping`) and the MCP server (`/health`)
 
-> **Note: SQLITE_BUSY during sync** — During periodic sync windows, the Joplin CLI holds a
-> write lock on the SQLite database, which can cause transient `SQLITE_BUSY` errors for
-> concurrent read requests from the MCP server. The MCP server automatically retries read
-> (GET) requests on `SQLITE_BUSY` with exponential backoff (up to 3 retries). Write requests
-> (POST/PUT/DELETE) are **not** retried to avoid duplicate resource creation. This is an
-> inherent limitation of the two-process architecture (Data API + sync CLI sharing one
-> SQLite database), now running within a single container. The long-term fix is a single
-> long-lived process ([GitHub Issue #2, Topic 6](https://github.com/gelse/joplin-mcp/issues/2)).
+> **Note: SQLITE_BUSY and sync safety** — The Joplin Data API and `joplin sync` CLI share
+> one SQLite database. When the Data API holds the write lock, a concurrent `joplin sync`
+> can receive `SQLITE_BUSY: database is locked`, causing the CLI to treat the database
+> version as `null` and run destructive schema migrations from version 0 ([#27](https://github.com/gelse/joplin-mcp/issues/27)).
+> The container cannot prevent this first destructive sync without upstream changes (the
+> Data API never takes the CLI's flock, and `database.busyTimeout` is unsupported in
+> Joplin CLI 3.7.1). Instead, M2 provides **damage limitation**:
+>
+> 1. **Detection + halt marker** — Destructive log signatures (`SQLITE_BUSY`, `database is locked`,
+>    `Upgrading database from version 0`) are detected after each sync; a persistent halt marker
+>    (`.sync-halt` on the profile volume) permanently refuses further syncs.
+> 2. **Deletion circuit-breaker** (`SYNC_MAX_DELETE_COUNT`) — Compares pre/post item counts;
+>    trips the halt marker when too many items would be deleted.
+> 3. **flock serialization** — All `joplin sync` invocations are wrapped in `flock` to prevent
+>    sync-vs-sync overlap (initial vs periodic vs cleanup). This does **not** cover the
+>    Data API contention that triggers #27.
+>
+> **Recovery:** Remove `${JOPLIN_PROFILE_DIR}/.sync-halt` from the profile volume to re-enable
+> sync after investigating. The long-term fix is a single long-lived process
+> ([#2](https://github.com/gelse/joplin-mcp/issues/2)).
 
 #### Migration from Two-Container Setup
 
@@ -345,12 +427,12 @@ Validation error: note_id: Expected 32-character hex ID
 
 ## Sync Behaviour
 
-- **Initial sync**: The entrypoint runs `joplin sync` once before starting the MCP server; no SyncManager is involved. This is a blocking call — a large first-run delays MCP availability. The container healthcheck (`start-period=90s` in [`Dockerfile.combined`](Dockerfile.combined)) may report unhealthy until the initial sync completes.
-- **Initial sync throughput**: Governed by the pinned Joplin CLI's per-item sync algorithm (`joplin@3.7.1`). The historically observed ~12 items/min on the pre-0.2.0 two-container setup had a known contributing factor (Data API contention during sync) that was removed in 0.2.0. Actual post-0.2.0 throughput is unmeasured — see [Plan #7 Resolution](plans/007-slow-initial-sync-followup.md#resolution-2026-09-01-re-investigation-after-v020-combined-container-overhaul).
-- **Periodic sync**: Every 5 minutes (configurable via `SYNC_INTERVAL_SECONDS`)
+- **Initial sync**: The entrypoint runs `joplin sync` (flock-serialized) once before starting the MCP server. If a destructive signature is detected, a halt marker is created and the periodic loop is not started. The container healthcheck (`start-period=90s` in [`Dockerfile.combined`](Dockerfile.combined)) may report unhealthy until the initial sync completes.
+- **Initial sync throughput**: Governed by the pinned Joplin CLI's per-item sync algorithm (`joplin@3.7.1`). The historically observed ~12 items/min on the pre-0.2.0 two-container setup had a known contributing factor (Data API contention during sync) that was removed in 0.2.0. Actual post-0.2.0 throughput is unmeasured — the Plan #7 investigation verdict (remaining bottleneck intrinsic to the Joplin CLI) is recorded in [CHANGELOG.md](CHANGELOG.md), and throughput can be measured with [`scripts/measure-initial-sync.sh`](scripts/measure-initial-sync.sh).
+- **Periodic sync**: Every 5 minutes (configurable via `SYNC_INTERVAL_SECONDS`); each iteration checks the halt marker before syncing.
 - **Scheduled sync**: Every create/update/delete/untag operation is picked up by the periodic scheduler (within ≤ `SYNC_INTERVAL_SECONDS`)
 - **Conflict resolution**: Remote always wins (Joplin CLI built-in behaviour; conflicted copies are flagged in Joplin)
-- **Serialized queue**: Prevents `SQLITE_BUSY` errors by serializing sync operations
+- **Sync serialization**: All `joplin sync` invocations are wrapped in `flock` (sync-vs-sync overlap prevention) plus a deletion circuit-breaker (`SYNC_MAX_DELETE_COUNT`) for damage limitation against issue #27
 
 > **⚠️ Joplin Server minimum client version**: Joplin Server enforces a minimum client version for sync compatibility. The pinned Joplin CLI version in this image (`joplin@3.7.1` in [`Dockerfile.combined`](Dockerfile.combined)) is therefore a compatibility constraint — upgrading Joplin Server may require a matching image upgrade if the server's minimum client version exceeds the pinned CLI version. A mismatch causes sync to silently fail (the CLI still exits 0).
 
@@ -529,9 +611,12 @@ src/
 tests/
 ├── cli-executor.test.ts   # CLI executor tests
 ├── config.test.ts         # Config parser tests
+├── container/             # Container integration tests (vitest.config.container.ts; `make test-integration`)
 ├── data-client.test.ts    # Data API client tests
+├── docker-test-config.test.ts        # Structural guards for `make docker-test`
 ├── errors.test.ts         # Error class hierarchy tests
-├── integration.test.ts    # Integration tests against live Joplin Data API
+├── integration-runner-config.test.ts # Structural guards for the integration-test runner
+├── integration.test.ts    # Integration tests against live Joplin Data API (opt-in via RUN_INTEGRATION_TESTS)
 ├── logger.test.ts         # Logger tests
 ├── pagination.test.ts     # Pagination helper tests
 ├── sync-manager.test.ts   # Sync manager tests
@@ -542,7 +627,10 @@ tests/
     └── tools.test.ts       # Tool handler tests
 docs/                      # Project documentation (see root SBOM.md for dependency inventory)
 scripts/
-└── smoke-test.sh          # Docker container smoke test (checks container up + Data API /ping)
+├── smoke-test.sh              # Docker container smoke test (checks container up + Data API /ping)
+├── run-integration-tests.sh   # Container integration test runner (`make test-integration`)
+├── run-unit-tests-docker.sh   # Unit tests in Docker without host Node/pnpm (`make docker-test`)
+└── measure-initial-sync.sh    # Initial sync throughput measurement (requires live Joplin Server)
 ```
 
 Root-level deployment files:
@@ -550,7 +638,8 @@ Root-level deployment files:
 | File                                                 | Purpose                                                                              |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | [`Dockerfile.combined`](Dockerfile.combined)         | Production: combined Joplin CLI + Data API + MCP HTTP server                         |
-| [`Dockerfile.tests`](Dockerfile.tests)               | Test runner container                                                                |
+| [`Dockerfile.tests`](Dockerfile.tests)               | Test runner image for both the compose `test` service (unit suite) and the integration stack's `test-runner` service |
+| [`Dockerfile.unittests`](Dockerfile.unittests)       | Self-contained unit-test image used by `make docker-test` (no host Node/pnpm needed) |
 | [`entrypoint-combined.sh`](entrypoint-combined.sh)   | Production entrypoint: Data API + sync loop + MCP server with graceful shutdown      |
 | [`docker-compose.yml`](docker-compose.yml)           | Single-service orchestration with healthchecks                                       |
 | [`docker-compose.test.yml`](docker-compose.test.yml) | Integration-test stack (uses `Dockerfile.combined`, used by `make test-integration`) |
@@ -562,15 +651,17 @@ Root-level deployment files:
 **Combined joplin-mcp container ([`entrypoint-combined.sh`](entrypoint-combined.sh)):**
 
 1. **Validate environment variables** — Checks `JOPLIN_SERVER_URL`, `JOPLIN_USERNAME`, `JOPLIN_PASSWORD`
-2. **Configure Joplin CLI** — Sets `sync.target 10` and server credentials in Joplin CLI config
-3. **Extract API token** — Honours a pre-set `JOPLIN_API_TOKEN` from `.env`, or auto-extracts from the Joplin CLI config / `settings.json`
-4. **Start Joplin Data API** — `joplin server start` binding to `127.0.0.1:41184` (loopback-only, no socat proxy)
+2. **Configure Joplin CLI** — Sets `sync.target 10` and server credentials in Joplin CLI config; when `JOPLIN_MASTER_PASSWORD` is set, also configures the E2EE master password
+3. **Start Joplin Data API** — `joplin server start` binding to `127.0.0.1:41184` (loopback-only, no socat proxy); starts *before* the initial sync (unchanged early position)
+4. **Extract API token** — Honours a pre-set `JOPLIN_API_TOKEN` from `.env`, or auto-extracts from the Joplin CLI config / `settings.json`
 5. **Wait for readiness** — Polls `/ping` endpoint (up to 30 retries, 2s intervals)
-6. **Perform initial sync** — `joplin sync` with sync-error diagnostics
-7. **Start periodic sync** — Bash `while true` loop (runs in its own process group via `setsid`) with configurable `SYNC_INTERVAL_SECONDS`
-8. **Start MCP HTTP server** — `node dist/mcp/entry.js` on port 3000
-9. **Liveness monitor** — `wait -n` on both child PIDs; exits non-zero if either dies (triggers Docker restart)
-10. **Handle signals** — On `SIGTERM`/`SIGINT`: kill sync loop group, stop MCP server, stop Data API, perform final sync, exit 0
+6. **Perform initial sync** — `joplin sync` (flock-serialized) with sync-error and destructive-signature diagnostics; creates halt marker on detection
+7. **Decrypt E2EE items** — Only when `JOPLIN_MASTER_PASSWORD` is set: a master-key preflight halts early with an `[E2EE_NO_MASTER_KEY]` marker when no master key exists after the sync (E2EE disabled server-side); otherwise `joplin e2ee decrypt` runs with bounded retries for master-key propagation timing, failing closed with an `[E2EE_DECRYPT_FAIL]` halt marker if all attempts fail
+8. **Verify decryption** — A read-only SQLite probe counts remaining encrypted items; any remaining items or a failed probe halt fail-closed with an `[E2EE_DECRYPT_INCOMPLETE]` halt marker, and the periodic sync loop does not start
+9. **Start periodic sync** — Bash `while true` loop (runs in its own process group via `setsid`) with configurable `SYNC_INTERVAL_SECONDS`; halt gate checks `.sync-halt` marker before each sync
+10. **Start MCP HTTP server** — `node /app/dist/mcp/entry.js` on port 3000 (starts last, after the sync + decrypt region)
+11. **Liveness monitor** — `wait -n` on both child PIDs; exits non-zero if either dies (triggers Docker restart)
+12. **Handle signals** — On `SIGTERM`/`SIGINT`: kill sync loop group, stop MCP server, stop Data API, perform final sync, exit 0
 
 ### Integration-Test Stack
 
@@ -582,7 +673,7 @@ The integration-test stack ([`docker-compose.test.yml`](docker-compose.test.yml)
 2. **Single combined container** — All components (Data API, MCP server, sync scheduler) run in one container. Communication happens over loopback (`127.0.0.1:41184`), eliminating the need for Docker internal networking or a socat proxy. Only port 3000 is published to the host.
 3. **Bash-based sync scheduler** — Replaces the TypeScript SyncManager with a simple, reliable bash `while true` loop. Logs every sync with PASS/FAIL to `/var/log/joplin/sync.log`.
 4. **Scheduled sync** — Write tools persist to the local Data API; the bash scheduler (sole sync mechanism in the combined container) pushes changes to Joplin Server within `SYNC_INTERVAL_SECONDS`
-5. **Serialized sync queue** — The combined container's bash sync loop serializes sync calls sequentially, preventing `SQLITE_BUSY` errors (the legacy TypeScript `SyncManager` provided the same guarantee but is not invoked in the combined container)
+5. **Sync serialization and damage limitation** — All `joplin sync` invocations are wrapped in `flock` to prevent sync-vs-sync overlap. Destructive signatures (issue #27) are detected after each sync and halt further syncs via a persistent marker. A deletion circuit-breaker (`SYNC_MAX_DELETE_COUNT`) provides additional protection.
 6. **Remote-wins conflict resolution** — Delegated to Joplin CLI built-in behaviour; local changes always yield to remote
 7. **Token lifecycle** — Auth token obtained via `POST /auth`, reused with 60-second proactive refresh buffer before 55-minute expiry, re-fetched on 401 responses
 8. **Token auto-extraction** — The entrypoint extracts the API token from the Joplin CLI config, eliminating the manual `docker logs` retrieval ceremony

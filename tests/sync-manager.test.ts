@@ -7,10 +7,12 @@ import { GuardedString } from '../src/guarded-string.js';
 // ── Mocks ──────────────────────────────────────────────────────────────
 
 const mockSync = vi.fn<() => Promise<void>>();
+const mockE2eeDecrypt = vi.fn<() => Promise<void>>();
 
 vi.mock('../src/cli-executor.js', () => ({
   CliExecutor: vi.fn().mockImplementation(() => ({
     sync: mockSync,
+    e2eeDecrypt: mockE2eeDecrypt,
     checkConflicts: vi.fn<() => Promise<number>>().mockResolvedValue(0),
   })),
 }));
@@ -470,6 +472,138 @@ describe('SyncManager', () => {
 
       await manager.triggerSync('ok');
       expect(manager.getLastError()).toBeNull();
+    });
+  });
+
+  // ── 10. Post-sync E2EE decrypt (issue #29) ──────────────────────────
+  // Contract: EVERY sync entry point — initialSync, triggerSync/runSync,
+  // the periodic timer callback, and each queued pending sync — is
+  // followed by an E2EE decrypt pass, regardless of the sync outcome.
+  // Pre-fix no decrypt pass existed on this surface at all.
+
+  describe('post-sync E2EE decrypt (every sync is followed by a decrypt — issue #29)', () => {
+    const ORIGINAL_MASTER_PASSWORD = process.env['JOPLIN_MASTER_PASSWORD'];
+
+    // Arm the same gate the entrypoint uses: without a master password the
+    // decrypt pass logged-skips, so the call-count assertions below need it.
+    beforeEach(() => {
+      process.env['JOPLIN_MASTER_PASSWORD'] = 'test-master-password';
+    });
+
+    afterAll(() => {
+      if (ORIGINAL_MASTER_PASSWORD === undefined) {
+        delete process.env['JOPLIN_MASTER_PASSWORD'];
+      } else {
+        process.env['JOPLIN_MASTER_PASSWORD'] = ORIGINAL_MASTER_PASSWORD;
+      }
+    });
+
+    it('initialSync runs the decrypt pass after a successful sync, in that order', async () => {
+      mockSync.mockResolvedValueOnce(undefined);
+      mockE2eeDecrypt.mockResolvedValueOnce(undefined);
+
+      await manager.initialSync();
+
+      expect(mockE2eeDecrypt).toHaveBeenCalledTimes(1);
+      expect(mockE2eeDecrypt.mock.invocationCallOrder[0]).toBeGreaterThan(
+        mockSync.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('initialSync runs the decrypt pass even when the sync fails, and still rejects', async () => {
+      mockSync.mockRejectedValueOnce(new Error('sync failed'));
+      mockE2eeDecrypt.mockResolvedValueOnce(undefined);
+
+      await expect(manager.initialSync()).rejects.toThrow('sync failed');
+
+      expect(mockE2eeDecrypt).toHaveBeenCalledTimes(1);
+    });
+
+    it('triggerSync runs the decrypt pass after the sync completes', async () => {
+      mockSync.mockResolvedValueOnce(undefined);
+      mockE2eeDecrypt.mockResolvedValueOnce(undefined);
+
+      await manager.triggerSync('write');
+
+      expect(mockSync).toHaveBeenCalledTimes(1);
+      expect(mockE2eeDecrypt).toHaveBeenCalledTimes(1);
+      expect(mockE2eeDecrypt.mock.invocationCallOrder[0]).toBeGreaterThan(
+        mockSync.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('triggerSync runs the decrypt pass even when the sync fails', async () => {
+      mockSync.mockRejectedValueOnce(new Error('boom'));
+      mockE2eeDecrypt.mockResolvedValueOnce(undefined);
+
+      await manager.triggerSync('write');
+
+      expect(mockE2eeDecrypt).toHaveBeenCalledTimes(1);
+      expect(manager.getSyncStatus()).toBe('error');
+    });
+
+    it('the periodic timer runs the decrypt pass after each sync tick', async () => {
+      mockSync.mockResolvedValue(undefined);
+      mockE2eeDecrypt.mockResolvedValue(undefined);
+
+      manager.startPeriodicSync();
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(mockSync).toHaveBeenCalledTimes(1);
+      expect(mockE2eeDecrypt).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(mockSync).toHaveBeenCalledTimes(2);
+      expect(mockE2eeDecrypt).toHaveBeenCalledTimes(2);
+    });
+
+    it('a queued pending sync also decrypts after its own sync', async () => {
+      let resolveFirst: () => void;
+      const firstPromise = new Promise<void>((resolve) => {
+        resolveFirst = resolve;
+      });
+      let resolveSecond: () => void;
+      const secondPromise = new Promise<void>((resolve) => {
+        resolveSecond = resolve;
+      });
+
+      mockSync.mockReturnValueOnce(firstPromise).mockReturnValueOnce(secondPromise);
+      mockE2eeDecrypt.mockResolvedValue(undefined);
+
+      const p1 = manager.triggerSync('first');
+      const p2 = manager.triggerSync('second'); // queued pending
+
+      resolveFirst!();
+      resolveSecond!();
+      await p1;
+      await p2;
+
+      expect(mockSync).toHaveBeenCalledTimes(2);
+      // One decrypt per sync execution: the original + the pending one.
+      expect(mockE2eeDecrypt).toHaveBeenCalledTimes(2);
+    });
+
+    it('a decrypt failure does not fail the sync, corrupt status, or set lastError', async () => {
+      mockSync.mockResolvedValueOnce(undefined);
+      mockE2eeDecrypt.mockRejectedValueOnce(new Error('decrypt failed'));
+
+      await manager.triggerSync('write');
+
+      expect(manager.getSyncStatus()).toBe('idle');
+      expect(manager.getLastError()).toBeNull();
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ source: 'write' }),
+        expect.stringContaining('decrypt failed'),
+      );
+    });
+
+    it('skips the CLI decrypt call when JOPLIN_MASTER_PASSWORD is not configured', async () => {
+      delete process.env['JOPLIN_MASTER_PASSWORD'];
+      mockSync.mockResolvedValueOnce(undefined);
+
+      await manager.triggerSync('write');
+
+      expect(mockSync).toHaveBeenCalledTimes(1);
+      expect(mockE2eeDecrypt).not.toHaveBeenCalled();
     });
   });
 });

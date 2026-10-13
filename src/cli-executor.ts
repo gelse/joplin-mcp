@@ -46,6 +46,9 @@ const ALLOWED_SUBCOMMANDS = new Set([
   'export',
   'import',
   'server',
+  // `e2ee` is used for the post-sync decrypt pass (SyncManager, issue #29:
+  // every sync is followed by `joplin e2ee decrypt --force`).
+  'e2ee',
 ]);
 
 /**
@@ -169,6 +172,21 @@ export class CliExecutor {
     if (result.stderr.toLowerCase().includes('conflict')) {
       this.logger.warn('Sync conflicts detected — remote version retained');
     }
+  }
+
+  /**
+   * Run `joplin e2ee decrypt --force` so items pulled by a preceding sync do
+   * not stay encrypted (issue #29: every sync is followed by a decrypt pass).
+   *
+   * `--force` mirrors the entrypoint's boot/loop decrypt blocks (F1b):
+   * without it a non-interactive prompt failure would exit 0 — a false pass.
+   *
+   * @throws {CliError} If the decrypt subprocess fails or times out
+   */
+  async e2eeDecrypt(): Promise<void> {
+    this.logger.info('Running post-sync E2EE decrypt');
+    await this.exec(['e2ee', 'decrypt', '--force']);
+    this.logger.info('Post-sync E2EE decrypt completed');
   }
 
   /**

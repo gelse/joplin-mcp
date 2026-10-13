@@ -9,6 +9,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-13
+
+### Added
+
+- `make docker-test` — runs the unit test suite inside Docker, for machines without Node or pnpm installed
+
+### Fixed
+
+- Run the post-sync E2EE decrypt on every sync, not just at boot: with `JOPLIN_MASTER_PASSWORD` set, notes added remotely now decrypt as soon as the periodic sync pulls them ([#29](https://github.com/gelse/joplin-mcp/issues/29))
+- Detect destructive SQLITE_BUSY signatures in sync logs and halt sync via a persistent marker file, limiting the issue #27 data-destruction scenario to at most one occurrence ([#27](https://github.com/gelse/joplin-mcp/issues/27))
+- Add flock serialization around all `joplin sync` invocations (sync-vs-sync; does not cover Data API contention — see issue #27)
+- Add deletion circuit-breaker (`SYNC_MAX_DELETE_COUNT`, `-1` disables) that halts sync when too many items would be deleted
+- Run compose test stacks with generated container names instead of pinning `joplin-mcp`, so parallel test runs no longer collide
+- Fix double sleep in the periodic halt gate and harden its structure test (M12)
+
 ## [0.2.2] - 2026-09-13
 
 ### Changed

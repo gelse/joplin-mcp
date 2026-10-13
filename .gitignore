@@ -8,7 +8,6 @@ reports/
 **/.env.*
 !.env.example
 .roo/
-plans/
 
 # IDE
 .vscode/
