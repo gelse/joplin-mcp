@@ -26,7 +26,7 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Run integration tests
         run: bash scripts/run-integration-tests.sh
@@ -61,12 +61,12 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Run SQLITE_BUSY repro test
         run: bash scripts/run-integration-tests.sh
         env:
-          RUN_SYNC_LOCK_TESTS: '1'
+          RUN_SYNC_LOCK_TESTS: "1"
 
       - name: Collect container logs
         if: always()
@@ -92,12 +92,12 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Run E2EE encrypted-titles repro test
         run: bash scripts/run-integration-tests.sh
         env:
-          RUN_E2EE_REPRO_TESTS: '1'
+          RUN_E2EE_REPRO_TESTS: "1"
 
       # --profile e2ee-repro is REQUIRED on both steps below: joplin-server
       # and joplin-e2ee-seed are profile services, and Compose excludes them
