@@ -2,26 +2,26 @@
 
 ## What it does
 
-An MCP (Model Context Protocol) server for Joplin. A single Docker container syncs with your Joplin Server and exposes that workspace to MCP-aware clients via 17 tools covering notes, notebooks, tags, search, and sync status ([`src/mcp/tool-registry.ts:50`](src/mcp/tool-registry.ts)). Your AI client can list, read, search, create, edit, and delete notes, notebooks, and tags; writes persist locally and reach Joplin Server on the next scheduled sync.
+An MCP (Model Context Protocol) server for Joplin. A single Docker container syncs with your Joplin Server and exposes that workspace to MCP-aware clients via 17 tools covering notes, notebooks, tags, search, and sync status. Your AI client can list, read, search, create, edit, and delete notes, notebooks, and tags; writes persist locally and reach Joplin Server on the next scheduled sync.
 
 ## Where it excels
 
-- **Single-container deployment.** One image runs the Joplin CLI, the Data API, the sync scheduler, and the MCP HTTP server; only port 3000 is published, bound to loopback ([`docker-compose.yml:27`](docker-compose.yml)).
-- **E2EE handled inside the container.** With `JOPLIN_MASTER_PASSWORD` set, the container decrypts after the initial sync at boot ([`entrypoint-combined.sh:916`](entrypoint-combined.sh)) and again after every periodic sync ([`entrypoint-combined.sh:428`](entrypoint-combined.sh)) — clients get plaintext titles, not ciphertext.
-- **Sync-safety guarantees.** Every sync is flock-serialized to prevent overlap ([`entrypoint-combined.sh:755`](entrypoint-combined.sh)); a deletion circuit-breaker halts sync after mass deletions ([`entrypoint-combined.sh:540`](entrypoint-combined.sh)); a persistent `.sync-halt` marker refuses further syncs until you intervene ([`entrypoint-combined.sh:544`](entrypoint-combined.sh)).
-- **Loopback-only Data API.** The Joplin Data API binds to `127.0.0.1` inside the container and is never published to the host or the Docker network ([`entrypoint-combined.sh:645`](entrypoint-combined.sh)).
-- **Token auto-provisioning.** The Data API token is extracted from the Joplin CLI config at startup — no manual retrieval from container logs ([`entrypoint-combined.sh:696`](entrypoint-combined.sh)).
-- **Stateless MCP transport.** Each request is handled independently with no session state, so any MCP client that speaks HTTP can connect ([`src/mcp/server.ts:112`](src/mcp/server.ts)).
+- **Single-container deployment.** One image runs the Joplin CLI, the Data API, the sync scheduler, and the MCP HTTP server; only port 3000 is published, bound to loopback ([`docker-compose.yml`](docker-compose.yml)).
+- **E2EE handled inside the container.** With `JOPLIN_MASTER_PASSWORD` set, the container decrypts after the initial sync at boot ([`entrypoint-combined.sh`](entrypoint-combined.sh)) and again after every periodic sync ([`entrypoint-combined.sh`](entrypoint-combined.sh)) — clients get plaintext titles, not ciphertext.
+- **Sync-safety guarantees.** Every sync is flock-serialized to prevent overlap ([`entrypoint-combined.sh`](entrypoint-combined.sh)); a deletion circuit-breaker halts sync after mass deletions ([`entrypoint-combined.sh`](entrypoint-combined.sh)); a persistent `.sync-halt` marker refuses further syncs until you intervene ([`entrypoint-combined.sh`](entrypoint-combined.sh)).
+- **Loopback-only Data API.** The Joplin Data API binds to `127.0.0.1` inside the container and is never published to the host or the Docker network ([`entrypoint-combined.sh`](entrypoint-combined.sh)).
+- **Token auto-provisioning.** The Data API token is extracted from the Joplin CLI config at startup — no manual retrieval from container logs ([`entrypoint-combined.sh`](entrypoint-combined.sh)).
+- **Stateless MCP transport.** Each request is handled independently with no session state, so any MCP client that speaks HTTP can connect.
 
 ## What it does not do
 
 - **Not a Joplin client.** It exposes an existing Joplin Server account to MCP clients; it is not a note-taking app and not a full Joplin replacement.
 - **Not multi-user.** One container serves one Joplin account with one API token.
-- **`sync` does not force a sync.** The `sync` tool returns a status pointer; actual syncing is scheduled by the container entrypoint every `SYNC_INTERVAL_SECONDS` ([`src/mcp/tools.ts:240`](src/mcp/tools.ts)).
+- **`sync` does not force a sync.** The `sync` tool returns a status pointer; actual syncing is scheduled by the container entrypoint every `SYNC_INTERVAL_SECONDS` ([`src/mcp/tools.ts`](src/mcp/tools.ts)).
 - **`search_notes` has an upstream gap.** Joplin's search index misses notes written through the Data API — see [laurent22/joplin#11631](https://github.com/laurent22/joplin/issues/11631).
 - **Sync needs a compatible client version.** Joplin Server enforces a minimum client version; if the image's pinned Joplin CLI falls behind your server, sync fails silently until you upgrade the image.
 - **The first destructive sync cannot be prevented.** A known upstream race can damage the profile on its first occurrence; the container limits the damage, it cannot prevent it ([`docs/sync.md`](docs/sync.md)).
-- **No URL-scheme enforcement.** `JOPLIN_SERVER_URL` accepts any valid URL scheme; front the MCP endpoint with TLS yourself if you expose it beyond loopback ([`src/config.ts:6`](src/config.ts)).
+- **No URL-scheme enforcement.** `JOPLIN_SERVER_URL` accepts any valid URL scheme; front the MCP endpoint with TLS yourself if you expose it beyond loopback ([`src/config.ts`](src/config.ts)).
 
 ## How to install it via image
 
