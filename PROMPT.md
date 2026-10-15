@@ -23,7 +23,7 @@
 
 ### Integration-Test Stack
 - Uses `Dockerfile.combined` via `docker-compose.test.yml` (same image as production)
-- Test stack runs a local `joplin/server` container as the sync target, with dummy first-boot credentials
+- Test stack uses dummy sync credentials by default; under the `e2ee-repro` profile it runs a local `joplin/server` container as the sync target with dummy first-boot credentials
 
 ## Source File Map
 
