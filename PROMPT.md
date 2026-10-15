@@ -19,11 +19,11 @@
 - `JOPLIN_CORE_URL` set internally to `http://127.0.0.1:41184` (not operator-facing)
 - Graceful shutdown on SIGTERM: drain sync loop, stop MCP, stop Data API, final sync, reentrancy guard
 - Persistent SQLite DB at `/home/joplin/.config/joplin` (Docker volume: `joplin_data`)
-- Healthcheck: `curl 127.0.0.1:41184/ping && curl 127.0.0.1:3000/health` (90s start-period)
+- Healthcheck (`--interval=30s --timeout=10s --retries=3 --start-period=120s`): 3 legs — `curl -f http://127.0.0.1:41184/ping`, `curl -f http://127.0.0.1:3000/health`, and (when `JOPLIN_MASTER_PASSWORD` is set) a fail-closed E2EE SQLite probe requiring zero encrypted items
 
 ### Integration-Test Stack
 - Uses `Dockerfile.combined` via `docker-compose.test.yml` (same image as production)
-- Built with dummy sync credentials; no real Joplin Server needed
+- Test stack runs a local `joplin/server` container as the sync target, with dummy first-boot credentials
 
 ## Source File Map
 
@@ -35,10 +35,10 @@
 | `src/errors.ts` | Hierarchy: `ConfigError`, `DataApiError(statusCode,responseBody?)`, `NotFoundError(404)`, `ConflictError(409)`, `ValidationError(400)`, `AuthError(401)`, `FatalError(cause?,exitCode)` |
 | `src/api-types.ts` | TS interfaces: `Note`, `Folder`, `Tag`, `Resource`, `NoteTag`, `Event`, `SearchResult`, `PingResponse`, `PaginatedResponse<T>`, payload types for CRUD |
 | `src/pagination.ts` | `clampLimit(n)` → 1–100, `buildPageParam(p)` → `&page=N`, `fetchAllPages(fn)` → loop `has_more` |
-| `src/data-client.ts` | `JoplinDataClient` — HTTP client for Joplin Data API; 26 methods; auth via `POST /auth` (Bearer token, 55min expiry, 60s proactive refresh, 401 retry); concurrency limiter (max 5); ID validation (`/^[a-zA-Z0-9_-]+$/`) |
+| `src/data-client.ts` | `JoplinDataClient` — HTTP client for Joplin Data API; 27 methods; auth via `POST /auth` (Bearer token, 55min expiry, 60s proactive refresh, 401 retry); concurrency limiter (max 5); ID validation (`/^[a-zA-Z0-9_-]+$/`) |
 | `src/cli-executor.ts` | `CliExecutor` — wraps `joplin` CLI via `execFile`; whitelist of subcommands; shell metacharacter blocking |
 | `src/sync-manager.ts` | `SyncManager` — serialized sync queue (`triggerSync`), periodic timer, status: idle/syncing/error; **NOT used in the combined container** |
-| `src/mcp/entry.ts` | MCP server entrypoint: parseConfig → createLogger → `JoplinDataClient(joplinCoreUrl, token)` → ping → `new ToolRegistry()` → `startMCPHttpServer()` |
+| `src/mcp/entry.ts` | MCP server entrypoint: parseConfig → createLogger → `JoplinDataClient(joplinCoreUrl, token, logger)` → ping → `new ToolRegistry()` → `startMCPHttpServer()` |
 | `src/mcp/server.ts` | MCP server factory: `createMCPServer()` registers tools, `startMCPServer()` (stdio), `startMCPHttpServer()` (HTTP + `/health` endpoint) |
 | `src/mcp/tool-registry.ts` | `ToolRegistry` — static `TOOLS` record of 17 `RegisteredTool`; `executeTool(name,input,ctx)` does Zod parse → handler |
 | `src/mcp/tools.ts` | 17 `ToolHandler` functions; write tools call `ctx.syncManager?.triggerSync()` (no-op when omitted); `ToolContext = { client, syncManager?, logger }` |
@@ -57,7 +57,7 @@
 | `read_multinote` | `{note_ids[]}` | `{notes:Note[], errors[]}` | `Promise.allSettled` |
 | `read_tags` | `{note_id}` | `Tag[]` | `client.getNoteTags(id)` |
 
-### Write (8, all trigger sync if syncManager present)
+### Write (7, all trigger sync if syncManager present)
 | Tool | Input | Output |
 |------|-------|--------|
 | `create_note` | `{title,parent_id?,body?,author?,source_url?,is_todo?,todo_due?}` | `Note` |
@@ -96,12 +96,15 @@
     "typescript": "^5.7.0",
     "eslint": "^9.0.0",
     "prettier": "^3.4.0",
-    "tsx": "^4.0.0"
+    "tsx": "^4.0.0",
+    "@eslint/js": "^9.0.0",
+    "@types/node": "^22.0.0",
+    "typescript-eslint": "^8.0.0"
   }
 }
 ```
 
-## DataClient Method Map (26 methods)
+## DataClient Method Map (27 methods)
 ```
 ping() → PingResponse
 listNotes/getAllNotes/getNote/createNote/updateNote/deleteNote
@@ -111,6 +114,7 @@ getNoteTags/tagNote/untagNote
 listResources/getAllResources/getResource
 listEvents
 search(SearchQuery) → SearchResult[]
+clearToken()
 ```
 
 ## Key Patterns & Decisions
@@ -145,6 +149,8 @@ search(SearchQuery) → SearchResult[]
 | `MCP_HOST_PORT` | No | 3000 | Host-side MCP port (container always listens on internal 3000) |
 | `LOG_LEVEL` | No | info | `debug`, `info`, `warn`, `error`, `silent` |
 | `SYNC_INTERVAL_SECONDS` | No | 300 | Periodic sync interval in seconds |
+| `SYNC_MAX_DELETE_COUNT` | No | 100 | Deletion circuit-breaker threshold; -1 disables (see issue #27) |
+| `JOPLIN_MASTER_PASSWORD` | No | — | E2EE master password; enables healthcheck E2EE leg + post-sync decrypt |
 
 > **Note:** `JOPLIN_CORE_URL` is no longer operator-facing — the entrypoint sets it internally. `MCP_PORT` is canonicalized to 3000 by the entrypoint with a warning if set; use `MCP_HOST_PORT` for host-side mapping.
 
