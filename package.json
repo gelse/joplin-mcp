@@ -1,6 +1,6 @@
 {
   "name": "joplin-api-mcp",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "MCP server for Joplin, synced via Joplin Server backend",
   "license": "MIT",
   "author": "",
