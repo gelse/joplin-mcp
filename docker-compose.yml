@@ -1,18 +1,10 @@
-# =============================================================================
-# Migration note:
-#   Existing joplin_data volumes mount unchanged (same uid 1001).  The single
-#   container replaces the previous joplin-core + joplin-mcp pair.  The
-#   two-container topology remains only in the integration-test stack
-#   (docker-compose.test.yml).
-# =============================================================================
-
 services:
   # ===========================================================================
   # Single combined service — Joplin CLI + Data API + MCP HTTP server
   # ===========================================================================
-  # Builds from Dockerfile.combined which merges the former joplin-core and
-  # joplin-mcp containers.  The Data API binds to loopback inside the
-  # container; only the MCP port is published to the host.
+  # Builds from Dockerfile.combined — single image running the combined container.
+  # The Data API binds to loopback inside the container; only the MCP port is
+  # published to the host.
   # ===========================================================================
   joplin-mcp:
     build:
@@ -36,7 +28,7 @@ services:
       - joplin_data:/home/joplin/.config/joplin
     deploy:
       resources:
-        # Starting points pending profiling — sum of former core + mcp limits.
+        # Starting points pending profiling — adjust per workload.
         limits:
           cpus: '1.5'
           memory: 768M

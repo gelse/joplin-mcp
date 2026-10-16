@@ -9,6 +9,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-16
+
+### Changed
+
+- Update CI workflows and add arm64 builds
+
+### Documentation
+
+- Split the README into topic pages under `docs/` (architecture, development, e2ee, migration, security, sync, testing, tools, troubleshooting) and remove stale analysis documents
+- Strip source-line citations and source-code links from the README
+- Fix stale claims in PROMPT.md and clarify the test-stack sync target wording
+- Update code comments and tool/schema descriptions for the combined container; the sync tool description now covers both SyncManager paths
+- Remove the historical migration note from docker-compose.yml
+
 ## [0.3.0] - 2026-10-13
 
 ### Added
