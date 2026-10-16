@@ -30,7 +30,7 @@ const configSchema = z.object({
     .string()
     .url()
     .optional()
-    .describe('JOPLIN_CORE_URL — URL of the joplin-core container Data API (Container B only)'),
+    .describe('JOPLIN_CORE_URL — set internally by the entrypoint to http://127.0.0.1:<JOPLIN_DATA_API_PORT>; not operator-facing in the combined container'),
   logLevel: z
     .enum(['debug', 'info', 'warn', 'error', 'silent'])
     .default('info')
@@ -66,11 +66,11 @@ export function parseConfig(): Config {
     throw new ConfigError(
       `Configuration validation failed:\n${errors}\n\n` +
         `Ensure the following environment variables are set:\n` +
-        `  JOPLIN_SERVER_URL (required for monolithic/Container A)\n` +
-        `  JOPLIN_USERNAME (required for monolithic/Container A)\n` +
-        `  JOPLIN_PASSWORD (required for monolithic/Container A)\n` +
-        `  JOPLIN_API_TOKEN (required)\n` +
-        `  JOPLIN_CORE_URL (required for Container B MCP server)\n` +
+        `  JOPLIN_SERVER_URL (required)\n` +
+        `  JOPLIN_USERNAME (required)\n` +
+        `  JOPLIN_PASSWORD (required)\n` +
+        `  JOPLIN_API_TOKEN (auto-extracted from the Joplin CLI config; can be overridden)\n` +
+        `  JOPLIN_CORE_URL (set internally by the entrypoint; not operator-facing)\n` +
         `  JOPLIN_DATA_API_PORT (optional, default: 41184)\n` +
         `  LOG_LEVEL (optional, default: "info")\n` +
         `  SYNC_INTERVAL_SECONDS (optional, default: 300)`,
