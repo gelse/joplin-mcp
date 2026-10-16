@@ -147,7 +147,7 @@ const TOOLS: Record<string, RegisteredTool> = {
   sync: {
     name: "sync",
     description:
-      "Report current sync status. Sync is performed periodically by the container's scheduler (every SYNC_INTERVAL_SECONDS) — this tool returns idle/syncing state and the last sync time rather than forcing an immediate sync.",
+      "Trigger a sync and report status. When a SyncManager is wired, this forces an immediate sync and returns { status, lastSyncTime }. Otherwise (combined container — syncing runs on the scheduler every SYNC_INTERVAL_SECONDS), it triggers nothing and returns an informational status with lastSyncTime: null.",
     schema: SyncSchema,
     handler: sync,
   },

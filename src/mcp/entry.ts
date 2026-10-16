@@ -6,52 +6,52 @@ import { startMCPHttpServer } from './server.js';
 import type { ToolContext } from './tools.js';
 
 /**
- * Container B entrypoint: starts the MCP HTTP server.
- *
- * This container is stateless — it has no Joplin CLI, no SyncManager,
- * and no direct filesystem access. All Joplin data operations are
- * proxied to Container A (joplin-core) via HTTP.
+ * MCP HTTP server entrypoint: starts the MCP HTTP server that runs
+ * alongside the Joplin Data API in the combined container. All Joplin
+ * data operations go through the Data API over HTTP (loopback).
+ * Periodic sync is owned by the entrypoint's bash scheduler, so no
+ * SyncManager is wired here.
  */
 async function main(): Promise<void> {
   const config = parseConfig();
 
-  // Validate Container B requirements
+  // Validate required configuration
   if (!config.joplinCoreUrl) {
-    console.error('FATAL: JOPLIN_CORE_URL is required for the MCP container');
-    console.error('Set JOPLIN_CORE_URL to the URL of the joplin-core Data API (e.g. http://joplin-core:41184)');
+    console.error('FATAL: JOPLIN_CORE_URL is required but not set');
+    console.error('Set JOPLIN_CORE_URL to the Data API URL (e.g. http://127.0.0.1:41184)');
     process.exit(1);
   }
 
   if (!config.joplinApiToken) {
-    console.error('FATAL: JOPLIN_API_TOKEN is required for the MCP container');
+    console.error('FATAL: JOPLIN_API_TOKEN is required but not set');
     process.exit(1);
   }
 
   const logger = createLogger(config);
 
-  // Create DataClient pointing to Container A's Data API
+  // Create Data API client pointing at the local Data API
   const client = new JoplinDataClient(
     config.joplinCoreUrl,
     config.joplinApiToken,
     logger,
   );
 
-  // Verify connectivity to Container A
+  // Verify Data API connectivity
   try {
     const ping = await client.ping();
-    logger.info({ status: ping.status, version: ping.version }, 'Connected to joplin-core Data API');
+    logger.info({ status: ping.status, version: ping.version }, 'Connected to Data API');
   } catch (error) {
-    logger.error({ err: error }, 'Failed to connect to joplin-core Data API');
-    console.error('FATAL: Could not reach joplin-core at', config.joplinCoreUrl);
-    console.error('Ensure Container A is running and healthy before starting Container B');
+    logger.error({ err: error }, 'Failed to connect to the Data API');
+    console.error('FATAL: Could not reach the Data API at', config.joplinCoreUrl);
+    console.error('Ensure the Data API is running and healthy before starting the MCP server');
     process.exit(1);
   }
 
-  // Build tool context — no SyncManager, sync is handled by Container A
+  // Build tool context — no SyncManager; the entrypoint's bash scheduler owns syncing
   const ctx: ToolContext = {
     client,
     logger,
-    // syncManager intentionally omitted — Container A manages sync
+    // syncManager intentionally omitted — periodic sync is handled by the entrypoint's scheduler
   };
 
   // Initialize tool registry (tools are statically defined at module level)
